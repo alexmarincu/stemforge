@@ -25,9 +25,7 @@ LAYER_MARKERS = frozenset({"unit", "integration", "ui"})
 @pytest.fixture
 def app_paths(tmp_path: Path) -> AppPaths:
     """A per-test ``AppPaths`` rooted inside ``tmp_path``."""
-    paths = AppPaths.under(tmp_path / "home")
-    paths.create()
-    return paths
+    return AppPaths.for_home(tmp_path / "home").ensure()
 
 
 @pytest.fixture(autouse=True)

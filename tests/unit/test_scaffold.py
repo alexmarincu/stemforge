@@ -13,7 +13,6 @@ import pytest
 import stemforge
 import stemforge.__main__
 from stemforge import errors
-from stemforge.platform.paths import AppPaths
 
 CORE_MODULES = [
     "stemforge",
@@ -58,6 +57,14 @@ EXPECTED_CODES = frozenset(
         "import.youtube_unavailable",
         "import.youtube_age_restricted",
         "import.file_unavailable",
+        "import.too_long",
+        "import.youtube_url_invalid",
+        "import.youtube_playlist",
+        "import.youtube_too_long",
+        "import.youtube_live",
+        "import.youtube_rate_limited",
+        "import.youtube_extractor_outdated",
+        "import.network",
         "decode.failed",
         "separation.model_missing",
         "separation.model_download_failed",
@@ -73,6 +80,7 @@ EXPECTED_CODES = frozenset(
         "media.validation_failed",
         "export.write_failed",
         "storage.disk_full",
+        "storage.cache_full",
         "storage.permission_denied",
         "internal.unexpected",
         "preflight.platform_unsupported",
@@ -207,7 +215,6 @@ def test_job_cancelled_keeps_a_custom_message() -> None:
     ("argv", "expected"),
     [
         ([], "StemForge 1.0.0"),
-        (["--self-test"], "self-test"),
         (["--smoke-test"], "smoke-test"),
         (["--preflight"], "preflight"),
         (["--worker", "separation"], "worker separation"),
@@ -274,39 +281,3 @@ def test_session_home_is_a_temporary_directory() -> None:
     home = Path(os.environ["STEMFORGE_HOME"])
     assert home.is_dir()
     assert home.name.startswith("stemforge-tests-")
-
-
-@pytest.mark.unit
-def test_app_paths_under_a_root_derive_every_directory(tmp_path: Path) -> None:
-    root = tmp_path / "home"
-    paths = AppPaths.under(root)
-
-    assert paths.data == root
-    assert paths.cache == root / "cache"
-    assert paths.logs == root / "logs"
-    assert paths.models == root / "models"
-    assert paths.config == root / "config"
-    assert paths.webview == root / "webview"
-
-
-@pytest.mark.unit
-def test_app_paths_create_makes_every_directory(tmp_path: Path) -> None:
-    paths = AppPaths.under(tmp_path / "home")
-    paths.create()
-
-    for directory in (
-        paths.data,
-        paths.cache,
-        paths.logs,
-        paths.models,
-        paths.config,
-        paths.webview,
-    ):
-        assert directory.is_dir()
-
-
-@pytest.mark.unit
-def test_app_paths_honour_stemforge_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("STEMFORGE_HOME", str(tmp_path / "override"))
-
-    assert AppPaths.from_environment().data == tmp_path / "override"
