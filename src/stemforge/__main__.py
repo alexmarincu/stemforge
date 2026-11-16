@@ -201,6 +201,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     from stemforge.application import ServiceEngines, WorkspaceService
     from stemforge.engines.media import FfmpegTool
     from stemforge.integration.dialogs import NativeOpenDialog
+    from stemforge.integration.media import register_media_route
     from stemforge.integration.window import DEFAULT_WINDOW_SIZE, configure_window
     from stemforge.logging_setup import configure_logging
     from stemforge.platform import resources
@@ -222,9 +223,12 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
             service=service,
             dialogs=NativeOpenDialog(),
             show_recovery=sweep.deleted_anything,
+            preflight=report,
         )
     )
     configure_window(paths)
+    # Ticket 05 §6: one cache-rooted route, registered before the window starts.
+    register_media_route(app, paths.cache)
 
     runner = service.runner
 
