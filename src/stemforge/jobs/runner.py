@@ -143,6 +143,7 @@ class JobRunner:
                 entry.cancel.cancel()
                 _LOG.info("job %s %s cancelled before start", entry.job_id, entry.job.kind.value)
             self._queue.clear()
+            self._prune_locked()
             thread = self._thread
             self._cond.notify_all()
 
@@ -192,6 +193,7 @@ class JobRunner:
                 entry.finished_at = datetime.now(UTC)
                 entry.cancel.cancel()
                 _LOG.info("job %s %s cancelled before start", job_id, entry.job.kind.value)
+                self._prune_locked()
                 self._cond.notify_all()
                 return True
             if entry.state is JobState.RUNNING:

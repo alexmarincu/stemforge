@@ -176,6 +176,19 @@ def test_jobs_are_listed_newest_first(runner: JobRunner) -> None:
     assert [snapshot.job_id for snapshot in runner.jobs()] == list(reversed(job_ids))
 
 
+def test_finished_history_is_capped_at_twenty(runner: JobRunner) -> None:
+    runner.start()
+    job_ids = [runner.submit(_job((str(index),), lambda ctx: {})) for index in range(25)]
+
+    assert runner.wait_idle(timeout=5)
+
+    remembered = [snapshot.job_id for snapshot in runner.jobs()]
+    assert len(remembered) == 20
+    assert remembered == list(reversed(job_ids[-20:]))
+    with pytest.raises(KeyError):
+        runner.snapshot(job_ids[0])
+
+
 # --- Cancellation ----------------------------------------------------------
 
 
