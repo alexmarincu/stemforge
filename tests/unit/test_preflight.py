@@ -719,6 +719,22 @@ def test_cli_turns_an_unwritable_stemforge_home_into_exit_six(
 
 
 @pytest.mark.unit
+def test_cli_human_output_is_one_line_per_check(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from stemforge import __main__ as entry
+
+    report = _report(_check("platform"), _check("window"))
+    monkeypatch.setattr(entry.preflight, "run_preflight", lambda *a, **k: report)
+
+    assert entry.main(["--preflight"]) == preflight.EXIT_OK
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 2
+    assert lines[0].startswith("platform")
+    assert lines[1].startswith("window")
+
+
+@pytest.mark.unit
 def test_cli_writes_the_report_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
