@@ -159,3 +159,7 @@ forbidden_modules = [
   "stemforge.pipeline",
   "stemforge.jobs",
 ]
+# Ticket 06 §1 says ui may import application; application legitimately imports
+# jobs, pipeline, and engines. The contract forbids the direct UI dependency,
+# not the application's internal ones.
+allow_indirect_imports = true
