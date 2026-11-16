@@ -144,7 +144,7 @@ layers = [
   "stemforge.ui | stemforge.workers",
   "stemforge.application | stemforge.integration",
   "stemforge.pipeline",
-  "stemforge.jobs | stemforge.engines | stemforge.artifacts | stemforge.settings",
+  "stemforge.jobs | stemforge.engines | stemforge.artifacts | stemforge.models | stemforge.settings",
   "stemforge.domain | stemforge.worker_protocol",
   "stemforge.platform | stemforge.errors",
 ]

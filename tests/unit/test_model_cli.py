@@ -1,0 +1,121 @@
+"""The headless ``--install-model`` mode: consent, result lines, and exit codes."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from stemforge import __main__ as entry
+from stemforge import errors
+from stemforge.errors import JobCancelled
+from stemforge.models import ModelStatus, ModelStore
+from stemforge.pipeline.model_job import ModelInstallJob, ModelInstallResult
+from stemforge.platform.paths import AppPaths
+from stemforge.settings import SettingsStore
+
+pytestmark = pytest.mark.unit
+
+
+@pytest.fixture
+def home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> AppPaths:
+    monkeypatch.setenv("STEMFORGE_HOME", str(tmp_path / "home"))
+    return AppPaths.from_environment().ensure()
+
+
+def _status(store: ModelStore, *, verified: bool) -> ModelStatus:
+    return ModelStatus(
+        name=store.spec.name,
+        path=store.path(),
+        expected_size_bytes=store.spec.size_bytes,
+        expected_sha256=store.spec.sha256,
+        installed=verified,
+        verified=verified,
+        reason=None if verified else "absent",
+        size_bytes=store.spec.size_bytes if verified else None,
+        sha256=store.spec.sha256 if verified else None,
+    )
+
+
+def test_install_model_without_consent_fails_non_interactively(
+    home: AppPaths,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+
+    code = entry.main(["--install-model"])
+
+    output = capsys.readouterr().out
+    assert code == 1
+    assert "Separation model not installed" in output
+    assert "not covered by StemForge's GPL-3.0 licence" in output
+    assert f"error {errors.SEPARATION_MODEL_MISSING}: consent required" in output
+    assert SettingsStore(home).model_consent() is None
+    assert not (home.models / "htdemucs").exists()
+
+
+def test_install_model_accepts_and_reports_the_pinned_result(
+    home: AppPaths,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(ModelStore, "verify", lambda store: _status(store, verified=False))
+
+    def install(job: ModelInstallJob, _ctx: object) -> ModelInstallResult:
+        return ModelInstallResult(status=_status(job.store, verified=True), downloaded=True)
+
+    monkeypatch.setattr(ModelInstallJob, "run", install)
+
+    code = entry.main(["--install-model", "--accept-model-licence"])
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert output.startswith("installed htdemucs revision=cbc8a9b1 ")
+    assert "sha256=d9fa14133cfcc034a6758923bb3a8ca9f8dfd0b582134643bbf83f72c17576dd" in output
+    assert "bytes=84025440" in output
+    consent = SettingsStore(home).model_consent()
+    assert consent is not None
+    assert consent.version == 1
+    assert consent.acknowledged is True
+
+
+def test_install_model_reports_an_already_verified_cache_without_consent(
+    home: AppPaths,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(ModelStore, "verify", lambda store: _status(store, verified=True))
+    monkeypatch.setattr(ModelStore, "is_installed", lambda _store: True)
+
+    def install(job: ModelInstallJob, _ctx: object) -> ModelInstallResult:
+        return ModelInstallResult(status=_status(job.store, verified=True), downloaded=False)
+
+    monkeypatch.setattr(ModelInstallJob, "run", install)
+
+    code = entry.main(["--install-model"])
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert output.startswith("verified htdemucs ")
+    assert SettingsStore(home).model_consent() is None
+
+
+def test_install_model_cancel_exits_two(
+    home: AppPaths,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(ModelStore, "verify", lambda store: _status(store, verified=True))
+    monkeypatch.setattr(ModelStore, "is_installed", lambda _store: True)
+
+    def cancel(_job: ModelInstallJob, _ctx: object) -> None:
+        raise JobCancelled()
+
+    monkeypatch.setattr(ModelInstallJob, "run", cancel)
+
+    code = entry.main(["--install-model"])
+
+    output = capsys.readouterr().out
+    assert code == 2
+    assert output.startswith("cancelled model_install job ")
