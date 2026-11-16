@@ -7,10 +7,26 @@ from pathlib import Path
 import pytest
 
 from stemforge import __main__
+from stemforge.integration.window import MIN_WINDOW_SIZE, configure_window
 from stemforge.platform.paths import AppPaths
 from stemforge.platform.preflight import PreflightReport
 
 pytestmark = pytest.mark.unit
+
+
+def test_window_configuration_sets_the_minimum_and_no_downloads(tmp_path: Path) -> None:
+    from nicegui import app
+
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+
+    configure_window(paths)
+
+    assert MIN_WINDOW_SIZE == (1024, 700)
+    assert app.native.window_args["min_size"] == MIN_WINDOW_SIZE
+    assert app.native.window_args["resizable"] is True
+    assert app.native.start_args["private_mode"] is False
+    assert app.native.start_args["storage_path"] == str(paths.webview)
+    assert app.native.settings["ALLOW_DOWNLOADS"] is False
 
 
 def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
