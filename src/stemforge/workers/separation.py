@@ -656,13 +656,17 @@ def _start_stdin_watch(stop: _Stop) -> None:
     if os.environ.get(STDIN_WATCH_ENV, "") != "1":
         return
     stream = sys.stdin
-    buffer = getattr(stream, "buffer", None)
-    if buffer is None:
+    try:
+        fd = stream.fileno()
+    except (AttributeError, OSError, ValueError):
         return
 
     def watch() -> None:
+        # A raw os.read avoids holding the buffered-reader lock at interpreter
+        # shutdown; a daemon thread blocked in BufferedReader.read() aborts the
+        # frozen worker with _enter_buffered_busy after it already succeeded.
         try:
-            if buffer.read(1) == b"":
+            if os.read(fd, 1) == b"":
                 stop.request()
         except (OSError, ValueError):
             return
