@@ -82,6 +82,8 @@ class SourceMetadata:
     artist: str = ""
     album: str = ""
     duration_s: float | None = None
+    sample_rate: int | None = None
+    channels: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,8 +15,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from stemforge import errors
-from stemforge.artifacts import ArtifactStore
-from stemforge.domain.models import JobKind, ModelConsent, Source, Track
+from stemforge.artifacts import ArtifactStore, RemoveReport, SweepReport
+from stemforge.domain.models import JobKind, ModelConsent, OriginKind, Source, Track
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
 from stemforge.engines.media import MediaTool
 from stemforge.errors import StemForgeError
@@ -42,6 +42,15 @@ class ServiceEngines:
     pitch: object | None = None
     media: MediaTool | None = None
     youtube: object | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RemoveOutcome:
+    """What removing one Track did to the Workspace and the cache."""
+
+    track: Track
+    cache_removed: bool
+    report: RemoveReport | None = None
 
 
 class WorkspaceService:
@@ -104,6 +113,58 @@ class WorkspaceService:
 
     def remove_recent(self, source_id: str) -> bool:
         return self._settings.remove_recent(source_id)
+
+    def recent_available(self, source_id: str) -> bool:
+        """Whether a recent entry can be opened without asking the user to find it.
+
+        A local path must still be a file. A YouTube URL is not a filesystem path;
+        availability is unknowable until a download is attempted, so it stays
+        clickable and the importer owns the network outcome.
+        """
+        entry = next((item for item in self.recent_files() if item.source_id == source_id), None)
+        if entry is None:
+            return False
+        if entry.origin_kind is OriginKind.YOUTUBE:
+            return True
+        return Path(entry.origin).is_file()
+
+    def open_recent(self, source_id: str) -> str | None:
+        """Re-import one local recent entry and return its Job id.
+
+        A missing file raises the coded ``import.file_unavailable`` before any Job
+        starts (ticket 07 §5: nothing starts until the user acts). YouTube entries
+        return ``None`` until ticket 09 wires their import Job.
+        """
+        entry = next((item for item in self.recent_files() if item.source_id == source_id), None)
+        if entry is None:
+            raise KeyError(source_id)
+        if entry.origin_kind is OriginKind.YOUTUBE:
+            return None
+        path = Path(entry.origin)
+        if not path.is_file():
+            raise StemForgeError(
+                errors.IMPORT_FILE_UNAVAILABLE,
+                "the recent file is no longer readable",
+                detail="missing",
+                context={"path": str(path)},
+            )
+        return self.import_local(path)
+
+    def remove_track(self, track_id: str) -> RemoveOutcome:
+        """Remove a Track and delete its cached audio when nothing else uses it."""
+        with self._lock:
+            track = self._workspace.remove_track(track_id)
+            self._artifacts.release(track.source_id)
+            still_live = self._artifacts.is_live(track.source_id)
+        if still_live:
+            return RemoveOutcome(track=track, cache_removed=False)
+        report = self._artifacts.remove_source(track.source_id)
+        removed = report.source_removed or bool(report.renders_removed)
+        return RemoveOutcome(track=track, cache_removed=removed, report=report)
+
+    def sweep_stale(self) -> SweepReport:
+        """Run the startup sweep once; the UI shows recovery copy when it deleted work."""
+        return self._artifacts.sweep_stale()
 
     # -- Model -------------------------------------------------------------
 
