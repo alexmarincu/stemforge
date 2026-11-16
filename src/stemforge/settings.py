@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
 
-from stemforge.domain.models import OriginKind
+from stemforge.domain.models import ModelConsent, OriginKind
 from stemforge.platform.paths import AppPaths
 from stemforge.platform.storage import DEFAULT_CACHE_CAP_BYTES
 
@@ -51,6 +51,8 @@ class Settings:
     first_run: bool = True
     # Ticket 07 §2: the audio cache cap, counted over sources/ and renders/ only.
     cache_cap_bytes: int = DEFAULT_CACHE_CAP_BYTES
+    # Ticket 13 §7: explicit consent for the htdemucs download.
+    model_consent: ModelConsent | None = None
 
 
 class SettingsStore:
@@ -84,6 +86,33 @@ class SettingsStore:
     def preferred_export_dir(self) -> Path | None:
         with self._lock:
             return self._settings.export_dir
+
+    def model_consent(self) -> ModelConsent | None:
+        """The persisted model-weights consent, if any."""
+        with self._lock:
+            return self._settings.model_consent
+
+    def accept_model_licence(
+        self, *, version: int, accepted_at: datetime | None = None
+    ) -> ModelConsent:
+        """Record an explicit, acknowledged download of the model weights."""
+        if version < 1:
+            raise ValueError("consent version must be positive")
+        consent = ModelConsent(
+            version=version,
+            acknowledged=True,
+            accepted_at=accepted_at or datetime.now(UTC),
+        )
+        with self._lock:
+            self._write_locked(replace(self._settings, model_consent=consent))
+        return consent
+
+    def clear_model_consent(self) -> None:
+        """Forget the consent record; the next download needs a new press."""
+        with self._lock:
+            if self._settings.model_consent is None:
+                return
+            self._write_locked(replace(self._settings, model_consent=None))
 
     def recent_files(self) -> tuple[RecentFile, ...]:
         with self._lock:
@@ -201,6 +230,7 @@ class SettingsStore:
             export_dir=export_dir,
             first_run=first_run,
             cache_cap_bytes=cache_cap_bytes,
+            model_consent=_parse_model_consent(payload),
         )
 
     def _recover_corrupt(self, raw: str, *, reason: str) -> Settings:
@@ -269,7 +299,44 @@ def _to_payload(settings: Settings) -> dict[str, object]:
         "export_dir": str(settings.export_dir) if settings.export_dir is not None else None,
         "first_run": settings.first_run,
         "cache_cap_bytes": settings.cache_cap_bytes,
+        "models": {
+            "consent": (
+                {
+                    "version": settings.model_consent.version,
+                    "acknowledged": settings.model_consent.acknowledged,
+                    "accepted_at": settings.model_consent.accepted_at.isoformat(),
+                }
+                if settings.model_consent is not None
+                else None
+            )
+        },
     }
+
+
+def _parse_model_consent(payload: Mapping[str, object]) -> ModelConsent | None:
+    """Read ``models.consent`` leniently: a bad record means no consent, not corrupt settings."""
+    models = payload.get("models")
+    if not isinstance(models, Mapping):
+        return None
+    record = models.get("consent")
+    if not isinstance(record, Mapping):
+        return None
+    version = record.get("version")
+    acknowledged = record.get("acknowledged")
+    accepted_at = record.get("accepted_at")
+    if (
+        not isinstance(version, int)
+        or isinstance(version, bool)
+        or version < 1
+        or not isinstance(acknowledged, bool)
+        or not isinstance(accepted_at, str)
+    ):
+        return None
+    try:
+        parsed_at = datetime.fromisoformat(accepted_at)
+    except ValueError:
+        return None
+    return ModelConsent(version=version, acknowledged=acknowledged, accepted_at=parsed_at)
 
 
 def _parse_recent(item: object) -> RecentFile | None:
