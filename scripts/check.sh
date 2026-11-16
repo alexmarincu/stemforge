@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# The local pre-PR gate. CI runs the same checks on Linux and Windows.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+uv sync --frozen
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy src/stemforge
+uv run lint-imports
+uv run pytest -m "unit or ui"
+
+# Integration tests need the real tools. Until ticket 13 vendors them, use PATH.
+if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+  uv run pytest -m integration
+elif [[ -d vendor ]]; then
+  uv run pytest -m integration
+else
+  echo "check.sh: ffmpeg/ffprobe not found; skipping integration tests" >&2
+fi
