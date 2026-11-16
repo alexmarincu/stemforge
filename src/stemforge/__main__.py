@@ -2,17 +2,17 @@
 
 The frozen-build contract (ticket 06 §11) requires ``freeze_support()`` to be the
 first statement in the main guard, and the heavy stack (NiceGUI, torch, Demucs) to
-stay out of this module's imports. ``--self-test`` is a headless spine check;
-``--preflight``, ``--smoke-test``, and ``--worker`` remain safe stubs until
-tickets 07 and 10 fill them in.
+stay out of this module's imports. ``--self-test``, ``--smoke-test``, and
+``--smoke-separation`` live in :mod:`stemforge.smoke`; ``--preflight`` and
+``--worker`` remain safe stubs until tickets 14 and 13 fill them in.
 """
 
 from __future__ import annotations
 
 import argparse
-import logging
 import multiprocessing
 from collections.abc import Sequence
+from pathlib import Path
 
 from stemforge import __version__
 
@@ -33,9 +33,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help="boot the local server and check that it responds, then exit",
     )
     parser.add_argument(
+        "--smoke-separation",
+        action="store_true",
+        help="run a one-second separation through the worker, then exit",
+    )
+    parser.add_argument(
         "--preflight",
         action="store_true",
         help="print the startup environment checks, then exit",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="only report preflight failures (used by run.sh)",
+    )
+    parser.add_argument(
+        "--report",
+        metavar="PATH",
+        type=Path,
+        help="write the JSON report of a test flag to PATH",
     )
     parser.add_argument(
         "--worker",
@@ -45,48 +61,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_self_test() -> int:
-    """Resolve paths, load settings, configure logs, and build the service headless."""
-    from stemforge.application import WorkspaceService
-    from stemforge.logging_setup import configure_logging
-    from stemforge.platform.environment import configure
-    from stemforge.settings import SettingsStore
-
-    paths = configure()
-    settings = SettingsStore(paths)
-    configure_logging(paths)
-    settings.save()
-    service = WorkspaceService(settings, paths=paths)
-    snapshot = service.snapshot()
-
-    logging.getLogger("stemforge").info(
-        "self-test: data=%s cache=%s logs=%s models=%s config=%s",
-        paths.data,
-        paths.cache,
-        paths.logs,
-        paths.models,
-        paths.config,
-    )
-    logging.getLogger("stemforge").info(
-        "self-test ok: workspace=%d tracks, recent=%d",
-        len(snapshot),
-        len(service.recent_files()),
-    )
-
-    print(f"StemForge {__version__} self-test")
-    print(f"data: {paths.data}")
-    print(f"cache: {paths.cache}")
-    print(f"logs: {paths.logs}")
-    print(f"models: {paths.models}")
-    print(f"config: {paths.config}")
-    print(f"webview: {paths.webview}")
-    print(f"settings: {settings.path}")
-    print(f"workspace: {len(snapshot)} tracks")
-    print(f"recent: {len(service.recent_files())}")
-    print("self-test ok")
-    return 0
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse the entry-point flags and return a process exit code."""
     args = _build_parser().parse_args(argv)
@@ -94,13 +68,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.worker is not None:
         print(f"StemForge {__version__}: worker {args.worker} is a safe stub in this build.")
         return 0
-    if args.self_test:
-        return _run_self_test()
+
+    if args.self_test or args.smoke_test or args.smoke_separation:
+        from stemforge import smoke
+
+        if args.self_test:
+            return smoke.self_test(report=args.report)
+        if args.smoke_test:
+            return smoke.smoke_test(report=args.report)
+        return smoke.smoke_separation(report=args.report)
 
     mode = "ui"
-    if args.smoke_test:
-        mode = "smoke-test"
-    elif args.preflight:
+    if args.preflight:
         mode = "preflight"
 
     print(f"StemForge {__version__}: {mode} is not implemented in this scaffold.")
