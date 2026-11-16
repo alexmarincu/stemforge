@@ -23,12 +23,28 @@ classifiers = [
   "Topic :: Multimedia :: Sound/Audio",
 ]
 dependencies = [
+  "demucs==4.1.0",
+  # demucs 4.1.0 uses numpy at module scope but omits it from its Linux/Windows
+  # dependency list, so `from demucs.api import Separator` fails without this.
+  "numpy==2.5.4",
   "nicegui==4.0.0",
   "platformdirs>=4.14.5,<5",
   "pywebview==6.2.1",
   "yt-dlp==2026.10.26",
   "yt-dlp-ejs==0.8.0",
+  # CPU-only torch, from the explicit index below. It must be a direct
+  # dependency for `[tool.uv.sources]` to apply; transitive resolution would
+  # pull the default CUDA wheel set.
+  "torch==2.15.0+cpu",
 ]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.scripts]
 stemforge = "stemforge.__main__:main"

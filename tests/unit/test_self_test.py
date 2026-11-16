@@ -204,7 +204,7 @@ def test_smoke_test_writes_the_report_file(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_smoke_separation_is_an_honest_stub(tmp_path: Path) -> None:
+def test_smoke_separation_reports_the_missing_model_clearly(tmp_path: Path) -> None:
     report_path = tmp_path / "reports" / "smoke-separation.json"
 
     result = _run(
@@ -219,7 +219,22 @@ def test_smoke_separation_is_an_honest_stub(tmp_path: Path) -> None:
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["check"] == "smoke-separation"
     assert report["ok"] is False
-    assert report["message"] == "not available in this build"
+    check = _check(report, "model.weights")
+    assert check["status"] == "failed"
+    assert "not installed" in check["detail"]
+    assert "--install-model --accept-model-licence" in check["detail"]
+    assert "model" in report
+
+
+@pytest.mark.unit
+def test_smoke_test_does_not_run_a_separation(tmp_path: Path) -> None:
+    result = _run("--smoke-test", home=tmp_path / "home", cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    report = _report(result)
+    names = {check["name"] for check in report["checks"]}
+    assert not any(name.startswith("separation.") for name in names)
+    assert "smoke-separation" not in report["check"]
 
 
 @pytest.mark.unit

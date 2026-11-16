@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import socket
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -46,14 +45,8 @@ CONSENT_BODY = (
 
 
 @pytest.fixture(autouse=True)
-def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Any connection attempt in this module fails the test (ticket 15: no network)."""
-
-    def refuse(*args: object, **kwargs: object) -> None:
-        raise AssertionError("the YouTube validation flow must not open a connection")
-
-    monkeypatch.setattr(socket.socket, "connect", refuse)
-    monkeypatch.setattr(socket.socket, "connect_ex", refuse)
+def _no_network(no_external_network: None) -> None:
+    """Any non-local connection attempt in this module fails the test (ticket 15)."""
 
 
 class FakeMedia:

@@ -9,7 +9,9 @@ from __future__ import annotations
 import os
 import socket
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -20,6 +22,36 @@ os.environ["STEMFORGE_HOME"] = str(SESSION_HOME)
 from stemforge.platform.paths import AppPaths  # noqa: E402
 
 LAYER_MARKERS = frozenset({"unit", "integration", "ui"})
+
+# Windows emulates ``socket.socketpair`` (asyncio's event-loop self-pipe) by
+# connecting to a loopback listener, so the guard has to allow local transports
+# while still failing any connection that leaves the machine.
+_LOCAL_HOSTS = frozenset({"localhost", "::1", "0.0.0.0", "::"})
+
+
+def _is_local_address(address: object) -> bool:
+    """True for AF_UNIX paths and loopback TCP peers."""
+    if isinstance(address, (str, bytes)):
+        return True
+    if isinstance(address, tuple) and address:
+        host = address[0]
+        return isinstance(host, str) and (host in _LOCAL_HOSTS or host.startswith("127."))
+    return False
+
+
+def _install_network_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail any non-local ``connect``/``connect_ex`` on ``socket.socket``."""
+
+    def guard(real: Callable[..., Any]) -> Callable[..., Any]:
+        def connect(self: socket.socket, address: object, *args: object, **kwargs: object) -> Any:
+            if _is_local_address(address):
+                return real(self, address, *args, **kwargs)
+            raise RuntimeError("network access is forbidden in tests")
+
+        return connect
+
+    monkeypatch.setattr(socket.socket, "connect", guard(socket.socket.connect))
+    monkeypatch.setattr(socket.socket, "connect_ex", guard(socket.socket.connect_ex))
 
 
 @pytest.fixture
@@ -35,12 +67,13 @@ def _block_network_in_unit_tests(
     """Fail any unit test that opens a network connection."""
     if request.node.get_closest_marker("unit") is None:
         return
+    _install_network_guard(monkeypatch)
 
-    def refuse(*args: object, **kwargs: object) -> None:
-        raise RuntimeError("network access is forbidden in unit tests")
 
-    monkeypatch.setattr(socket.socket, "connect", refuse)
-    monkeypatch.setattr(socket.socket, "connect_ex", refuse)
+@pytest.fixture
+def no_external_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opt-in guard for non-unit layers (UI tests that must stay offline)."""
+    _install_network_guard(monkeypatch)
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
