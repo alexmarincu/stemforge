@@ -7,14 +7,18 @@ newer worker's unknown code falls back to ``internal.unexpected``.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Final
 
 from stemforge import errors
 
 MAX_HEADLINE_LENGTH: Final = 90
+_MIB: Final = 1024 * 1024
+_GIB: Final = 1024 * _MIB
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +202,10 @@ COPY_BY_CODE: Final[Mapping[str, ErrorCopy]] = MappingProxyType(
 
 REASON_COPY: Final[Mapping[tuple[str, str], ErrorCopy]] = MappingProxyType(
     {
+        (errors.IMPORT_UNSUPPORTED_SOURCE, "extension"): ErrorCopy(
+            "That file type isn't supported.",
+            "Choose a WAV, MP3, FLAC, or M4A file.",
+        ),
         (errors.SEPARATION_MODEL_MISSING, "absent"): ErrorCopy(
             "Separation needs the htdemucs model first.",
             "Download the model.",
@@ -260,3 +268,62 @@ def fatal_copy(code: str, *, path: str | None = None) -> ErrorCopy:
     }:
         return ErrorCopy(f"StemForge can't write to {path}.", copy.action)
     return copy
+
+
+def format_duration(seconds: float | None) -> str:
+    """Format a duration as ``m:ss`` (or ``h:mm:ss``); an unknown value is an em dash."""
+    if seconds is None or not math.isfinite(seconds) or seconds < 0:
+        return "—"
+    total = round(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+def format_sample_rate(rate: int | None) -> str | None:
+    """Format a sample rate the way the prototype does (44.1 kHz, 48 kHz)."""
+    if rate is None or rate <= 0:
+        return None
+    value = rate / 1000
+    if value.is_integer():
+        return f"{int(value)} kHz"
+    return f"{value:.1f} kHz"
+
+
+def format_channels(channels: int | None) -> str | None:
+    """Name the channel layout when it is conventional, otherwise count it."""
+    if channels is None or channels <= 0:
+        return None
+    if channels == 1:
+        return "mono"
+    if channels == 2:
+        return "stereo"
+    return f"{channels} ch"
+
+
+def format_bytes(size: int) -> str:
+    """Format a cache size with one decimal, MB below 1 GiB and GB above."""
+    if size <= 0:
+        return "0.0 MB"
+    if size < _GIB:
+        return f"{size / _MIB:.1f} MB"
+    return f"{size / _GIB:.1f} GB"
+
+
+def format_relative_time(when: datetime, *, now: datetime | None = None) -> str:
+    """Short, local, human recency labels for the recent-files list."""
+    current = now if now is not None else datetime.now(UTC)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    seconds = max(0, int((current - when).total_seconds()))
+    if seconds < 60:
+        return "just now"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} min ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} h ago"
+    return f"{hours // 24} d ago"
