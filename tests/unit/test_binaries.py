@@ -44,9 +44,10 @@ def test_environment_override_is_used_when_not_vendored(
 
 
 def test_path_is_the_last_resort(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    on_path = _fake(root / "bin" / "ffprobe")
+    name = binaries.executable_name("ffprobe")
+    on_path = _fake(root / "bin" / name)
     monkeypatch.setattr(
-        binaries.shutil, "which", lambda name: str(on_path) if name == "ffprobe" else None
+        binaries.shutil, "which", lambda query: str(on_path) if query == name else None
     )
 
     assert binaries.ffprobe() == on_path

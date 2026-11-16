@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,7 @@ def test_report_keeps_every_check_and_finds_the_first_fatal() -> None:
         _check("platform"),
         _check("window", status=preflight.STATUS_FAIL, message="no window", fatal=True),
         _check("bundle", status=preflight.STATUS_FAIL, message="no bundle", fatal=True),
+        system="linux",
     )
 
     assert len(report.checks) == 3
@@ -76,7 +78,12 @@ def test_run_preflight_records_injected_checkers_in_order(app_paths: AppPaths) -
     )
 
     assert report.checks == tuple(results)
-    assert report.exit_code == preflight.EXIT_WINDOW_UNAVAILABLE
+    expected = (
+        preflight.EXIT_WEBVIEW2_UNAVAILABLE
+        if sys.platform.startswith("win")
+        else preflight.EXIT_WINDOW_UNAVAILABLE
+    )
+    assert report.exit_code == expected
 
 
 @pytest.mark.unit
@@ -164,7 +171,7 @@ def test_fatal_message_body_and_copy_include_the_log_path() -> None:
     assert message.body == (
         "StemForge needs GTK 3 and WebKitGTK 4.1 to open its window.\n\n"
         "Install GTK 3 and WebKitGTK 4.1.\n\n"
-        "Details: /logs/stemforge.log"
+        f"Details: {Path('/logs/stemforge.log')}"
     )
     assert message.code == errors.PREFLIGHT_WINDOW_UNAVAILABLE
     assert message.copy_text == "{diagnostics}"
@@ -510,7 +517,9 @@ def test_bundle_check_requires_a_readable_models_lock(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_bundle_check_reports_a_non_executable_tool(tmp_path: Path) -> None:
+def test_bundle_check_reports_a_non_executable_tool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     bundle = tmp_path / "bundle"
     internal = bundle / "_internal"
     for tool_dir, tool_name in (
@@ -525,6 +534,9 @@ def test_bundle_check_reports_a_non_executable_tool(tmp_path: Path) -> None:
     (internal / "models").mkdir(parents=True)
     (internal / "models" / "models.lock.json").write_text("{}", encoding="utf-8")
     (internal / "vendor.lock.json").write_text("{}", encoding="utf-8")
+    # Windows has no executable bit (``os.access(X_OK)`` is always true), so the
+    # POSIX rule is exercised with a patched ``os.access``.
+    monkeypatch.setattr(preflight.os, "access", lambda path, mode: False)
 
     result = preflight.check_bundle(
         bundle_root=bundle,
@@ -659,6 +671,7 @@ def test_cli_json_prints_the_schema_and_reports_the_exit_code(
     report = _report(
         _check("platform"),
         _check("window", status=preflight.STATUS_FAIL, message="gi is missing", fatal=True),
+        system="linux",
     )
     monkeypatch.setattr(entry.preflight, "run_preflight", lambda *a, **k: report)
     monkeypatch.setattr(entry.preflight, "show_fatal_message", lambda *a, **k: None)
@@ -760,6 +773,7 @@ def test_fatal_cli_writes_the_report_before_the_box_and_copies_its_json(
     report = _report(
         _check("platform"),
         _check("window", status=preflight.STATUS_FAIL, message="gi is missing", fatal=True),
+        system="linux",
     )
     target = tmp_path / "preflight.json"
     shown: list[preflight.FatalMessage] = []
@@ -784,7 +798,8 @@ def test_no_window_opens_on_a_fatal_preflight(
     from stemforge import __main__ as entry
 
     report = _report(
-        _check("window", status=preflight.STATUS_FAIL, message="gi is missing", fatal=True)
+        _check("window", status=preflight.STATUS_FAIL, message="gi is missing", fatal=True),
+        system="linux",
     )
     shown: list[preflight.FatalMessage] = []
     run_ui: list[object] = []

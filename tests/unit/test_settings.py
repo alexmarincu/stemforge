@@ -154,6 +154,10 @@ def test_save_writes_valid_json(paths: AppPaths) -> None:
         "first_run": True,
         "cache_cap_bytes": 8 * 1024**3,
         "models": {"consent": None},
+        "youtube_enabled": True,
+        "youtube_notice_acknowledged": False,
+        "youtube_notice_version": 0,
+        "youtube_notice_accepted_at": None,
     }
 
 
@@ -231,6 +235,82 @@ def test_accept_model_licence_rejects_a_stale_version(paths: AppPaths) -> None:
 
     with pytest.raises(ValueError, match="version"):
         store.accept_model_licence(version=0)
+
+
+@pytest.mark.unit
+def test_youtube_settings_default_to_enabled_without_a_consent_record(
+    paths: AppPaths,
+) -> None:
+    store = SettingsStore(paths)
+
+    assert store.youtube_enabled is True
+    assert store.youtube_notice_is_current() is False
+
+
+@pytest.mark.unit
+def test_youtube_enabled_and_notice_acknowledgment_persist(paths: AppPaths) -> None:
+    store = SettingsStore(paths)
+    accepted_at = datetime(2026, 11, 17, 10, 15, tzinfo=UTC)
+
+    store.set_youtube_enabled(False)
+    store.accept_youtube_notice(version=1, accepted_at=accepted_at)
+
+    assert store.youtube_enabled is False
+    assert store.youtube_notice_is_current() is True
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    assert payload["youtube_enabled"] is False
+    assert payload["youtube_notice_acknowledged"] is True
+    assert payload["youtube_notice_version"] == 1
+    assert payload["youtube_notice_accepted_at"] == accepted_at.isoformat()
+
+    reloaded = SettingsStore(paths)
+    assert reloaded.youtube_enabled is False
+    assert reloaded.youtube_notice_is_current() is True
+
+
+@pytest.mark.unit
+def test_re_enabling_youtube_keeps_the_acknowledgment(paths: AppPaths) -> None:
+    store = SettingsStore(paths)
+    store.accept_youtube_notice(version=1)
+
+    store.set_youtube_enabled(False)
+    store.set_youtube_enabled(True)
+
+    reloaded = SettingsStore(paths)
+    assert reloaded.youtube_enabled is True
+    assert reloaded.youtube_notice_is_current() is True
+
+
+@pytest.mark.unit
+def test_an_incomplete_notice_record_means_no_consent_and_keeps_other_settings(
+    paths: AppPaths,
+) -> None:
+    (paths.config / "settings.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "youtube_enabled": False,
+                "youtube_notice_acknowledged": True,
+                "youtube_notice_version": 0,
+                "youtube_notice_accepted_at": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = SettingsStore(paths)
+
+    assert store.youtube_notice_is_current() is False
+    assert store.youtube_enabled is False
+    assert not list(paths.config.glob("settings.corrupt-*.json"))
+
+
+@pytest.mark.unit
+def test_accept_youtube_notice_rejects_a_zero_version(paths: AppPaths) -> None:
+    store = SettingsStore(paths)
+
+    with pytest.raises(ValueError, match="version"):
+        store.accept_youtube_notice(version=0)
 
 
 @pytest.mark.unit
