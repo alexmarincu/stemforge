@@ -282,6 +282,10 @@ class WorkerSeparationEngine:
                 try:
                     item = events.get(timeout=self._poll_interval_s)
                 except queue.Empty:
+                    # If the reader thread died without a sentinel, do not hang
+                    # on a child that has already exited.
+                    if proc.poll() is not None and not reader.is_alive():
+                        break
                     continue
                 if item is None:
                     break
