@@ -6,7 +6,7 @@ stay out of this module's imports. ``--self-test``, ``--smoke-test``, and
 ``--smoke-separation`` live in :mod:`stemforge.smoke`; ``--preflight`` runs the
 startup checks and never opens a window; ``--import`` and ``--install-model`` run
 one Job headlessly. A normal launch takes the single-instance lock before the
-preflight report, then stops at the ``_run_ui`` seam until the UI lands.
+preflight report, then opens the native workspace window.
 """
 
 from __future__ import annotations
