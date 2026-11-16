@@ -435,7 +435,7 @@ def check_bundle(
         if not path.is_file():
             problems.append(f"missing: {tool}")
             continue
-        if not os.access(path, os.X_OK):
+        if not _is_executable(path, resolved_system):
             problems.append(f"not executable: {tool}")
             continue
         output = (version_of or _tool_version)(path, tool)
@@ -821,6 +821,13 @@ def _tool_directory(tool: str) -> str:
     if tool in {"ffmpeg", "ffprobe"}:
         return "ffmpeg"
     return tool
+
+
+def _is_executable(path: Path, system: str) -> bool:
+    """Windows has no executable bit; the vendor set is ``.exe``-only there."""
+    if system.startswith("win"):
+        return path.suffix.lower() == ".exe"
+    return os.access(path, os.X_OK)
 
 
 def _tool_version(path: Path, tool: str) -> str | None:
