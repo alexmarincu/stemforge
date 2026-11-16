@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -106,3 +107,17 @@ def test_service_constructs_default_placeholders(tmp_path: Path) -> None:
     assert isinstance(service.runner, JobRunner)
     assert isinstance(service.engines, ServiceEngines)
     assert service.engines.separation is None
+
+
+@pytest.mark.unit
+def test_artifact_store_uses_the_cache_cap_from_settings(tmp_path: Path) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    (paths.config / "settings.json").write_text(
+        json.dumps({"schema_version": 1, "cache_cap_bytes": 12345}),
+        encoding="utf-8",
+    )
+    settings = SettingsStore(paths)
+
+    service = WorkspaceService(settings, paths=paths)
+
+    assert service.artifacts.cap_bytes == 12345

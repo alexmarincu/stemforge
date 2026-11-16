@@ -42,7 +42,11 @@ class WorkspaceService:
     ) -> None:
         self._settings = settings
         self._paths = paths if paths is not None else settings.paths
-        self._artifacts = artifacts if artifacts is not None else ArtifactStore()
+        self._artifacts = (
+            artifacts
+            if artifacts is not None
+            else ArtifactStore(self._paths, cap_bytes=self._settings.settings.cache_cap_bytes)
+        )
         self._runner = runner if runner is not None else JobRunner()
         self._engines = engines if engines is not None else ServiceEngines()
         self._workspace = Workspace()
