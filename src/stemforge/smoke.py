@@ -8,20 +8,25 @@ required check passed, ``1`` otherwise.
 read-only data, executes whatever vendor binaries exist, and asserts the CPU
 torch build *if* torch is installed. ``--smoke-test`` runs the same checks, then
 boots the NiceGUI server headlessly and polls ``/`` for HTTP 200.
-``--smoke-separation`` is an honest stub until tickets 13 and 20 land the
-worker and the model weights.
+``--smoke-separation`` runs a one-second synthetic source through the real
+Separation worker using the installed weights; it never downloads, and it is not
+part of ``--smoke-test`` (ticket 11 §4).
 """
 
 from __future__ import annotations
 
+import array
 import importlib
 import importlib.util
 import json
 import logging
+import math
 import os
 import socket
+import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -36,6 +41,9 @@ from stemforge.platform.paths import AppPaths
 
 REPORT_SCHEMA: Final = 1
 SMOKE_TIMEOUT_SECONDS: Final = 30.0
+SMOKE_SEPARATION_TIMEOUT_SECONDS: Final = 60.0
+SMOKE_SEPARATION_RSS_BYTES: Final = 2 * 1024 * 1024 * 1024
+SMOKE_SEPARATION_SECONDS: Final = 1.0
 REQUIRE_VENDOR_ENV_VAR: Final = "STEMFORGE_REQUIRE_VENDOR"
 SERVER_SHUTDOWN_TIMEOUT_SECONDS: Final = 10.0
 
@@ -442,26 +450,313 @@ def smoke_test(*, report: Path | None = None) -> int:
 
 
 def smoke_separation(*, report: Path | None = None) -> int:
-    """``--smoke-separation``: an honest stub until the worker and weights land."""
-    message = "not available in this build"
-    result: Report = {
-        "schema": REPORT_SCHEMA,
-        "check": "smoke-separation",
-        "app": "stemforge",
-        "version": __version__,
-        "frozen": resources.is_frozen(),
-        "message": message,
-        "checks": [
-            {
-                "name": "separation.worker",
-                "status": "failed",
-                "detail": message,
-                "required": True,
-            }
-        ],
-        "summary": {"ok": 0, "missing": 0, "failed": 1, "skipped": 0},
-        "ok": False,
-    }
-    print(f"stemforge: --smoke-separation is {message}", file=sys.stderr)
+    """``--smoke-separation``: a real one-second separation with cached weights.
+
+    The weights are never downloaded here: a missing or tampered cache fails with
+    the exact ``--install-model --accept-model-licence`` remedy. This flag is
+    kept out of ``--smoke-test``; nightly and release call it explicitly.
+    """
+    try:
+        result = _run_smoke_separation()
+    except Exception as exc:
+        result = _error_report("smoke-separation", exc)
     written = _emit(result, report)
     return 0 if result["ok"] and written else 1
+
+
+def _run_smoke_separation() -> Report:
+    from stemforge.domain.cancellation import CancelToken
+    from stemforge.engines.separation import WorkerSeparationEngine
+    from stemforge.models import ModelStore
+    from stemforge.worker_protocol import STEM_NAMES
+
+    checks: list[Check] = []
+    paths = _check_paths(checks)
+    store = ModelStore(paths)
+    status = store.verify()
+    spec = store.spec
+    model_record = {
+        "name": spec.name,
+        "revision": spec.revision,
+        "filename": spec.filename,
+        "size": spec.size_bytes,
+        "sha256": spec.sha256,
+    }
+    if not status.verified:
+        reason = status.reason or "absent"
+        detail = (
+            f"the {spec.name} weights are not installed (reason={reason}); "
+            "run stemforge --install-model --accept-model-licence"
+        )
+        _check(checks, "model.weights", "failed", detail)
+        print(f"stemforge: --smoke-separation needs the model: {detail}", file=sys.stderr)
+        return _finalize(
+            {
+                "schema": REPORT_SCHEMA,
+                "check": "smoke-separation",
+                "app": "stemforge",
+                "version": __version__,
+                "frozen": resources.is_frozen(),
+                "platform": sys.platform,
+                "model": model_record,
+                "message": detail,
+                "checks": checks,
+            }
+        )
+    _check(checks, "model.weights", "ok", f"{spec.name} {spec.sha256}")
+
+    cache_tmp = paths.cache / "tmp"
+    cache_tmp.mkdir(mode=0o700, parents=True, exist_ok=True)
+    tmp_root = tempfile.mkdtemp(prefix="smoke-separation-", dir=cache_tmp)
+    tmp = Path(tmp_root)
+    source = tmp / "source.wav"
+    out_dir = tmp / "stems"
+    _write_smoke_wav(source)
+    threads = max(1, (os.cpu_count() or 2) // 2)
+    sampler = _ChildRssSampler()
+    engine = WorkerSeparationEngine()
+    progress: list[float] = []
+    started = time.monotonic()
+    import shutil
+
+    try:
+        try:
+            outputs = engine.separate(
+                source,
+                out_dir,
+                model_path=status.path,
+                expected_duration_s=SMOKE_SEPARATION_SECONDS,
+                threads=threads,
+                env=_smoke_worker_environment(paths, threads=threads),
+                progress=lambda fraction, _stage, _detail: progress.append(fraction),
+                cancel=CancelToken(),
+                log=logging.getLogger("stemforge.smoke"),
+                timeout_s=SMOKE_SEPARATION_TIMEOUT_SECONDS,
+                on_spawn=sampler.start,
+            )
+            wall_seconds = time.monotonic() - started
+        except Exception as exc:
+            wall_seconds = time.monotonic() - started
+            code = getattr(exc, "code", "")
+            detail = getattr(exc, "detail", None) or str(exc)
+            _check(
+                checks,
+                "separation.worker",
+                "failed",
+                f"{code or type(exc).__name__}: {detail}",
+            )
+            return _finalize(
+                {
+                    "schema": REPORT_SCHEMA,
+                    "check": "smoke-separation",
+                    "app": "stemforge",
+                    "version": __version__,
+                    "frozen": resources.is_frozen(),
+                    "platform": sys.platform,
+                    "model": model_record,
+                    "wall_seconds": round(wall_seconds, 3),
+                    "threads": threads,
+                    "checks": checks,
+                }
+            )
+        peak_rss = sampler.stop()
+
+        _check(
+            checks,
+            "separation.worker",
+            "ok",
+            f"four stems in {wall_seconds:.2f} s",
+        )
+        problems: list[str] = []
+        for stem in STEM_NAMES:
+            path = outputs.path_for(stem)
+            if path is None or not path.is_file():
+                problems.append(f"{stem}=missing")
+                continue
+            facts = _wav_facts(path)
+            if facts is None:
+                problems.append(f"{stem}=unreadable")
+                continue
+            tag, channels, rate, duration = facts
+            if tag != 3 or channels != 2 or rate != 44_100:
+                problems.append(f"{stem}={rate}Hz/{channels}ch/tag{tag}")
+            elif abs(duration - SMOKE_SEPARATION_SECONDS) > 0.050:
+                problems.append(f"{stem}=duration {duration:.3f}s")
+        _check(
+            checks,
+            "separation.outputs",
+            "failed" if problems else "ok",
+            ", ".join(problems) if problems else "four float32 44.1 kHz stereo stems",
+        )
+        _check(
+            checks,
+            "separation.time",
+            "ok" if wall_seconds < SMOKE_SEPARATION_TIMEOUT_SECONDS else "failed",
+            f"{wall_seconds:.2f} s (limit {SMOKE_SEPARATION_TIMEOUT_SECONDS:g} s)",
+        )
+        rss = peak_rss or 0
+        _check(
+            checks,
+            "separation.rss",
+            "ok" if 0 < rss < SMOKE_SEPARATION_RSS_BYTES else "failed",
+            f"{rss / (1024 * 1024):.0f} MiB (limit 2048 MiB)",
+        )
+        _check(
+            checks,
+            "separation.progress",
+            "ok" if progress and max(progress) <= 1.0 and progress[-1] > 0 else "failed",
+            f"{len(progress)} events, last {progress[-1]:.3f}"
+            if progress
+            else "no progress events",
+        )
+        return _finalize(
+            {
+                "schema": REPORT_SCHEMA,
+                "check": "smoke-separation",
+                "app": "stemforge",
+                "version": __version__,
+                "frozen": resources.is_frozen(),
+                "platform": sys.platform,
+                "model": model_record,
+                "wall_seconds": round(wall_seconds, 3),
+                "peak_rss_bytes": rss,
+                "threads": threads,
+                "outputs": list(STEM_NAMES),
+                "checks": checks,
+            }
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _smoke_worker_environment(paths: AppPaths, *, threads: int) -> dict[str, str]:
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "HF_HOME": str(paths.models),
+            "HF_HUB_OFFLINE": "1",
+            "OMP_NUM_THREADS": str(threads),
+            "MKL_NUM_THREADS": str(threads),
+            "PYTHONUNBUFFERED": "1",
+            "PYTHONUTF8": "1",
+            "STEMFORGE_WORKER_STDIN_WATCH": "1",
+        }
+    )
+    return environment
+
+
+def _write_smoke_wav(path: Path) -> None:
+    """A deterministic 1 s 440 Hz float32 stereo source, no FFmpeg required."""
+    frames = round(SMOKE_SEPARATION_SECONDS * 44_100)
+    samples = array.array("f")
+    for frame in range(frames):
+        value = 0.2 * math.sin(2.0 * math.pi * 440.0 * frame / 44_100)
+        samples.append(value)
+        samples.append(value)
+    data = samples.tobytes()
+    header = bytearray(56)
+    header[0:4] = b"RIFF"
+    struct.pack_into("<I", header, 4, 48 + len(data))
+    header[8:12] = b"WAVE"
+    header[12:16] = b"fmt "
+    struct.pack_into("<I", header, 16, 16)
+    struct.pack_into("<HHIIHH", header, 20, 3, 2, 44_100, 44_100 * 8, 8, 32)
+    header[36:40] = b"fact"
+    struct.pack_into("<I", header, 40, 4)
+    struct.pack_into("<I", header, 44, frames)
+    header[48:52] = b"data"
+    struct.pack_into("<I", header, 52, len(data))
+    path.write_bytes(header + data)
+
+
+def _wav_facts(path: Path) -> tuple[int, int, int, float] | None:
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        return None
+    offset = 12
+    fmt: tuple[int, int, int] | None = None
+    while offset + 8 <= len(data):
+        chunk_id = data[offset : offset + 4]
+        size = struct.unpack("<I", data[offset + 4 : offset + 8])[0]
+        body = data[offset + 8 : offset + 8 + size]
+        if chunk_id == b"fmt " and len(body) >= 16:
+            tag, channels, rate = struct.unpack_from("<HHI", body, 0)
+            fmt = (tag, channels, rate)
+        elif chunk_id == b"data" and fmt is not None:
+            tag, channels, rate = fmt
+            frames = size // max(1, channels * 4)
+            return tag, channels, rate, frames / rate if rate else 0.0
+        offset += 8 + size + (size & 1)
+    return None
+
+
+class _ChildRssSampler:
+    """Measure the worker's peak RSS (ticket 11 §4).
+
+    Linux uses ``RUSAGE_CHILDREN`` after the child exits. Windows keeps a polling
+    thread reading ``PeakWorkingSetSize`` through ``GetProcessMemoryInfo``.
+    """
+
+    def __init__(self) -> None:
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._peak = 0
+
+    def start(self, pid: int) -> None:
+        if os.name != "nt":
+            return
+        self._thread = threading.Thread(
+            target=self._poll_windows, args=(pid,), name="stemforge-smoke-rss", daemon=True
+        )
+        self._thread.start()
+
+    def stop(self) -> int:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+        if os.name == "nt":
+            return self._peak
+        try:
+            import resource
+
+            return int(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss) * 1024
+        except (ImportError, OSError):  # pragma: no cover - non-POSIX
+            return 0
+
+    def _poll_windows(self, pid: int) -> None:  # pragma: no cover - Windows only
+        import ctypes
+        from ctypes import wintypes
+
+        class Counters(ctypes.Structure):
+            _fields_ = [
+                ("cb", wintypes.DWORD),
+                ("PageFaultCount", wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+        psapi = ctypes.WinDLL("psapi", use_last_error=True)  # type: ignore[attr-defined]
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return
+        try:
+            counters = Counters()
+            counters.cb = ctypes.sizeof(Counters)
+            while not self._stop.is_set():
+                if psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+                    self._peak = max(self._peak, int(counters.PeakWorkingSetSize))
+                else:
+                    return
+                time.sleep(0.05)
+        finally:
+            kernel32.CloseHandle(handle)
