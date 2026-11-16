@@ -626,7 +626,7 @@ def _import_typelib(gi: object, namespace: str, version: str) -> Any:
     try:
         gi.require_version(namespace, version)  # type: ignore[attr-defined]
         return importlib.import_module(f"gi.repository.{namespace}")
-    except (AttributeError, ImportError, ValueError):
+    except (AttributeError, ImportError, OSError, ValueError):
         return None
 
 
@@ -693,7 +693,7 @@ def _probe_preview() -> PreviewProbe:
             present=tuple(e for e in PREVIEW_ELEMENTS if e not in missing_elements),
             missing=missing_elements,
         )
-    except (AttributeError, ImportError, ValueError):
+    except (AttributeError, ImportError, OSError, RuntimeError, ValueError):
         pass
 
     inspector = shutil.which("gst-inspect-1.0")
@@ -945,7 +945,7 @@ def _gtk_message_dialog(title: str, body: str, copy_text: str | None) -> bool:
         gi.require_version("Gtk", "3.0")
         gtk = importlib.import_module("gi.repository.Gtk")
         gdk = importlib.import_module("gi.repository.Gdk")
-    except (AttributeError, ImportError, ValueError):
+    except (AttributeError, ImportError, OSError, RuntimeError, ValueError):
         return False
     try:
         initialized, _argv = gtk.init_check()
