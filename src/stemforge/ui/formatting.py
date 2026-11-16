@@ -38,6 +38,36 @@ MODEL_LICENCE_ACCEPT_LABEL: Final = "Download model"
 MODEL_LICENCE_DETAILS_LABEL: Final = "Licence details"
 MODEL_LICENCE_DECLINE_LABEL: Final = "Cancel"
 
+# Ticket 09 §7: the shipped YouTube copy, exact and in one place.
+YOUTUBE_DISCLAIMER: Final = (
+    "Only import content you have the right to use. "
+    "YouTube's Terms of Service prohibit downloading."
+)
+YOUTUBE_CONSENT_TITLE: Final = "Import from YouTube"
+YOUTUBE_CONSENT_BODY: Final = (
+    "StemForge downloads audio with yt-dlp, entirely on this machine. YouTube's Terms of "
+    "Service prohibit downloading except where the law permits, and downloading may infringe "
+    "copyright. Only continue if you have the right to use this content."
+)
+YOUTUBE_CONSENT_ACCEPT: Final = "I have the right to use this content"
+YOUTUBE_CONSENT_CANCEL: Final = "Cancel"
+YOUTUBE_IMPORT_LABEL: Final = "Import"
+YOUTUBE_PENDING: Final = "Valid YouTube link. Import isn't available in this build yet."
+YOUTUBE_DECLINED: Final = "YouTube import is off until you accept the notice."
+YOUTUBE_UNAVAILABLE: Final = "YouTube import isn't available in this build yet."
+YOUTUBE_OFF: Final = "YouTube import is off."
+YOUTUBE_SETTING_LABEL: Final = "YouTube import"
+YOUTUBE_SETTING_HINT: Final = (
+    "Off hides the YouTube row. Local files, tracks, playback, and exports are unaffected."
+)
+SETTINGS_TITLE: Final = "Settings & About"
+SETTINGS_BEHAVIOUR: Final = "Behaviour"
+SETTINGS_CLOSE: Final = "Close"
+EMPTY_LEDE: Final = "Drop a local file. Everything runs on this machine."
+EMPTY_LEDE_YOUTUBE: Final = (
+    "Drop a local file or pull audio from YouTube. Everything runs on this machine."
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ErrorCopy:
