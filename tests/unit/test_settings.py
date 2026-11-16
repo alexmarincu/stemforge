@@ -31,6 +31,7 @@ def test_defaults_are_used_when_no_settings_file_exists(paths: AppPaths) -> None
     assert store.first_run is True
     assert store.preferred_export_dir is None
     assert store.recent_files() == ()
+    assert store.settings.cache_cap_bytes == 8 * 1024**3
     assert not store.path.exists()
 
 
@@ -151,6 +152,7 @@ def test_save_writes_valid_json(paths: AppPaths) -> None:
         "recent": [],
         "export_dir": None,
         "first_run": True,
+        "cache_cap_bytes": 8 * 1024**3,
     }
 
 
@@ -262,3 +264,30 @@ def test_settings_file_is_private(paths: AppPaths) -> None:
     store.save()
 
     assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
+
+
+@pytest.mark.unit
+def test_cache_cap_bytes_is_loaded_and_negative_values_are_recovered(paths: AppPaths) -> None:
+    (paths.config / "settings.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "recent": [],
+                "export_dir": None,
+                "first_run": False,
+                "cache_cap_bytes": 4096,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert SettingsStore(paths).settings.cache_cap_bytes == 4096
+
+    (paths.config / "settings.json").write_text(
+        json.dumps({"schema_version": 1, "cache_cap_bytes": -1}),
+        encoding="utf-8",
+    )
+
+    recovered = SettingsStore(paths)
+    assert recovered.settings.cache_cap_bytes == 8 * 1024**3
+    assert list(paths.config.glob("settings.corrupt-*.json"))
