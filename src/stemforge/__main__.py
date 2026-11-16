@@ -2,16 +2,16 @@
 
 The frozen-build contract (ticket 06 §11) requires ``freeze_support()`` to be the
 first statement in the main guard, and the heavy stack (NiceGUI, torch, Demucs) to
-stay out of this module's imports. ``--self-test`` is a headless spine check;
-``--preflight`` runs the startup checks and never opens a window. A normal launch
-takes the single-instance lock before the preflight report, then stops at the
-``_run_ui`` seam until the UI lands.
+stay out of this module's imports. ``--self-test``, ``--smoke-test``, and
+``--smoke-separation`` live in :mod:`stemforge.smoke`; ``--preflight`` runs the
+startup checks and never opens a window. A normal launch takes the
+single-instance lock before the preflight report, then stops at the ``_run_ui``
+seam until the UI lands.
 """
 
 from __future__ import annotations
 
 import argparse
-import logging
 import multiprocessing
 import os
 import sys
@@ -42,6 +42,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="boot the local server and check that it responds, then exit",
     )
     parser.add_argument(
+        "--smoke-separation",
+        action="store_true",
+        help="run a one-second separation through the worker, then exit",
+    )
+    parser.add_argument(
         "--preflight",
         action="store_true",
         help="print the startup environment checks, then exit",
@@ -60,7 +65,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--report",
         metavar="PATH",
         type=Path,
-        help="write the preflight JSON report to PATH",
+        help="write the JSON report to PATH",
     )
     parser.add_argument(
         "--worker",
@@ -124,47 +129,6 @@ def _storage_error_path(paths: AppPaths, error: OSError) -> Path:
     if override:
         return Path(override).expanduser()
     return paths.data
-
-
-def _run_self_test(paths: AppPaths | None = None) -> int:
-    """Resolve paths, load settings, configure logs, and build the service headless."""
-    from stemforge.application import WorkspaceService
-    from stemforge.logging_setup import configure_logging
-    from stemforge.settings import SettingsStore
-
-    resolved = _configure() if paths is None else paths
-    settings = SettingsStore(resolved)
-    configure_logging(resolved)
-    settings.save()
-    service = WorkspaceService(settings, paths=resolved)
-    snapshot = service.snapshot()
-
-    logging.getLogger("stemforge").info(
-        "self-test: data=%s cache=%s logs=%s models=%s config=%s",
-        resolved.data,
-        resolved.cache,
-        resolved.logs,
-        resolved.models,
-        resolved.config,
-    )
-    logging.getLogger("stemforge").info(
-        "self-test ok: workspace=%d tracks, recent=%d",
-        len(snapshot),
-        len(service.recent_files()),
-    )
-
-    print(f"StemForge {__version__} self-test")
-    print(f"data: {resolved.data}")
-    print(f"cache: {resolved.cache}")
-    print(f"logs: {resolved.logs}")
-    print(f"models: {resolved.models}")
-    print(f"config: {resolved.config}")
-    print(f"webview: {resolved.webview}")
-    print(f"settings: {settings.path}")
-    print(f"workspace: {len(snapshot)} tracks")
-    print(f"recent: {len(service.recent_files())}")
-    print("self-test ok")
-    return 0
 
 
 def _run_preflight(paths: AppPaths, args: argparse.Namespace) -> int:
@@ -283,14 +247,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     except OSError as error:
         return _configuration_failure(args, error)
 
+    # Ticket 06 §7 order: worker dispatch happens before the instance lock, so a
+    # second process can still run the bundled Separation worker.
     if args.worker is not None:
         print(f"StemForge {__version__}: worker {args.worker} is a safe stub in this build.")
         return 0
-    if args.self_test:
-        return _run_self_test(paths)
-    if args.smoke_test:
-        print(f"StemForge {__version__}: smoke-test is not implemented in this scaffold.")
-        return 0
+
+    if args.self_test or args.smoke_test or args.smoke_separation:
+        from stemforge import smoke
+
+        if args.self_test:
+            return smoke.self_test(report=args.report)
+        if args.smoke_test:
+            return smoke.smoke_test(report=args.report)
+        return smoke.smoke_separation(report=args.report)
+
     if args.preflight:
         return _run_preflight(paths, args)
 
