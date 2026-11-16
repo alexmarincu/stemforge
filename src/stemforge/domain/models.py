@@ -62,6 +62,19 @@ class JobState(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelConsent:
+    """The user's explicit acceptance of the model-weights licence notice.
+
+    Stored in settings under ``models.consent``. A consent older than the
+    bundled notice version is treated as absent (ticket 13 §7).
+    """
+
+    version: int
+    acknowledged: bool
+    accepted_at: datetime = field(default_factory=_utcnow)
+
+
+@dataclass(frozen=True, slots=True)
 class SourceMetadata:
     """The canonical metadata record carried by a Source."""
 
