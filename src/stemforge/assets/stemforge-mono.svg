@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="StemForge">
+  <title>StemForge (monochrome)</title>
+  <desc>One-colour fallback: the badge silhouette with the four bars knocked out.</desc>
+  <path fill="currentColor" fill-rule="evenodd" d="M128 12a116 116 0 1 0 0 232a116 116 0 0 0 0-232Z
+    M56 90a16 16 0 0 0-16 16v44a16 16 0 0 0 32 0v-44a16 16 0 0 0-16-16Z
+    M104 62a16 16 0 0 0-16 16v100a16 16 0 0 0 32 0v-100a16 16 0 0 0-16-16Z
+    M152 78a16 16 0 0 0-16 16v68a16 16 0 0 0 32 0v-68a16 16 0 0 0-16-16Z
+    M200 58a16 16 0 0 0-16 16v108a16 16 0 0 0 32 0v-108a16 16 0 0 0-16-16Z"/>
+</svg>

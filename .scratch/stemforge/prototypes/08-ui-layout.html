@@ -1,0 +1,1989 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>StemForge — UI prototype</title>
+<!--
+  PROTOTYPE — throwaway. Answers ticket 08: "What is the single-window Workspace
+  layout and interaction model?"
+
+  Three structurally different layouts of the same app, switchable with ?variant=A|B|C
+  and a floating bar. Eight seeded states, switchable with ?state=empty|importing|loaded|
+  separating|separated|rendered|model|error, plus the select in the bar.
+
+  A — Rail & detail:        list/detail app, artifacts as a vertical row list
+  B — Transport & rack:     DAW-like transport, artifact tiles as hero, actions inspector
+  C — Pipeline stages:      numbered stages Load → Separate → Shape & export, player dock
+
+  Open directly in a browser (file:// works). No build, no server, no dependencies.
+
+  OUTCOME: variant A (Rail & detail) was chosen. B's signal-path strip and a
+  transport-level Export were folded into A; B and C remain as exploration record.
+-->
+<style>
+  :root{
+    --bg:#0e1014; --rail:#11141a; --panel:#151920; --panel2:#1b2029;
+    --line:#242b36; --line2:#313b49;
+    --text:#e6e9ef; --muted:#98a2b3; --dim:#6c7686;
+    --accent:#f2a65a; --accent-soft:rgba(242,166,90,.12); --accent-line:rgba(242,166,90,.4);
+    --good:#5ec99a; --good-soft:rgba(94,201,154,.12);
+    --bad:#ef7070; --bad-soft:rgba(239,112,112,.1);
+    --radius:12px;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:#0a0c10;color:var(--text);overflow:hidden;
+    font:13.5px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  button{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer}
+  input,select{font:inherit;color:inherit}
+  h1,h2,h3,p{margin:0}
+  .ic{width:16px;height:16px;flex:none;display:block}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  u{text-decoration-color:var(--dim);text-underline-offset:2px}
+  *{scrollbar-width:thin;scrollbar-color:#2a323e transparent}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#2a323e;border-radius:6px;border:2px solid var(--bg)}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  /* ---------- simulated native window frame ---------- */
+  #titlebar{
+    height:30px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px;
+    background:#0a0c10;border-bottom:1px solid #1c222b;color:#8791a0;font-size:11.5px;
+    user-select:none;
+  }
+  #titlebar .logo{width:15px;height:15px}
+  #titlebar .tb-title{color:#aeb7c4}
+  #titlebar .tb-spacer{flex:1}
+  #titlebar .tb-btn{width:26px;height:20px;display:grid;place-items:center;color:#6c7686;border-radius:4px;font-size:11px}
+  #titlebar .tb-btn:hover{background:#161b23;color:#c7cfda}
+  #titlebar .tb-tag{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--accent);border:1px solid var(--accent-line);border-radius:4px;padding:1px 5px;margin-left:6px;opacity:.85}
+  #app{height:calc(100vh - 30px - 48px);min-height:0}
+
+  .logo{
+    display:grid;place-items:center;border-radius:50%;background:var(--accent);color:#1d1204;flex:none;
+    box-shadow:0 0 0 1px rgba(255,255,255,.06) inset;
+  }
+  .brand-name{font-weight:650;font-size:14px;letter-spacing:.01em}
+  .brand-sub{font-size:10.5px;color:var(--dim);letter-spacing:.04em;text-transform:uppercase}
+
+  /* ---------- buttons ---------- */
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:7px;
+    height:31px;padding:0 12px;border-radius:7px;border:1px solid var(--line2);
+    background:#1a1f28;color:var(--text);white-space:nowrap;font-size:12.5px;
+  }
+  .btn:hover:not(:disabled){background:#212836;border-color:#3a4555}
+  .btn:disabled{opacity:.38;cursor:not-allowed}
+  .btn.primary{background:var(--accent);border-color:transparent;color:#201404;font-weight:650}
+  .btn.primary:hover:not(:disabled){background:#ffb96f}
+  .btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+  .btn.ghost:hover:not(:disabled){background:#1b212b;color:var(--text)}
+  .btn.sm{height:26px;padding:0 9px;font-size:11.5px;border-radius:6px}
+  .btn.wide{width:100%}
+  .icon-btn{
+    width:28px;height:28px;display:grid;place-items:center;border-radius:6px;color:var(--muted);
+    border:1px solid transparent;
+  }
+  .icon-btn:hover{background:#1d2430;color:var(--text);border-color:var(--line2)}
+  .icon-btn.danger:hover{background:var(--bad-soft);color:var(--bad);border-color:rgba(239,112,112,.3)}
+  .icon-btn:disabled{opacity:.3;cursor:not-allowed}
+  .link{color:var(--muted);font-size:11.5px;text-decoration:underline;text-decoration-color:#3a4352;text-underline-offset:2px}
+  .link:hover{color:var(--text)}
+  .fineprint{font-size:11px;color:var(--dim);line-height:1.5}
+  .dashed-note{
+    font-size:11px;color:var(--dim);border:1px dashed #333d4b;border-radius:6px;padding:4px 7px;
+    display:inline-flex;gap:6px;align-items:center;
+  }
+
+  /* ---------- shared atoms ---------- */
+  .badge{
+    display:inline-flex;align-items:center;gap:4px;font-size:10px;line-height:1;padding:3px 6px;
+    border-radius:5px;border:1px solid #2d3642;background:#222932;color:#a9b3c1;white-space:nowrap;
+    font-weight:550;letter-spacing:.015em;
+  }
+  .badge.a{color:var(--accent);border-color:rgba(242,166,90,.32);background:var(--accent-soft)}
+  .badge.g{color:var(--good);border-color:rgba(94,201,154,.3);background:var(--good-soft)}
+  .badge.r{color:var(--bad);border-color:rgba(239,112,112,.3);background:var(--bad-soft)}
+  .bar{height:5px;border-radius:99px;background:#242c38;overflow:hidden}
+  .bar>i{display:block;height:100%;border-radius:99px;background:var(--accent);transition:width .22s linear}
+  .bar.g>i{background:var(--good)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)}
+  .card-h{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:11px 14px;border-bottom:1px solid var(--line);min-height:42px;
+  }
+  .card-h .ct{font-weight:600;font-size:12.5px;letter-spacing:.01em}
+  .card-h .ch{font-size:11px;color:var(--dim)}
+  .card-b{padding:14px}
+  .rail-label{
+    display:flex;justify-content:space-between;align-items:center;
+    font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);
+    padding:2px 8px 8px;
+  }
+  .rail-label span{color:#556070;font-family:var(--mono)}
+  .dot{width:6px;height:6px;border-radius:50%;background:#4a5464;flex:none}
+  .dot.ok{background:var(--good)}
+  .dot.run{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .dot.bad{background:var(--bad)}
+  .pill-tabs{display:inline-flex;background:#101319;border:1px solid var(--line);border-radius:8px;padding:2px;gap:2px}
+  .pill-tabs button{
+    height:24px;padding:0 10px;border-radius:6px;font-size:11.5px;color:var(--muted);
+  }
+  .pill-tabs button.on{background:#262e3a;color:var(--text);font-weight:600;box-shadow:0 1px 0 rgba(255,255,255,.04) inset}
+  .pill-tabs button:disabled{opacity:.35;cursor:not-allowed}
+  .ab-seg{display:inline-flex;align-items:center;gap:2px;background:#101319;border:1px solid var(--line);border-radius:8px;padding:2px}
+  .ab-seg .ab-l{font-size:9.5px;letter-spacing:.08em;color:var(--dim);padding:0 5px;text-transform:uppercase}
+  .ab-seg button{height:23px;padding:0 9px;border-radius:6px;font-size:11px;color:var(--muted)}
+  .ab-seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:650;box-shadow:0 0 0 1px rgba(242,166,90,.25) inset}
+  .ab-seg button:disabled{opacity:.3;cursor:not-allowed}
+  .kbd{font-family:var(--mono);font-size:10px;background:#1b212b;border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;padding:0 4px;color:var(--muted)}
+
+  /* dropzone */
+  .dropzone{
+    border:1px dashed #3a4555;border-radius:10px;padding:22px;text-align:center;color:var(--muted);
+    display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;background:#10141a;
+  }
+  .dropzone:hover{border-color:var(--accent-line);background:#12161d}
+  .dropzone .dz-ic{width:34px;height:34px;display:grid;place-items:center;border-radius:50%;background:#1c2330;color:var(--accent)}
+  .dropzone b{color:var(--text);font-size:13px;font-weight:600}
+  .dropzone span{font-size:11.5px;color:var(--dim)}
+  .yt-row{display:flex;gap:8px}
+  .yt-row input{
+    flex:1;height:33px;background:#0d1015;border:1px solid var(--line2);border-radius:7px;padding:0 10px;
+    font-size:12px;color:var(--text);min-width:0;
+  }
+  .yt-row input:focus{outline:none;border-color:var(--accent-line);box-shadow:0 0 0 3px rgba(242,166,90,.08)}
+  .or{display:flex;align-items:center;gap:10px;color:#4e5867;font-size:10.5px;text-transform:uppercase;letter-spacing:.1em}
+  .or::before,.or::after{content:"";height:1px;background:var(--line);flex:1}
+
+  /* empty state */
+  .empty{padding:44px 8px;display:flex;justify-content:center}
+  .empty-card{width:min(560px,100%);display:flex;flex-direction:column;gap:16px}
+  .empty-card h2{font-size:21px;font-weight:640;letter-spacing:-.01em}
+  .empty-card .lede{color:var(--muted);font-size:13px;margin-top:-8px}
+
+  /* ---------- variant A: rail & detail ---------- */
+  .shell-a{display:grid;grid-template-columns:292px minmax(0,1fr);height:100%;min-height:0}
+  .a-rail{border-right:1px solid var(--line);background:var(--rail);display:flex;flex-direction:column;min-height:0}
+  .a-brand{padding:14px 14px 10px;display:flex;gap:10px;align-items:center}
+  .a-add{padding:2px 12px 0;display:flex;flex-direction:column;gap:6px}
+  .a-add .drop-hint{font-size:10.5px;color:var(--dim);text-align:center}
+  .a-recent{padding:14px 6px 0}
+  .recent-list{display:flex;flex-direction:column;gap:1px}
+  .recent{
+    display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;color:var(--muted);
+    font-size:11.5px;text-align:left;width:100%;
+  }
+  .recent:hover{background:#1a2029;color:var(--text)}
+  .recent .r-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .recent .r-m{font-size:10px;color:var(--dim);flex:none}
+  .recent.missing{color:#9b7f7f}
+  .a-tracks{flex:1;overflow:auto;padding:12px 8px 8px;min-height:80px}
+  .a-track{
+    display:flex;align-items:center;gap:9px;padding:8px 8px;border-radius:8px;cursor:pointer;
+    border:1px solid transparent;
+  }
+  .a-track:hover{background:#171d26}
+  .a-track.is-sel{background:#1b2230;border-color:#2c3646}
+  .a-track .t-ic{width:26px;height:26px;border-radius:6px;background:#232b38;display:grid;place-items:center;color:#9aa6b7;flex:none}
+  .a-track.is-sel .t-ic{background:var(--accent-soft);color:var(--accent)}
+  .a-track .t-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:1px}
+  .a-track .t-title{font-size:12.5px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .a-track .t-meta{font-size:10.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .a-track .t-x{opacity:0}
+  .a-track:hover .t-x,.a-track.is-sel .t-x{opacity:1}
+  .rail-empty{font-size:11.5px;color:var(--dim);padding:6px 8px}
+  .a-foot{border-top:1px solid var(--line);padding:10px 14px 12px;display:flex;flex-direction:column;gap:7px}
+  .cache-meter{display:flex;flex-direction:column;gap:4px}
+  .cache-meter .cm-l{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim)}
+  .a-main{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg)}
+  .a-scroll{flex:1;overflow:auto;padding:24px 28px 28px;min-height:0}
+  .d-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
+  .d-head h1{font-size:19px;font-weight:650;letter-spacing:-.01em;line-height:1.25}
+  .d-meta{font-size:11.5px;color:var(--dim);margin-top:3px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .d-meta .sep{color:#3b4554}
+  .head-actions{display:flex;gap:4px;align-items:center;flex:none}
+  .transport{
+    display:flex;align-items:center;gap:14px;padding:12px 14px;margin-bottom:14px;
+    background:linear-gradient(180deg,#181d26,#141920);border:1px solid var(--line);border-radius:var(--radius);
+  }
+  .play-lg{
+    width:42px;height:42px;border-radius:50%;background:var(--accent);color:#201404;display:grid;place-items:center;flex:none;
+    box-shadow:0 2px 10px rgba(242,166,90,.18);
+  }
+  .play-lg:disabled{background:#2a323e;color:#596474;cursor:not-allowed;box-shadow:none}
+  .play-lg .ic{width:18px;height:18px}
+  .tp-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:6px}
+  .tp-line{display:flex;align-items:baseline;gap:8px;min-width:0}
+  .tp-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tp-time{font-size:11px;color:var(--dim);font-family:var(--mono);flex:none}
+  .tp-right{display:flex;gap:8px;align-items:center;flex:none}
+  .sigpath{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-6px 0 14px;font-size:10.5px;color:var(--dim)}
+  .sigpath .sp{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:5px;border:1px solid #28313d;background:#12161c;color:var(--muted)}
+  .sigpath .sp b{color:var(--text);font-weight:550}
+  .sigpath .sp.done{border-color:rgba(94,201,154,.24);color:#a9d9c4}
+  .sigpath .sp.done b{color:#c9efdf}
+  .sigpath .ic{width:12px;height:12px}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+  .stepper{display:flex;align-items:center;gap:12px;justify-content:space-between;background:#10141a;border:1px solid var(--line);border-radius:9px;padding:7px 8px}
+  .step-btn{width:30px;height:30px;border-radius:6px;background:#1d242f;display:grid;place-items:center;color:var(--text);border:1px solid var(--line2)}
+  .step-btn:hover:not(:disabled){background:#26303d}
+  .step-btn:disabled{opacity:.3;cursor:not-allowed}
+  .semi{text-align:center;line-height:1}
+  .semi b{font-size:19px;font-weight:650;font-variant-numeric:tabular-nums}
+  .semi span{display:block;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);margin-top:3px}
+  .stack{display:flex;flex-direction:column;gap:10px}
+  .status-line{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted)}
+  .status-line b{color:var(--text);font-weight:600}
+  .out-row{
+    display:grid;grid-template-columns:28px minmax(0,1fr) auto auto;align-items:center;gap:10px;
+    padding:8px 14px;border-top:1px solid var(--line);background:transparent;
+  }
+  .out-row:first-child{border-top:none}
+  .out-row.is-playing{background:rgba(242,166,90,.05)}
+  .out-row .or-play{
+    width:27px;height:27px;border-radius:50%;background:#212834;display:grid;place-items:center;color:#b7c1cf;
+  }
+  .out-row .or-play:hover{background:#2a3341;color:#fff}
+  .out-row.is-playing .or-play{background:var(--accent);color:#201404}
+  .out-row .or-main{min-width:0;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .out-row .or-name{font-size:12.5px;font-weight:550}
+  .out-row .or-dur{font-size:11px;color:var(--dim);font-family:var(--mono)}
+  .more-row{
+    display:flex;align-items:center;gap:6px;border-top:1px solid var(--line);padding:7px 14px;
+    font-size:11.5px;color:var(--muted);
+  }
+  .more-row:hover{color:var(--text)}
+  .ghost-row{
+    border-top:1px dashed #2c3542;padding:12px 14px;font-size:11.5px;color:var(--dim);
+    display:flex;align-items:center;gap:8px;justify-content:space-between;background:#12161c;
+  }
+  .jobbar{
+    display:flex;align-items:center;gap:12px;padding:8px 16px;border-top:1px solid var(--line);
+    background:#12161c;flex:none;min-height:44px;
+  }
+  .jobbar .jb-txt{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .jobbar .jb-txt b{color:var(--text);font-weight:600}
+  .jobbar .bar{flex:1;max-width:220px}
+  .jobbar .pct{font-size:11px;color:var(--dim);font-family:var(--mono);width:34px}
+
+  /* ---------- variant B: transport + rack ---------- */
+  .shell-b{display:grid;grid-template-rows:66px minmax(0,1fr);height:100%;min-height:0}
+  .b-top{
+    display:flex;align-items:center;gap:16px;padding:0 16px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#12161c,#0f1217);min-width:0;
+  }
+  .b-top .brand-block{display:flex;align-items:center;gap:9px;flex:none;padding-right:14px;border-right:1px solid var(--line);height:38px}
+  .b-play{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#201404;display:grid;place-items:center;flex:none}
+  .b-play:disabled{background:#2a323e;color:#596474;cursor:not-allowed}
+  .b-now{min-width:0;width:190px;flex:none}
+  .b-now .n-title{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .b-now .n-sub{font-size:10.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .b-prog{flex:1;display:flex;align-items:center;gap:9px;min-width:70px}
+  .b-prog .bar{flex:1}
+  .b-prog .mono{font-size:10.5px;color:var(--dim)}
+  .b-actions{display:flex;align-items:center;gap:8px;flex:none}
+  .b-body{display:grid;grid-template-columns:218px minmax(0,1fr) 306px;min-height:0}
+  .b-rail{border-right:1px solid var(--line);background:var(--rail);display:flex;flex-direction:column;min-height:0;padding:10px 8px}
+  .b-rail .add-line{padding:0 4px 10px}
+  .b-tracks{flex:1;overflow:auto;display:flex;flex-direction:column;gap:5px;min-height:60px}
+  .b-track{
+    padding:8px 9px;border-radius:8px;border:1px solid transparent;cursor:pointer;display:flex;
+    flex-direction:column;gap:3px;position:relative;
+  }
+  .b-track:hover{background:#171d26}
+  .b-track.is-sel{background:#1b2230;border-color:#2c3646}
+  .b-track .bt-top{display:flex;align-items:center;gap:7px;min-width:0}
+  .b-track .bt-title{font-size:12px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  .b-track .bt-meta{font-size:10.5px;color:var(--dim);padding-left:13px;display:flex;gap:6px;align-items:center}
+  .b-track .bt-x{position:absolute;right:5px;top:5px;opacity:0}
+  .b-track:hover .bt-x{opacity:1}
+  .b-rack{overflow:auto;padding:20px 22px;min-width:0;min-height:0;display:flex;flex-direction:column}
+  .rack-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+  .rack-head h2{font-size:18px;font-weight:640;letter-spacing:-.01em;line-height:1.2}
+  .rack-head .rk-meta{font-size:11.5px;color:var(--dim);margin-top:2px}
+  .rack-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:auto;gap:12px;flex:none;align-content:start}
+  .tile{height:196px}
+  .tile.span3{height:110px;min-height:0}
+  .rack-path{
+    display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:12px;padding:9px 11px;
+    border:1px solid var(--line);border-radius:10px;background:#12161c;color:var(--dim);font-size:11px;
+  }
+  .rp-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 7px;border-radius:6px;background:#1a212b;border:1px solid #2b3543;color:var(--muted)}
+  .rp-chip b{color:var(--text);font-weight:550}
+  .rp-chip.done{border-color:rgba(94,201,154,.28);background:var(--good-soft)}
+  .rp-chip.done b{color:#b7e7d1}
+  .rp-chip .ic{width:13px;height:13px;color:var(--good)}
+  .tile{
+    background:linear-gradient(180deg,#191f28,#151a21);border:1px solid var(--line);border-radius:12px;
+    padding:14px;min-height:142px;display:flex;flex-direction:column;gap:10px;cursor:pointer;position:relative;
+    justify-content:space-between;
+  }
+  .tile:hover{border-color:#38434f}
+  .tile.is-playing{border-color:var(--accent-line);box-shadow:0 0 0 1px rgba(242,166,90,.16),0 8px 24px rgba(0,0,0,.25)}
+  .tile.span2{grid-column:span 2}
+  .tile.span3{grid-column:span 3;min-height:104px;flex-direction:row;align-items:center}
+  .tile.ghost{background:transparent;border-style:dashed;border-color:#333e4c;cursor:default;align-items:center;justify-content:center;text-align:center;color:var(--dim);height:180px}
+  .tile.ghost:hover{border-color:#3d4a5a}
+  .tile-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  .tile-name{font-size:13px;font-weight:600}
+  .tile-sub{font-size:10.5px;color:var(--dim)}
+  .tile-play{
+    width:40px;height:40px;border-radius:50%;background:#232c39;display:grid;place-items:center;color:#c3ccd8;
+  }
+  .tile.is-playing .tile-play{background:var(--accent);color:#201404}
+  .tile-play:hover{background:#2c3745}
+  .tile-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--dim)}
+  .tile-foot .mono{font-family:var(--mono)}
+  .tile-tools{display:flex;gap:2px}
+  .tile.span3 .tile-body{display:flex;align-items:center;gap:14px;min-width:0}
+  .tile.span3 .tile-play{width:34px;height:34px}
+  .b-insp{border-left:1px solid var(--line);background:var(--rail);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;min-height:0}
+  .insp-sec .card-b{padding:12px}
+  .b-insp .card{background:#151a21}
+  .b-insp h3{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);font-weight:600}
+  .mini-list{display:flex;flex-direction:column;gap:2px;margin-top:8px}
+  .mini-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;font-size:11.5px;color:var(--muted);text-align:left;width:100%}
+  .mini-row:hover{background:#1c232e;color:var(--text)}
+  .mini-row.on{color:var(--text);background:#1c232e}
+  .mini-row .mr-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mini-row .mr-meta{font-size:10px;color:var(--dim);font-family:var(--mono)}
+
+  /* ---------- variant C: pipeline stages ---------- */
+  .shell-c{display:grid;grid-template-rows:56px minmax(0,1fr) 88px;height:100%;min-height:0}
+  .c-top{display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--rail);min-width:0}
+  .c-brand{display:flex;align-items:center;gap:9px;flex:none;padding-right:14px;border-right:1px solid var(--line);height:34px}
+  .c-chips{display:flex;align-items:center;gap:6px;overflow:auto;flex:1;min-width:0;padding:2px 0}
+  .t-chip{
+    display:flex;align-items:center;gap:7px;height:30px;padding:0 9px;border-radius:15px;
+    background:#1a212b;border:1px solid #2b3543;color:var(--muted);font-size:11.5px;white-space:nowrap;cursor:pointer;flex:none;
+  }
+  .t-chip:hover{color:var(--text);border-color:#3a4555}
+  .t-chip.is-sel{background:var(--accent-soft);border-color:var(--accent-line);color:var(--text)}
+  .t-chip .tc-x{opacity:0;margin-right:-2px}
+  .t-chip:hover .tc-x,.t-chip.is-sel .tc-x{opacity:.7}
+  .c-stages{display:grid;grid-template-columns:1fr 1.18fr 1fr;gap:14px;padding:16px;overflow:auto;align-content:stretch;align-items:stretch;min-height:0}
+  .stage{background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;min-width:0}
+  .stage.done{border-color:#2a3440}
+  .stage.wait{opacity:.62}
+  .stage-h{display:flex;align-items:center;gap:9px;padding:12px 14px;border-bottom:1px solid var(--line)}
+  .stage-num{
+    width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:650;
+    background:#232b37;color:#98a2b3;flex:none;font-family:var(--mono);
+  }
+  .stage.active .stage-num{background:var(--accent);color:#201404}
+  .stage.done .stage-num{background:var(--good-soft);color:var(--good);border:1px solid rgba(94,201,154,.3)}
+  .stage-t{font-size:12.5px;font-weight:640;letter-spacing:.01em}
+  .stage-s{font-size:10.5px;color:var(--dim);margin-top:1px}
+  .stage-b{padding:14px;display:flex;flex-direction:column;gap:12px;flex:1}
+  .stage-foot{border-top:1px solid var(--line);padding:9px 14px;font-size:11px;color:var(--dim)}
+  .c-dock{
+    border-top:1px solid var(--line);background:linear-gradient(180deg,#12161c,#0d1015);
+    display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:16px;padding:0 18px;
+  }
+  .dock-now{display:flex;align-items:center;gap:11px;min-width:0}
+  .dock-ic{width:36px;height:36px;border-radius:8px;background:#1e2531;display:grid;place-items:center;color:var(--accent);flex:none}
+  .dock-now .dn-title{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dock-now .dn-sub{font-size:10.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dock-mid{display:flex;align-items:center;gap:10px}
+  .dock-right{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+  .ver-list{display:flex;flex-direction:column;gap:4px}
+  .ver{
+    display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px;border:1px solid transparent;
+    cursor:pointer;font-size:12px;
+  }
+  .ver:hover{background:#191f28}
+  .ver.on{background:#1c2330;border-color:#2c3646}
+  .ver .v-radio{width:13px;height:13px;border-radius:50%;border:1.5px solid #495565;flex:none;display:grid;place-items:center}
+  .ver.on .v-radio{border-color:var(--accent)}
+  .ver.on .v-radio::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .ver .v-name{font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ver .v-meta{font-size:10.5px;color:var(--dim);font-family:var(--mono)}
+
+  /* ---------- model card ---------- */
+  .model-card{border:1px solid rgba(242,166,90,.28);background:linear-gradient(180deg,rgba(242,166,90,.07),rgba(242,166,90,.03));border-radius:9px;padding:12px;display:flex;flex-direction:column;gap:9px}
+  .model-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;flex-wrap:wrap}
+  .model-head .ic{color:var(--accent)}
+  .model-card p{font-size:11.5px;color:var(--muted);line-height:1.5}
+  .model-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  .model-progress{display:flex;flex-direction:column;gap:5px}
+  .model-progress .mp-l{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim)}
+  .model-err{border:1px solid rgba(239,112,112,.3);background:var(--bad-soft);border-radius:7px;padding:8px 9px;font-size:11px;color:#f3a5a5;display:flex;gap:7px;align-items:flex-start}
+  .proto-control{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--dim);margin-top:2px}
+  .proto-control input{accent-color:var(--accent)}
+
+  /* ---------- error card ---------- */
+  .err-card{border:1px solid rgba(239,112,112,.28);background:var(--bad-soft);border-radius:9px;padding:11px;display:flex;flex-direction:column;gap:8px}
+  .err-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#f3a5a5}
+  .err-card .e-msg{font-size:11.5px;color:#c9a6a6;line-height:1.5}
+  .err-card .e-code{font-family:var(--mono);font-size:10px;color:#a97f7f}
+  .err-actions{display:flex;gap:6px;flex-wrap:wrap}
+
+  /* ---------- modals / toasts / notes ---------- */
+  .backdrop{position:fixed;inset:0;background:rgba(6,8,11,.66);display:grid;place-items:center;z-index:700;padding:20px}
+  .modal{width:min(470px,100%);background:#171c24;border:1px solid #303a48;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.5);overflow:hidden}
+  .modal-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .modal-h .mt{font-size:14px;font-weight:640}
+  .modal-h .ms{font-size:11px;color:var(--dim)}
+  .modal-b{padding:16px;display:flex;flex-direction:column;gap:14px;max-height:64vh;overflow:auto}
+  .modal-f{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--line);background:#141920}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field label{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);font-weight:600}
+  .field input{
+    height:32px;background:#0e1116;border:1px solid var(--line2);border-radius:7px;padding:0 9px;font-size:12px;
+  }
+  .field input:focus{outline:none;border-color:var(--accent-line)}
+  .fmt-list{display:flex;flex-direction:column;gap:5px}
+  .fmt{
+    display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);
+    cursor:pointer;font-size:12px;background:#12161d;
+  }
+  .fmt:hover{border-color:#3a4555}
+  .fmt.on{border-color:var(--accent-line);background:var(--accent-soft)}
+  .fmt .f-radio{width:13px;height:13px;border-radius:50%;border:1.5px solid #495565;display:grid;place-items:center;flex:none}
+  .fmt.on .f-radio{border-color:var(--accent)}
+  .fmt.on .f-radio::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .fmt .f-name{flex:1;font-weight:550}
+  .fmt .f-sub{font-size:10.5px;color:var(--dim)}
+  .fmt .f-size{font-size:10.5px;color:var(--muted);font-family:var(--mono);flex:none}
+  .dest{display:flex;gap:6px}
+  .dest .path{flex:1;height:32px;border:1px solid var(--line);border-radius:7px;background:#10141a;display:flex;align-items:center;padding:0 9px;font-size:11.5px;color:var(--muted);font-family:var(--mono);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .about-sec{display:flex;flex-direction:column;gap:7px}
+  .about-sec h4{margin:0;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  .about-row{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted)}
+  .about-row b{color:var(--text);font-weight:550}
+  .toast{
+    position:fixed;right:18px;top:44px;z-index:800;max-width:340px;display:flex;align-items:flex-start;gap:9px;
+    background:#1b222c;border:1px solid #35404f;border-left:3px solid var(--accent);border-radius:9px;
+    padding:10px 12px;font-size:12px;color:var(--text);box-shadow:0 12px 30px rgba(0,0,0,.4);
+  }
+  .toast.good{border-left-color:var(--good)}
+  .toast.bad{border-left-color:var(--bad)}
+  .toast .ic{margin-top:1px;color:var(--accent)}
+  .toast.good .ic{color:var(--good)}
+  .toast.bad .ic{color:var(--bad)}
+
+  /* ---------- prototype chrome (not part of the design) ---------- */
+  #switcher{
+    position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:900;
+    display:flex;align-items:center;gap:4px;padding:5px 6px;border-radius:99px;
+    background:#0a0c10;border:1px solid #3c4757;box-shadow:0 12px 32px rgba(0,0,0,.55);
+    font-size:12px;color:var(--text);white-space:nowrap;
+  }
+  #switcher .sw-btn{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:#aeb7c4;font-size:15px}
+  #switcher .sw-btn:hover{background:#1b222c;color:#fff}
+  #switcher .sw-label{min-width:158px;text-align:center;font-size:11.5px;color:#cdd5e0}
+  #switcher .sw-label b{color:var(--accent);font-family:var(--mono);font-size:11px;margin-right:4px}
+  #switcher .sw-div{width:1px;height:18px;background:#2b3543;margin:0 4px}
+  #switcher select{
+    height:26px;background:#12161c;border:1px solid #303a48;border-radius:13px;padding:0 8px;
+    font-size:11px;color:#cdd5e0;max-width:150px;
+  }
+  #switcher select:focus{outline:none;border-color:var(--accent-line)}
+  #switcher .sw-tag{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#5b6575;padding:0 4px 0 0}
+  #notes{
+    position:fixed;right:16px;top:42px;bottom:76px;width:340px;z-index:850;overflow:auto;
+    background:#12161c;border:1px solid #303a48;border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.5);padding:16px;
+    font-size:12px;color:var(--muted);line-height:1.55;
+  }
+  #notes h3{font-size:12px;color:var(--text);margin:0 0 4px;letter-spacing:.01em}
+  #notes h4{margin:16px 0 4px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  #notes ol{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:7px}
+  #notes li b{color:#d7dde6;font-weight:550}
+  #notes .close-x{position:absolute;right:10px;top:10px}
+  #notes .note-kbd{margin-top:14px;padding-top:10px;border-top:1px solid var(--line);font-size:11px;color:var(--dim)}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:1150px){
+    .shell-a{grid-template-columns:242px minmax(0,1fr)}
+    .two-col{grid-template-columns:1fr}
+    .b-body{grid-template-columns:190px minmax(0,1fr) 264px}
+    .b-insp{padding:10px}
+    .b-now{width:150px}
+  }
+  @media (max-width:1000px){
+    .c-stages{grid-template-columns:1fr}
+    .b-body{grid-template-columns:190px minmax(0,1fr)}
+    .b-insp{grid-column:1/-1;border-left:none;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:10px;max-height:250px}
+    .b-body{grid-template-rows:minmax(0,1fr) auto}
+    .b-top .brand-block{border-right:none;padding-right:0}
+    .b-top .brand-text{display:none}
+    .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .tile.span3{grid-column:span 2}
+  }
+  @media (max-width:820px){
+    .shell-b{grid-template-rows:66px minmax(0,1fr)}
+    .b-rail{display:none}
+    .b-body{grid-template-columns:minmax(0,1fr)}
+    .b-top .b-now{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div id="titlebar" title="Simulated native window frame — the real app uses the OS frame">
+  <span class="logo" style="width:15px;height:15px"></span>
+  <span class="tb-title" id="tb-title">StemForge</span>
+  <span class="tb-tag">prototype</span>
+  <span class="tb-spacer"></span>
+  <button class="tb-btn" title="Minimise (simulated)">—</button>
+  <button class="tb-btn" title="Maximise (simulated)">▢</button>
+  <button class="tb-btn" title="Close (simulated)">✕</button>
+</div>
+
+<div id="app"></div>
+
+<div id="switcher">
+  <span class="sw-tag">variant</span>
+  <button class="sw-btn" id="sw-prev" title="Previous variant (←)">‹</button>
+  <span class="sw-label"><b id="sw-key">A</b><span id="sw-name">Rail &amp; detail</span></span>
+  <button class="sw-btn" id="sw-next" title="Next variant (→)">›</button>
+  <span class="sw-div"></span>
+  <select id="sw-state" title="Seeded state (1–8)">
+    <option value="empty">Empty / first run</option>
+    <option value="importing">Importing from YouTube</option>
+    <option value="loaded">Loaded, not separate</option>
+    <option value="separating">Separating</option>
+    <option value="separated">Separated</option>
+    <option value="rendered">Rendered +3</option>
+    <option value="model">Model not installed</option>
+    <option value="error">Separation failed</option>
+  </select>
+  <button class="sw-btn" id="sw-notes" title="Questions this prototype settles">?</button>
+</div>
+
+<aside id="notes" hidden>
+  <button class="sw-btn close-x" id="notes-close" title="Close">✕</button>
+  <h3>What this prototype settled</h3>
+  <p><b style="color:#f2a65a">Decision: variant A, Rail &amp; detail.</b> The signal-path strip and the transport-level Export were folded in from B. A is the default variant; B and C remain below as the exploration record.</p>
+  <h4>Questions on the table</h4>
+  <ol>
+    <li><b>Where do Pitch and Separation live?</b> Beside the track (A), in a persistent actions inspector (B), or as numbered stages (C).</li>
+    <li><b>How are multiple renders shown?</b> Proposed: one set of version tabs (Original · +3 · −2) rather than duplicated rows. A/B is a shortcut that flips the tabs.</li>
+    <li><b>How does playback work?</b> Proposed: one player at a time across all artifacts; clicking another output takes over. No stem synchronisation.</li>
+    <li><b>Where do Jobs live?</b> Global bottom bar (A), inspector activity (B), or inline in the stage that owns them (C). One job at a time either way.</li>
+    <li><b>First-run model gate.</b> Proposed: inline blocking card with download size and licence note, not a modal. Download then auto-resubmits Separation once.</li>
+    <li><b>How do you Export?</b> Proposed: per-artifact Export where the artifact is listed, plus one Export button for what you're listening to.</li>
+    <li><b>Vocals / Instrumental priority.</b> Both primary; drums/bass/other behind a disclosure. Separated but not rendered should show a ghost tile, not an empty rack.</li>
+    <li><b>Window chrome.</b> Native OS frame; no close veto; window title <span class="mono">StemForge — &lt;Track&gt;</span>; About/attribution is one click from the main surface.</li>
+  </ol>
+  <h4>Known prototype controls</h4>
+  <p>Model card has a <em>simulate offline</em> checkbox so the download-failure state is reachable. Everything else is seeded.</p>
+  <div class="note-kbd">
+    <span class="kbd">←</span> <span class="kbd">→</span> variants · <span class="kbd">1</span>–<span class="kbd">8</span> states · <span class="kbd">?</span> this panel
+  </div>
+</aside>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ------------------------------------------------------------------ icons */
+  var ICONS = {
+    play: '<path d="M8 5.2v13.6L19 12z" fill="currentColor" stroke="none"/>',
+    pause: '<rect x="7" y="5" width="3.6" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="13.4" y="5" width="3.6" height="14" rx="1" fill="currentColor" stroke="none"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
+    x: '<path d="M6 6l12 12M18 6L6 18"/>',
+    trash: '<path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13"/>',
+    download: '<path d="M12 4v11m0 0l4-4m-4 4l-4-4M5 20h14"/>',
+    upload: '<path d="M12 20V9m0 0L8 13m4-4l4 4M5 4h14"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
+    video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/>',
+    music: '<path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+    alert: '<path d="M12 3l9 16H3z"/><path d="M12 9v4m0 3h.01"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>',
+    down: '<path d="M6 9l6 6 6-6"/>',
+    right: '<path d="M9 6l6 6-6 6"/>',
+    log: '<path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
+    ab: '<path d="M4 17V7m0 0L7 4M4 7l3 3M20 7v10m0 0l-3 3m3-3l-3-3"/>',
+    wave: '<path d="M4 12v-2M8 16V8M12 19V5M16 15V9M20 13v-2"/>'
+  };
+  function icon(name, cls){
+    return '<svg class="ic ' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + '</svg>';
+  }
+  function logo(size){
+    var s = size || 24;
+    return '<span class="logo" style="width:' + s + 'px;height:' + s + 'px">' +
+      '<svg viewBox="0 0 24 24" width="' + Math.round(s * 0.64) + '" height="' + Math.round(s * 0.64) + '" ' +
+      'fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">' +
+      '<path d="M5 13v-2M9 16V8M13 14v-4M17 18V6"/></svg></span>';
+  }
+
+  /* ------------------------------------------------------------------ helpers */
+  function esc(v){
+    return String(v == null ? '' : v).replace(/[&<>"]/g, function(c){
+      return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' })[c];
+    });
+  }
+  function fmtTime(sec){
+    sec = Math.max(0, Math.round(sec || 0));
+    return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+  }
+  function fmtSemi(n){
+    n = Math.round(n || 0);
+    if (n === 0) return '0';
+    return n > 0 ? '+' + n : '\u2212' + Math.abs(n);
+  }
+  function slug(s){
+    return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  }
+  function fmtBytes(mb){
+    if (mb >= 1000) return (mb / 1000).toFixed(2) + ' GB';
+    return mb.toFixed(1) + ' MB';
+  }
+  function labelForKind(kind){
+    return ({ import:'Importing', separation:'Separating', render:'Rendering pitch',
+      model:'Downloading model', export:'Exporting' })[kind] || kind;
+  }
+
+  /* ------------------------------------------------------------------ data */
+  function T1(){
+    return { id:'t1', title:'Midnight Driver — Rough Mix', origin:'file',
+      file:'midnight-driver-rough.wav', dur:222, rate:'44.1 kHz · stereo', size:'58.2 MB' };
+  }
+  function T2(){
+    return { id:'t2', title:'Aurora — Live Session', origin:'youtube',
+      file:'https://www.youtube.com/watch?v=8fJ2kQx', uploader:'Halcyon Sound',
+      dur:307, rate:'44.1 kHz · stereo', size:'72.4 MB' };
+  }
+  var RECENTS = [
+    { id:'t1', title:'Midnight Driver — Rough Mix', kind:'file', meta:'2 min ago', ok:true },
+    { id:'gone', title:'Choir rehearsal — Take 2', kind:'file', meta:'moved', ok:false },
+    { id:'t2', title:'Aurora — Live Session', kind:'youtube', meta:'yesterday', ok:true }
+  ];
+  var VARIANTS = { A:'Rail & detail', B:'Transport & rack', C:'Pipeline stages' };
+  var SCENARIOS = ['empty','importing','loaded','separating','separated','rendered','model','error'];
+
+  /* ------------------------------------------------------------------ state */
+  function baseState(){
+    return {
+      variant:'A', scenario:'empty',
+      tracks:[], selected:null,
+      semitones:{}, versions:{}, active:{}, sep:{}, stems:{}, openStems:{},
+      listen:null, playing:false,
+      job:null,
+      model:{ installed:true, simOffline:false },
+      toast:null, toastId:0,
+      modal:null, removeTarget:null,
+      exp:null,
+      ytUrl:'',
+      notes:false,
+      seq:1
+    };
+  }
+  var sim = baseState();
+
+  function track(id){ return sim.tracks.filter(function(t){ return t.id === id; })[0] || null; }
+  function cur(){ return track(sim.selected); }
+  function busy(){ return !!sim.job; }
+
+  function addTrackData(t){
+    sim.tracks.push(t);
+    sim.semitones[t.id] = 0;
+    sim.versions[t.id] = [{ key:'orig', label:'Original', semitones:0 }];
+    sim.active[t.id] = 'orig';
+    sim.sep[t.id] = { status:'none' };
+    sim.stems[t.id] = false;
+    sim.openStems[t.id] = false;
+  }
+  function initListenFor(t){
+    var list = artifacts(t, sim.active[t.id] || 'orig');
+    if (list.length) sim.listen = { trackId:t.id, artId:list[0].id };
+    else sim.listen = null;
+    sim.playing = false;
+  }
+
+  /* ------------------------------------------------------------------ artifacts */
+  function artifacts(t, vkey){
+    if (!t) return [];
+    var hasStems = !!sim.stems[t.id];
+    var isOrig = vkey === 'orig';
+    var v = (sim.versions[t.id] || []).filter(function(x){ return x.key === vkey; })[0];
+    var shift = v && v.semitones ? v.label : null;
+    var out = [];
+    if (isOrig){
+      out.push({ id:t.id+'-orig-master', name:'Original', role:'original', dur:t.dur });
+      if (hasStems){
+        out.push({ id:t.id+'-orig-vocals', name:'Vocals', role:'vocals', dur:t.dur, primary:true });
+        out.push({ id:t.id+'-orig-instrumental', name:'Instrumental', role:'instrumental', dur:t.dur, primary:true, isSum:true });
+        out.push({ id:t.id+'-orig-drums', name:'Drums', role:'stem', dur:t.dur });
+        out.push({ id:t.id+'-orig-bass', name:'Bass', role:'stem', dur:t.dur });
+        out.push({ id:t.id+'-orig-other', name:'Other', role:'stem', dur:t.dur });
+      }
+    } else if (hasStems && v && v.scope === 'stems'){
+      out.push({ id:t.id+'-'+vkey+'-vocals', name:'Vocals', role:'vocals', dur:t.dur, primary:true, shift:shift });
+      out.push({ id:t.id+'-'+vkey+'-instrumental', name:'Instrumental', role:'instrumental', dur:t.dur, primary:true, isSum:true, shift:shift });
+      out.push({ id:t.id+'-'+vkey+'-drums', name:'Drums', role:'stem', dur:t.dur, shift:shift });
+      out.push({ id:t.id+'-'+vkey+'-bass', name:'Bass', role:'stem', dur:t.dur, shift:shift });
+      out.push({ id:t.id+'-'+vkey+'-other', name:'Other', role:'stem', dur:t.dur, shift:shift });
+    } else {
+      out.push({ id:t.id+'-'+vkey+'-master', name:'Shifted master', role:'render', dur:t.dur, shift:shift });
+    }
+    return out;
+  }
+
+  function artById(trackId, artId){
+    var t = track(trackId);
+    if (!t) return null;
+    var vers = sim.versions[t.id] || [];
+    for (var i = 0; i < vers.length; i++){
+      var list = artifacts(t, vers[i].key);
+      for (var j = 0; j < list.length; j++){
+        if (list[j].id === artId) return { art:list[j], version:vers[i], track:t };
+      }
+    }
+    return null;
+  }
+  function listenInfo(){
+    if (!sim.listen) return null;
+    return artById(sim.listen.trackId, sim.listen.artId);
+  }
+  function latestRender(t){
+    if (!t) return null;
+    var vers = sim.versions[t.id] || [];
+    for (var i = vers.length - 1; i >= 0; i--){ if (vers[i].key !== 'orig') return vers[i]; }
+    return null;
+  }
+  function versionAt(t, n){
+    if (!t) return null;
+    var vers = sim.versions[t.id] || [];
+    var want = sim.stems[t.id] ? 'stems' : 'master';
+    var cands = vers.filter(function(v){ return v.semitones === n && v.key !== 'orig'; });
+    for (var i = 0; i < cands.length; i++){ if (cands[i].scope === want) return cands[i]; }
+    return null; // a master render does not satisfy a stem render, and vice versa
+  }
+  function setLabel(t, v){
+    if (!t || !v) return '';
+    if (v.key === 'orig') return 'Original';
+    var dup = (sim.versions[t.id] || []).some(function(x){
+      return x.key !== v.key && x.semitones === v.semitones && x.scope !== v.scope && x.key !== 'orig';
+    });
+    return dup ? v.label + (v.scope === 'master' ? ' master' : ' stems') : v.label;
+  }
+  function isPlayingArt(a){ return !!(sim.listen && sim.listen.artId === a.id && sim.playing); }
+
+  /* ------------------------------------------------------------------ seeding */
+  function seed(kind){
+    var keepVariant = sim.variant;
+    sim = baseState();
+    sim.variant = keepVariant;
+    sim.scenario = kind;
+
+    if (kind === 'empty'){
+      sim.model = { installed:false, simOffline:false };
+    } else if (kind === 'importing'){
+      sim.model = { installed:true, simOffline:false };
+      sim.job = { kind:'import', trackId:null, progress:0.42, running:true };
+    } else if (kind === 'model'){
+      addTrackData(T1()); sim.selected = 't1'; initListenFor(cur());
+      sim.model = { installed:false, simOffline:false };
+      sim.semitones.t1 = 3;
+    } else {
+      addTrackData(T1()); sim.selected = 't1';
+      sim.semitones.t1 = (kind === 'rendered') ? 3 : 0;
+      if (kind === 'loaded'){ sim.semitones.t1 = 3; }
+      if (kind === 'separating'){
+        sim.sep.t1 = { status:'running' };
+        sim.job = { kind:'separation', trackId:'t1', progress:0.34, running:true };
+      }
+      if (kind === 'separated' || kind === 'rendered'){
+        sim.sep.t1 = { status:'done', separateId:'0' };
+        sim.stems.t1 = true;
+      }
+      if (kind === 'rendered'){
+        sim.versions.t1.push({ key:'r1', label:'+3', semitones:3, scope:'stems' });
+        sim.active.t1 = 'r1';
+        sim.seq = 2;
+      }
+      if (kind === 'error'){
+        sim.sep.t1 = { status:'failed', error:{
+          code:'separation.worker_crashed',
+          message:'The separation worker stopped unexpectedly.',
+          detail:'Exit code 1 · the last 20 lines of worker output are in the job log.',
+          log:'logs/jobs/2026-11-15T12-04-11-t1.log'
+        }};
+        sim.semitones.t1 = 0;
+      }
+      initListenFor(cur());
+      if (kind === 'separated'){ sim.listen = { trackId:'t1', artId:'t1-orig-instrumental' }; }
+      if (kind === 'rendered'){ sim.listen = { trackId:'t1', artId:'t1-r1-vocals' }; }
+    }
+  }
+
+  /* ------------------------------------------------------------------ jobs */
+  var STAGES = {
+    import:[[0.0,'Downloading audio'],[0.72,'Decoding to 44.1 kHz WAV'],[0.9,'Building preview']],
+    separation:[[0.0,'Loading model'],[0.08,'stem 2 of 4'],[0.55,'stem 3 of 4'],[0.85,'Finalising stems']],
+    render:[[0.0,'Loading input'],[0.08,'Shifting pitch · R3 + formant'],[0.86,'Encoding preview']],
+    model:[[0.0,'Downloading htdemucs · 84 MB']],
+    export:[[0.0,'Encoding'],[0.8,'Writing file']]
+  };
+  function jobStage(job){
+    var rows = STAGES[job.kind] || [[0, 'Working']];
+    var label = rows[0][1];
+    for (var i = 0; i < rows.length; i++){ if (job.progress >= rows[i][0]) label = rows[i][1]; }
+    return label;
+  }
+
+  function startJob(kind, trackId){
+    if (sim.job) return;
+    sim.job = { kind:kind, trackId:trackId || null, progress:0.02, running:true };
+    if (kind === 'separation' && trackId) sim.sep[trackId] = { status:'running' };
+    sync();
+  }
+
+  function advanceJob(){
+    var j = sim.job;
+    if (!j || !j.running) return;
+    j.progress = Math.min(1, j.progress + 0.022 + Math.random() * 0.02);
+    if (j.progress >= 1){ finishJob(); }
+  }
+
+  function finishJob(){
+    var j = sim.job;
+    if (!j) return;
+    var t = j.trackId ? track(j.trackId) : null;
+
+    if (j.kind === 'import'){
+      if (!track('t2')){
+        addTrackData(T2());
+      }
+      sim.selected = 't2';
+      initListenFor(track('t2'));
+      toast('Imported “Aurora — Live Session” · 5:07', 'good');
+    } else if (j.kind === 'separation'){
+      sim.sep[j.trackId] = { status:'done' };
+      sim.stems[j.trackId] = true;
+      if (t){
+        sim.listen = { trackId:t.id, artId:artifacts(t, 'orig').filter(function(a){ return a.role === 'vocals'; })[0].id };
+        sim.playing = false;
+      }
+      toast('Separation complete · 4 stems and Instrumental', 'good');
+    } else if (j.kind === 'render'){
+      if (t){
+        var n = sim.semitones[t.id];
+        var scope = sim.stems[t.id] ? 'stems' : 'master';
+        var existing = versionAt(t, n);
+        if (!existing || existing.scope !== scope){
+          var key = 'r' + sim.seq++;
+          sim.versions[t.id].push({ key:key, label:fmtSemi(n), semitones:n, scope:scope });
+          sim.active[t.id] = key;
+        } else {
+          sim.active[t.id] = existing.key;
+        }
+        initListenFor(t);
+        sim.playing = false;
+        toast('Rendered ' + fmtSemi(n) + ' semitones · ' + (scope === 'stems' ? 'all stems and Instrumental' : 'the original master'), 'good');
+      }
+    } else if (j.kind === 'model'){
+      if (sim.model.simOffline){
+        sim.job = null;
+        sim.model.installed = false;
+        sim.model.error = 'offline';
+        toast('Model download failed — check your connection', 'bad');
+        sync();
+        return;
+      }
+      sim.model.installed = true;
+      sim.model.error = null;
+      toast('Model installed and verified (SHA-256)', 'good');
+      var target = sim.selected;
+      sim.job = null;
+      if (target){
+        startJob('separation', target);
+        return;
+      }
+    } else if (j.kind === 'export'){
+      toast('Exported to ' + (sim.lastExportPath || 'the chosen folder'), 'good');
+    }
+    sim.job = null;
+    sync();
+  }
+
+  function cancelJob(){
+    if (!sim.job) return;
+    var j = sim.job;
+    if (j.kind === 'separation' && j.trackId){ sim.sep[j.trackId] = { status:'none' }; }
+    if (j.kind === 'model'){ /* stays not installed */ }
+    sim.job = null;
+    toast('Cancelled — partial files removed');
+    sync();
+  }
+
+  function tick(){
+    if (!sim.job || !sim.job.running) return;
+    advanceJob();
+    if (!isTyping()) sync();
+  }
+
+  function isTyping(){
+    var el = document.activeElement;
+    return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+  }
+
+  /* ------------------------------------------------------------------ interactions */
+  function toast(msg, kind){
+    sim.toast = { id:++sim.toastId, msg:msg, kind:kind || '' };
+    var id = sim.toast.id;
+    setTimeout(function(){
+      if (sim.toast && sim.toast.id === id){ sim.toast = null; sync(); }
+    }, 4600);
+  }
+
+  function selectTrack(id){
+    if (sim.selected === id) return;
+    sim.selected = id;
+    if (!sim.listen || sim.listen.trackId !== id){ initListenFor(cur()); }
+    sync();
+  }
+
+  function ensureTrack1(){
+    if (track('t1')) return;
+    addTrackData(T1());
+    sim.selected = 't1';
+    initListenFor(track('t1'));
+  }
+
+  function addTracks(){
+    if (sim.job) return;
+    ensureTrack1();
+    toast('Added midnight-driver-rough.wav', 'good');
+    sync();
+  }
+
+  function importYoutube(){
+    if (sim.job) return;
+    var url = (sim.ytUrl || '').trim();
+    if (!url){
+      toast('Paste a YouTube URL first', 'bad');
+      sync();
+      return;
+    }
+    startJob('import', null);
+  }
+
+  function togglePlay(trackId, artId){
+    if (!trackId || !artId) return;
+    if (sim.listen && sim.listen.artId === artId && sim.playing){
+      sim.playing = false;
+    } else {
+      sim.listen = { trackId:trackId, artId:artId };
+      sim.playing = true;
+    }
+    sync();
+  }
+
+  function toggleTransport(){
+    var info = listenInfo();
+    if (!info) return;
+    sim.playing = !sim.playing;
+    sync();
+  }
+
+  function setVersion(trackId, key){
+    var t = track(trackId);
+    if (!t) return;
+    sim.active[t.id] = key;
+    var list = artifacts(t, key);
+    var stillThere = list.some(function(a){ return sim.listen && sim.listen.artId === a.id; });
+    if (!stillThere){
+      sim.listen = list.length ? { trackId:t.id, artId:list[0].id } : null;
+      sim.playing = false;
+    }
+    sync();
+  }
+
+  function setAb(trackId, key){
+    var t = track(trackId);
+    if (!t) return;
+    if (key === 'orig'){ setVersion(trackId, 'orig'); return; }
+    var latest = latestRender(t);
+    if (latest) setVersion(trackId, latest.key);
+  }
+
+  function stepSemis(delta){
+    var t = cur();
+    if (!t) return;
+    var n = Math.max(-12, Math.min(12, (sim.semitones[t.id] || 0) + delta));
+    sim.semitones[t.id] = n;
+    sync();
+  }
+
+  function doSeparate(){
+    var t = cur();
+    if (!t || sim.job) return;
+    if (!sim.model.installed){ toast('Install the separation model first', 'bad'); sync(); return; }
+    startJob('separation', t.id);
+  }
+
+  function doRender(){
+    var t = cur();
+    if (!t || sim.job) return;
+    if (!sim.semitones[t.id]){ return; }
+    startJob('render', t.id);
+  }
+
+  function retrySeparation(){
+    var t = cur();
+    if (!t || sim.job) return;
+    if (!sim.model.installed){ toast('Install the separation model first', 'bad'); sync(); return; }
+    startJob('separation', t.id);
+  }
+
+  function downloadModel(){
+    if (sim.job) return;
+    if (sim.job && sim.job.kind === 'model') return;
+    sim.model.error = null;
+    startJob('model', sim.selected);
+  }
+
+  function openExport(trackId, artId){
+    var found = artById(trackId, artId);
+    if (!found) return;
+    var a = found.art;
+    var base = slug(found.track.title.replace(/ —.*$/, '')) + '-' + slug(a.name) + (a.shift ? '-' + slug(a.shift) : '');
+    sim.exp = {
+      trackId:trackId, artId:artId,
+      name:base, format:'wav', dir:'~/Music/StemForge',
+      dur:a.dur, label:a.name + (a.shift ? ' · ' + a.shift : '')
+    };
+    sim.modal = 'export';
+    sync();
+  }
+
+  function exportSizes(sec){
+    var perMin = sec / 60;
+    return {
+      wav:(perMin * 15.9).toFixed(1) + ' MB',
+      flac:(perMin * 9.4).toFixed(1) + ' MB',
+      mp3:(perMin * 2.4).toFixed(1) + ' MB'
+    };
+  }
+  function extFor(f){ return f === 'wav' ? '.wav' : f === 'flac' ? '.flac' : '.mp3'; }
+
+  function confirmExport(){
+    if (!sim.exp) return;
+    if (sim.job){ toast('Wait for the current job to finish'); closeModal(); return; }
+    var ext = extFor(sim.exp.format);
+    var dest = sim.exp.dir + '/' + sim.exp.name + ext;
+    sim.lastExportPath = dest;
+    sim.modal = null;
+    sim.exp = null;
+    sim.job = { kind:'export', trackId:sim.selected, progress:0.5, running:true };
+    sync();
+  }
+
+  function askRemove(trackId){
+    sim.removeTarget = trackId;
+    sim.modal = 'remove';
+    sync();
+  }
+  function confirmRemove(){
+    var id = sim.removeTarget;
+    sim.modal = null;
+    sim.removeTarget = null;
+    if (!id) return;
+    sim.tracks = sim.tracks.filter(function(t){ return t.id !== id; });
+    delete sim.semitones[id]; delete sim.versions[id]; delete sim.active[id];
+    delete sim.sep[id]; delete sim.stems[id]; delete sim.openStems[id];
+    if (sim.selected === id) sim.selected = sim.tracks.length ? sim.tracks[0].id : null;
+    initListenFor(cur());
+    toast('Track removed and cached audio deleted');
+    sync();
+  }
+
+  function openAbout(){ sim.modal = 'about'; sync(); }
+  function closeModal(){ sim.modal = null; sim.exp = null; sim.removeTarget = null; sync(); }
+
+  function chooseFolder(){
+    if (!sim.exp) return;
+    sim.exp.dir = sim.exp.dir === '~/Music/StemForge' ? '~/Desktop' : '~/Music/StemForge';
+    toast('Native folder dialog (simulated)');
+    sync();
+  }
+
+  function toggleStems(trackId){
+    sim.openStems[trackId] = !sim.openStems[trackId];
+    sync();
+  }
+
+  function toggleOffline(){
+    sim.model.simOffline = !sim.model.simOffline;
+    sync();
+  }
+
+  /* ------------------------------------------------------------------ shared partials */
+  function badgesFor(a){
+    var out = [];
+    if (a.role === 'vocals' || a.role === 'instrumental') out.push('<span class="badge a">primary</span>');
+    if (a.role === 'instrumental') out.push('<span class="badge">sum</span>');
+    if (a.role === 'stem') out.push('<span class="badge">stem</span>');
+    if (a.shift) out.push('<span class="badge a">' + esc(a.shift) + '</span>');
+    if (a.role === 'original') out.push('<span class="badge">source</span>');
+    return out.join('');
+  }
+  function playIconFor(a){ return isPlayingArt(a) ? icon('pause') : icon('play'); }
+
+  function trackStatus(t){
+    var s = sim.sep[t.id] || { status:'none' };
+    if (s.status === 'running') return { cls:'run', text:'Separating…' };
+    if (s.status === 'failed') return { cls:'bad', text:'Separation failed' };
+    if (s.status === 'done'){
+      var r = latestRender(t);
+      return { cls:'ok', text: r ? '4 stems · ' + setLabel(t, r) + ' rendered' : '4 stems' };
+    }
+    var r2 = latestRender(t);
+    return { cls:'', text: r2 ? setLabel(t, r2) + ' rendered' : 'No stems yet' };
+  }
+
+  function cacheMeter(){
+    return '<div class="cache-meter"><div class="cm-l"><span>Cache</span><span class="mono">3.4 GB / 8 GiB</span></div>' +
+      '<div class="bar"><i style="width:42%"></i></div></div>';
+  }
+
+  function recentBlock(){
+    var rows = RECENTS.map(function(r){
+      return '<button class="recent' + (r.ok ? '' : ' missing') + '" data-act="recent" data-id="' + r.id + '">' +
+        icon(r.kind === 'youtube' ? 'video' : 'file') +
+        '<span class="r-t">' + esc(r.title) + '</span>' +
+        '<span class="r-m">' + (r.ok ? esc(r.meta) : 'missing') + '</span>' +
+        '</button>';
+    }).join('');
+    return '<div class="rail-label">Recent <span>' + RECENTS.length + '</span></div><div class="recent-list">' + rows + '</div>';
+  }
+
+  function modelBlock(opts){
+    opts = opts || {};
+    var downloading = sim.job && sim.job.kind === 'model';
+    var err = sim.model.error;
+    var pct = downloading ? Math.round(sim.job.progress * 100) : 0;
+    return '<div class="model-card">' +
+      '<div class="model-head">' + icon('download') + '<span>Separation model not installed</span>' +
+        '<span class="badge">84 MB</span></div>' +
+      '<p><b>htdemucs</b> runs locally. The weights download once from Hugging Face and are verified by SHA-256 before use.</p>' +
+      (err === 'offline'
+        ? '<div class="model-err">' + icon('alert') + '<span>Download failed — no connection. Check your network and retry.</span></div>'
+        : '') +
+      (downloading
+        ? '<div class="model-progress"><div class="mp-l"><span>Downloading · 84.0 MB</span><span class="mono">' + pct + '%</span></div>' +
+          '<div class="bar"><i style="width:' + pct + '%"></i></div></div>'
+        : '') +
+      '<div class="model-actions">' +
+        (downloading
+          ? '<button class="btn sm" data-act="cancel">' + icon('x') + 'Cancel</button>'
+          : '<button class="btn primary sm" data-act="download-model" ' + (busy() ? 'disabled' : '') + '>' + icon('download') + (err ? 'Retry download' : 'Download model') + '</button>') +
+        '<button class="btn ghost sm" data-act="about">Licence details</button>' +
+      '</div>' +
+      '<div class="fineprint">Weights: adefossez/HTDemucs · revision cbc8a9b · 84,025,440 bytes</div>' +
+      '<label class="proto-control"><input type="checkbox" ' + (sim.model.simOffline ? 'checked' : '') +
+        ' data-act="toggle-offline"> prototype: simulate offline</label>' +
+      '</div>';
+  }
+
+  function sepBlock(t, compact){
+    var s = sim.sep[t.id] || { status:'none' };
+    if (!sim.model.installed) return modelBlock();
+    if (sim.job && sim.job.kind === 'separation' && sim.job.trackId === t.id){
+      return '<div class="stack"><div class="status-line"><span class="dot run"></span><b>' + esc(jobStage(sim.job)) + '</b></div>' +
+        '<div class="bar"><i style="width:' + Math.round(sim.job.progress * 100) + '%"></i></div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<span class="fineprint">Runs in a worker process · safe to cancel</span>' +
+          '<button class="btn sm" data-act="cancel">' + icon('x') + 'Cancel</button>' +
+        '</div></div>';
+    }
+    if (s.status === 'failed'){
+      return '<div class="err-card">' +
+        '<div class="err-head">' + icon('alert') + '<span>Separation failed</span></div>' +
+        '<div class="e-msg">' + esc(s.error.message) + '</div>' +
+        '<div class="e-code">' + esc(s.error.code) + '</div>' +
+        (sim.stems[t.id] ? '<div class="fineprint">Stems from the last successful Separation are still available.</div>' : '') +
+        '<div class="err-actions"><button class="btn sm primary" data-act="retry">Retry</button>' +
+        '<button class="btn sm" data-act="open-log">' + icon('log') + 'Open job log</button></div>' +
+        '</div>';
+    }
+    if (s.status === 'done'){
+      return '<div class="stack"><div class="status-line"><span class="dot ok"></span><b>4 stems ready</b><span>· htdemucs · CPU</span></div>' +
+        '<div class="fineprint">Vocals and Instrumental are primary. Drums, Bass and Other are available under the disclosure.</div>' +
+        '<div><button class="btn sm" data-act="separate" ' + (busy() ? 'disabled' : '') + '>Separate again</button></div></div>';
+    }
+    return '<div class="stack"><div class="status-line"><span class="dot"></span><b>Not separated</b><span>· htdemucs · CPU</span></div>' +
+      '<div class="fineprint">Splits the track into Vocals, Instrumental, Drums, Bass and Other. Reuses this track\u2019s cache.</div>' +
+      '<div><button class="btn primary sm" data-act="separate" ' + (busy() ? 'disabled' : '') + '>' + icon('wave') + 'Separate vocals</button></div></div>';
+  }
+
+  function pitchBlock(t){
+    var n = sim.semitones[t.id] || 0;
+    var existing = versionAt(t, n);
+    var viewing = !!(existing && existing.key !== 'orig' && existing.key === (sim.active[t.id] || 'orig'));
+    var disabled = busy() || n === 0;
+    var main;
+    if (n === 0){
+      main = '<button class="btn primary sm" disabled>' + icon('spark') + 'Render</button>';
+    } else if (viewing){
+      main = '<span class="fineprint">Viewing this render. Step semitones to render another set.</span>';
+    } else if (existing){
+      main = '<button class="btn sm" data-act="set-version" data-track="' + t.id + '" data-id="' + existing.key + '">Open ' + esc(setLabel(t, existing)) + ' version</button>';
+    } else {
+      main = '<button class="btn primary sm" data-act="render" ' + (disabled ? 'disabled' : '') + '>' +
+        icon('spark') + 'Render ' + fmtSemi(n) + '</button>';
+    }
+    var status;
+    if (n === 0) status = '<span>Set semitones to render a shifted set.</span>';
+    else if (viewing) status = '<span class="dot ok"></span><span>' + esc(setLabel(t, existing)) + ' rendered · A/B compares it with Original.</span>';
+    else if (existing) status = '<span class="dot ok"></span><span>' + esc(setLabel(t, existing)) + ' already cached — open it instead of re-rendering.</span>';
+    else status = '<span class="dot"></span><span>Not rendered at ' + fmtSemi(n) + ' yet.</span>';
+    return '<div class="stack">' +
+      '<div class="stepper">' +
+        '<button class="step-btn" data-act="semi" data-id="-1" ' + (n <= -12 || busy() ? 'disabled' : '') + '>' + icon('minus') + '</button>' +
+        '<div class="semi"><b>' + fmtSemi(n) + '</b><span>semitones</span></div>' +
+        '<button class="step-btn" data-act="semi" data-id="1" ' + (n >= 12 || busy() ? 'disabled' : '') + '>' + icon('plus') + '</button>' +
+      '</div>' +
+      '<div class="status-line">' + status + '</div>' +
+      '<div>' + main + '</div>' +
+      '<div class="fineprint">Tempo preserved (Rubber Band R3 + formant). Renders never modify the original.</div>' +
+    '</div>';
+  }
+
+  function versionTabs(t){
+    var vers = sim.versions[t.id] || [];
+    if (vers.length < 2) return '';
+    var active = sim.active[t.id] || 'orig';
+    return '<span class="pill-tabs">' + vers.map(function(v){
+      return '<button data-act="set-version" data-track="' + t.id + '" data-id="' + v.key + '" class="' + (v.key === active ? 'on' : '') + '">' + esc(setLabel(t, v)) + '</button>';
+    }).join('') + '</span>';
+  }
+
+  function abControl(t, compact){
+    if (!t) return '';
+    var latest = latestRender(t);
+    var active = sim.active[t.id] || 'orig';
+    var shiftedOn = active !== 'orig';
+    return '<div class="ab-seg" title="A/B: compare the original with the latest rendered version">' +
+      '<span class="ab-l">A/B</span>' +
+      '<button data-act="ab" data-track="' + t.id + '" data-id="orig" class="' + (!shiftedOn ? 'on' : '') + '">Original</button>' +
+      '<button data-act="ab" data-track="' + t.id + '" data-id="shifted" class="' + (shiftedOn ? 'on' : '') + '" ' + (!latest ? 'disabled' : '') + '>' +
+        (latest ? esc(setLabel(t, latest)) : '+3') + '</button>' +
+    '</div>';
+  }
+
+  function outputRows(t, opts){
+    opts = opts || {};
+    var vkey = sim.active[t.id] || 'orig';
+    var list = artifacts(t, vkey);
+    var showAll = !!sim.openStems[t.id];
+    var rows = [];
+    list.forEach(function(a){
+      var hidden = (a.role === 'stem' && !showAll);
+      if (hidden) return;
+      if (opts.primaryOnly && a.role !== 'vocals' && a.role !== 'instrumental') return;
+      rows.push('<div class="out-row' + (isPlayingArt(a) ? ' is-playing' : '') + '">' +
+        '<button class="or-play" data-act="play" data-track="' + t.id + '" data-art="' + a.id + '" title="Preview ' + esc(a.name) + '">' + playIconFor(a) + '</button>' +
+        '<div class="or-main"><span class="or-name">' + esc(a.name) + '</span>' + badgesFor(a) + '</div>' +
+        '<span class="or-dur">' + fmtTime(a.dur) + '</span>' +
+        '<button class="icon-btn" data-act="export" data-track="' + t.id + '" data-art="' + a.id + '" title="Export ' + esc(a.name) + '">' + icon('download') + '</button>' +
+      '</div>');
+    });
+    if (!opts.primaryOnly){
+      var stemCount = list.filter(function(a){ return a.role === 'stem'; }).length;
+      if (stemCount){
+        rows.push('<button class="more-row" data-act="toggle-stems" data-id="' + t.id + '">' +
+          icon(showAll ? 'down' : 'right') + (showAll ? 'Hide ' : 'Show ') + stemCount + ' more stems' +
+          '<span style="flex:1"></span><span class="fineprint">Drums · Bass · Other</span></button>');
+      }
+      var sepStatus = sim.sep[t.id].status;
+      if (!sim.stems[t.id] && (sepStatus === 'none' || sepStatus === 'running') && vkey === 'orig' && sim.model.installed){
+        rows.push('<div class="ghost-row"><span>' + icon('wave') +
+          (sepStatus === 'running' ? ' Vocals &amp; Instrumental appear here when Separation finishes.' : ' Vocals &amp; Instrumental appear here after Separation.') +
+          '</span>' +
+          (sepStatus === 'none' ? '<button class="btn sm" data-act="separate" ' + (busy() ? 'disabled' : '') + '>Separate</button>' : '') +
+          '</div>');
+      }
+    }
+    return rows.join('');
+  }
+
+  function jobBar(){
+    if (!sim.job) return '';
+    var pct = Math.round(sim.job.progress * 100);
+    return '<div class="jobbar">' +
+      '<span class="dot run"></span>' +
+      '<span class="jb-txt"><b>' + esc(labelForKind(sim.job.kind)) + '</b> · ' + esc(jobStage(sim.job)) + '</span>' +
+      '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+      '<span class="pct">' + pct + '%</span>' +
+      '<button class="btn sm ghost" data-act="cancel">Cancel</button>' +
+    '</div>';
+  }
+
+  function emptyDrop(){
+    return '<div class="dropzone" data-act="add">' +
+      '<span class="dz-ic">' + icon('upload') + '</span>' +
+      '<b>Drop audio files here</b>' +
+      '<span>WAV, MP3, FLAC, M4A — or <u>choose files…</u></span>' +
+    '</div>';
+  }
+  function ytField(){
+    return '<div class="yt-row">' +
+      '<input id="yt-url" placeholder="https://www.youtube.com/watch?v=…" value="' + esc(sim.ytUrl) + '" spellcheck="false">' +
+      '<button class="btn" data-act="yt" ' + (busy() ? 'disabled' : '') + '>Import</button>' +
+    '</div>' +
+    '<div class="fineprint">Only import content you have the right to use. YouTube\u2019s Terms of Service prohibit downloading.</div>';
+  }
+
+  /* ------------------------------------------------------------------ variant A */
+  function trackRowA(t){
+    var st = trackStatus(t);
+    return '<div class="a-track' + (sim.selected === t.id ? ' is-sel' : '') + '" data-act="select" data-id="' + t.id + '" role="button" tabindex="0">' +
+      '<span class="t-ic">' + icon(t.origin === 'youtube' ? 'video' : 'music') + '</span>' +
+      '<span class="t-main"><span class="t-title">' + esc(t.title) + '</span>' +
+        '<span class="t-meta">' + fmtTime(t.dur) + ' · ' + (t.origin === 'youtube' ? 'YouTube' : 'Local file') + ' · ' + esc(st.text) + '</span></span>' +
+      '<span class="dot ' + st.cls + '"></span>' +
+      '<button class="icon-btn danger t-x" data-act="remove" data-id="' + t.id + '" title="Remove track">' + icon('x') + '</button>' +
+    '</div>';
+  }
+
+  function emptyA(){
+    return '<div class="empty"><div class="empty-card">' +
+      '<h2>Bring in a track</h2>' +
+      '<p class="lede">Drop a local file or pull audio from YouTube. Everything runs on this machine.</p>' +
+      emptyDrop() +
+      '<div class="or"><span>or</span></div>' +
+      ytField() +
+      (sim.model.installed ? '' :
+        '<div class="model-card"><div class="model-head">' + icon('download') + '<span>Separation model not installed yet</span>' +
+        '<span class="badge">84 MB</span></div>' +
+        '<p>You can load and preview audio now. Separation asks for the download the first time you use it.</p></div>') +
+    '</div></div>';
+  }
+
+  function signalPathA(t){
+    var sepDone = !!sim.stems[t.id];
+    var latest = latestRender(t);
+    function step(done, label, meta){
+      return '<span class="sp' + (done ? ' done' : '') + '">' + (done ? icon('check') : '<span class="dot"></span>') +
+        '<b>' + label + '</b>' + (meta ? '<span>' + esc(meta) + '</span>' : '') + '</span>';
+    }
+    return '<div class="sigpath">' +
+      step(true, 'Source', t.origin === 'youtube' ? 'YouTube' : 'local') + icon('right') +
+      step(sepDone, 'Separation', sepDone ? '4 stems' : 'not run') + icon('right') +
+      step(!!latest, 'Pitch', latest ? setLabel(t, latest) + ' rendered' : 'not rendered') +
+    '</div>';
+  }
+
+  function detailA(t){
+    var info = listenInfo();
+    var listenName = info ? (info.art.name + (info.art.shift ? ' · ' + info.art.shift : '')) : 'Nothing selected';
+    var dur = info ? info.art.dur : t.dur;
+    var playing = sim.playing && info;
+    var pos = playing ? Math.round(dur * 0.38) : 0;
+    var pct = playing ? 38 : 0;
+    return '<header class="d-head"><div>' +
+        '<h1>' + esc(t.title) + '</h1>' +
+        '<div class="d-meta"><span>' + (t.origin === 'youtube' ? 'YouTube · ' + esc(t.uploader || '') : 'Local file') + '</span><span class="sep">·</span>' +
+          '<span class="mono">' + esc(t.file) + '</span><span class="sep">·</span><span>' + fmtTime(t.dur) + '</span>' +
+          '<span class="sep">·</span><span>' + esc(t.rate) + '</span></div>' +
+      '</div>' +
+      '<div class="head-actions">' +
+        '<button class="icon-btn" data-act="about" title="Settings &amp; About">' + icon('settings') + '</button>' +
+        '<button class="icon-btn danger" data-act="remove" data-id="' + t.id + '" title="Remove track and cached audio">' + icon('trash') + '</button>' +
+      '</div></header>' +
+      signalPathA(t) +
+      '<div class="transport">' +
+        '<button class="play-lg" data-act="toggle-transport" title="' + (playing ? 'Pause' : 'Play') + '">' + icon(playing ? 'pause' : 'play') + '</button>' +
+        '<div class="tp-main">' +
+          '<div class="tp-line"><span class="tp-name">' + esc(listenName) + '</span>' +
+            '<span class="tp-time">' + fmtTime(pos) + ' / ' + fmtTime(dur) + '</span></div>' +
+          '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+        '</div>' +
+        '<div class="tp-right">' + abControl(t, true) +
+          '<button class="btn sm" data-act="export" data-track="' + (info ? info.track.id : t.id) + '" data-art="' + (info ? info.art.id : '') + '" ' + (!info || busy() ? 'disabled' : '') + '" title="Export what you are listening to">' + icon('download') + 'Export</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="two-col">' +
+        '<section class="card"><div class="card-h"><span class="ct">Pitch shift</span><span class="ch">tempo preserved</span></div>' +
+          '<div class="card-b">' + pitchBlock(t) + '</div></section>' +
+        '<section class="card"><div class="card-h"><span class="ct">Separation</span><span class="ch">htdemucs · local</span></div>' +
+          '<div class="card-b">' + sepBlock(t) + '</div></section>' +
+      '</div>' +
+      '<section class="card"><div class="card-h"><span class="ct">Outputs</span>' +
+        '<span style="display:flex;gap:8px;align-items:center">' + versionTabs(t) + '</span></div>' +
+        outputRows(t) +
+      '</section>';
+  }
+
+  function renderA(){
+    var t = cur();
+    return '<div class="shell-a">' +
+      '<aside class="a-rail">' +
+        '<div class="a-brand">' + logo(28) + '<div><div class="brand-name">StemForge</div><div class="brand-sub">local · offline</div></div></div>' +
+        '<div class="a-add"><button class="btn primary wide" data-act="add">' + icon('plus') + 'Add audio</button>' +
+          '<div class="drop-hint">or drop files anywhere</div></div>' +
+        '<div class="a-tracks"><div class="rail-label">Tracks <span>' + sim.tracks.length + '</span></div>' +
+          (sim.tracks.length ? sim.tracks.map(trackRowA).join('') : '<div class="rail-empty">No tracks yet</div>') +
+        '</div>' +
+        '<div class="a-recent">' + recentBlock() + '</div>' +
+        '<div class="a-foot">' + cacheMeter() +
+          '<div style="display:flex;justify-content:space-between;align-items:center">' +
+            '<button class="link" data-act="about">Settings &amp; About</button>' +
+            '<span class="fineprint">v0.1.0</span>' +
+          '</div>' +
+        '</div>' +
+      '</aside>' +
+      '<main class="a-main">' +
+        '<div class="a-scroll">' + (t ? detailA(t) : emptyA()) + '</div>' +
+        jobBar() +
+      '</main>' +
+    '</div>';
+  }
+
+  function rackPath(t){
+    var sepDone = !!sim.stems[t.id];
+    var latest = latestRender(t);
+    function chip(done, label, meta){
+      return '<span class="rp-chip' + (done ? ' done' : '') + '">' +
+        (done ? icon('check') : '<span class="dot"></span>') +
+        '<b>' + label + '</b><span>' + esc(meta) + '</span></span>';
+    }
+    return '<div class="rack-path">' +
+      chip(true, 'Source', t.origin === 'youtube' ? 'YouTube' : 'local file') +
+      icon('right') +
+      chip(sepDone, 'Separation', sepDone ? '4 stems' : 'not run') +
+      icon('right') +
+      chip(!!latest, 'Pitch render', latest ? setLabel(t, latest) : 'not rendered') +
+      '<span style="flex:1"></span>' +
+      '<span class="fineprint">Separation runs before pitch; both reuse this track\u2019s cache.</span>' +
+    '</div>';
+  }
+
+  function recentMini(){
+    return '<div class="rail-label" style="padding:0 0 3px">Recent</div>' +
+      RECENTS.map(function(r){
+        return '<button class="mini-row" data-act="recent" data-id="' + r.id + '">' +
+          icon(r.kind === 'youtube' ? 'video' : 'file') +
+          '<span class="mr-name">' + esc(r.title) + '</span>' +
+          '<span class="mr-meta">' + (r.ok ? esc(r.meta) : 'missing') + '</span></button>';
+      }).join('');
+  }
+
+  /* ------------------------------------------------------------------ variant B */
+  function trackCardB(t){
+    var st = trackStatus(t);
+    return '<div class="b-track' + (sim.selected === t.id ? ' is-sel' : '') + '" data-act="select" data-id="' + t.id + '" role="button" tabindex="0">' +
+      '<div class="bt-top"><span class="dot ' + st.cls + '"></span>' +
+        '<span class="bt-title">' + esc(t.title) + '</span>' +
+        '<button class="icon-btn danger bt-x" data-act="remove" data-id="' + t.id + '" title="Remove">' + icon('x') + '</button></div>' +
+      '<div class="bt-meta"><span>' + fmtTime(t.dur) + '</span><span>·</span><span>' + esc(st.text) + '</span></div>' +
+    '</div>';
+  }
+
+  function tilesB(t){
+    var vkey = sim.active[t.id] || 'orig';
+    var list = artifacts(t, vkey);
+    if (!list.length) return '';
+    var obj = {};
+    list.forEach(function(a){ obj[a.role] = a; });
+    var parts = [];
+    var showAll = !!sim.openStems[t.id];
+    var sepDone = !!sim.stems[t.id];
+    function tile(a, cls){
+      return '<div class="tile ' + (cls || '') + (isPlayingArt(a) ? ' is-playing' : '') + '" data-act="play" data-track="' + t.id + '" data-art="' + a.id + '">' +
+        '<div class="tile-top"><div><div class="tile-name">' + esc(a.name) + '</div>' +
+          '<div class="tile-sub">' + (a.shift ? 'shifted ' + esc(a.shift) : (a.role === 'original' ? 'imported master' : '44.1 kHz · stereo')) + '</div></div>' +
+          badgesFor(a) + '</div>' +
+        '<div class="tile-play">' + playIconFor(a) + '</div>' +
+        '<div class="tile-foot"><span class="mono">' + fmtTime(a.dur) + '</span>' +
+          '<span class="tile-tools"><button class="icon-btn" data-act="export" data-track="' + t.id + '" data-art="' + a.id + '" title="Export">' + icon('download') + '</button></span></div>' +
+      '</div>';
+    }
+    if (vkey === 'orig' && obj.original){
+      parts.push('<div class="tile span3 ' + (isPlayingArt(obj.original) ? 'is-playing' : '') + '" data-act="play" data-track="' + t.id + '" data-art="' + obj.original.id + '">' +
+        '<span class="tile-play">' + playIconFor(obj.original) + '</span>' +
+        '<div class="tile-body" style="flex:1"><div><div class="tile-name">' + esc(obj.original.name) + '</div>' +
+          '<div class="tile-sub">' + esc(t.file) + ' · 44.1 kHz · stereo</div></div></div>' +
+        '<div class="tile-foot"><span class="mono">' + fmtTime(obj.original.dur) + '</span>' +
+          '<button class="icon-btn" data-act="export" data-track="' + t.id + '" data-art="' + obj.original.id + '" title="Export">' + icon('download') + '</button></div>' +
+      '</div>');
+    }
+    if (!sepDone){
+      if (vkey !== 'orig' && obj.render) parts.push(tile(obj.render, 'span3'));
+      var sepRunning = sim.job && sim.job.kind === 'separation' && sim.job.trackId === t.id;
+      if (sepRunning){
+        var pct = Math.round(sim.job.progress * 100);
+        parts.push('<div class="tile ghost span3"><div style="width:min(420px,80%);text-align:center">' +
+          '<div class="tile-name" style="color:#b9c3d0">Separating · ' + esc(jobStage(sim.job)) + '</div>' +
+          '<div class="bar" style="margin-top:10px"><i style="width:' + pct + '%"></i></div>' +
+          '<div class="tile-sub" style="margin-top:6px">' + pct + '% · runs locally · safe to cancel</div></div></div>');
+      } else {
+        parts.push('<div class="tile ghost span3"><div><div class="tile-name" style="color:#9aa5b4">Vocals &amp; Instrumental</div>' +
+          '<div class="tile-sub" style="margin-top:3px">' + (sim.model.installed ? 'Run Separation to split this track' : 'Install the model in the inspector to separate') + '</div></div>' +
+          '<button class="btn sm" data-act="separate" ' + (busy() || !sim.model.installed ? 'disabled' : '') + '>Separate</button></div>');
+      }
+      return parts.join('');
+    }
+    if (obj.vocals) parts.push(tile(obj.vocals, 'span2'));
+    if (obj.instrumental) parts.push(tile(obj.instrumental, ''));
+    if (showAll){
+      ['drums','bass','other'].forEach(function(r){ if (obj[r]) parts.push(tile(obj[r], '')); });
+    }
+    return parts.join('');
+  }
+
+  function renderB(){
+    var t = cur();
+    var info = listenInfo();
+    var playing = sim.playing && info;
+    var dur = info ? info.art.dur : 0;
+    var pos = playing ? Math.round(dur * 0.38) : 0;
+    var pct = playing ? 38 : 0;
+    var vkey = t ? (sim.active[t.id] || 'orig') : 'orig';
+    var vLabel = 'Original';
+    if (t){
+      var vv = (sim.versions[t.id] || []).filter(function(x){ return x.key === vkey; })[0];
+      if (vv) vLabel = vv.label;
+    }
+    var list = t ? artifacts(t, vkey) : [];
+    var stemCount = list.filter(function(a){ return a.role === 'stem'; }).length;
+    return '<div class="shell-b">' +
+      '<div class="b-top">' +
+        '<div class="brand-block">' + logo(26) + '<div class="brand-text"><div class="brand-name">StemForge</div></div></div>' +
+        '<button class="b-play" data-act="toggle-transport" ' + (t ? '' : 'disabled') + ' title="Play/Pause">' + icon(playing ? 'pause' : 'play') + '</button>' +
+        '<div class="b-now"><div class="n-title">' + esc(t ? t.title : 'No track selected') + '</div>' +
+          '<div class="n-sub">' + esc(info ? info.art.name + (info.art.shift ? ' · ' + info.art.shift : '') : 'Load a track to begin') + '</div></div>' +
+        '<div class="b-prog"><span class="mono">' + fmtTime(pos) + '</span><div class="bar"><i style="width:' + pct + '%"></i></div><span class="mono">' + fmtTime(dur) + '</span></div>' +
+        '<div class="b-actions">' + (t ? abControl(t) : '') +
+          '<button class="btn sm" data-act="export" data-track="' + (t ? t.id : '') + '" data-art="' + (info ? info.art.id : '') + '" ' + (info ? '' : 'disabled') + '>' + icon('download') + 'Export</button>' +
+          '<button class="icon-btn" data-act="about" title="Settings &amp; About">' + icon('settings') + '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="b-body">' +
+        '<aside class="b-rail">' +
+          '<div class="add-line"><button class="btn wide sm" data-act="add">' + icon('plus') + 'Add audio</button></div>' +
+          '<div class="rail-label">Tracks <span>' + sim.tracks.length + '</span></div>' +
+          '<div class="b-tracks">' + (sim.tracks.length ? sim.tracks.map(trackCardB).join('') : '<div class="rail-empty">No tracks yet</div>') + '</div>' +
+          '<div style="padding-top:8px;border-top:1px solid var(--line);margin-top:8px">' +
+            '<button class="link" data-act="about">Recent files</button>' +
+          '</div>' +
+        '</aside>' +
+        '<main class="b-rack">' +
+          (t ? '<div class="rack-head"><div><h2>' + esc(t.title) + '</h2>' +
+            '<div class="rk-meta">' + fmtTime(t.dur) + ' · ' + esc(t.origin === 'youtube' ? 'YouTube' : t.file) + ' · ' + esc(t.rate) + '</div></div>' +
+            '<div class="rack-controls">' + (sim.versions[t.id].length > 1 ? '<span class="pill-tabs">' + sim.versions[t.id].map(function(v){
+              return '<button data-act="set-version" data-track="' + t.id + '" data-id="' + v.key + '" class="' + (v.key === vkey ? 'on' : '') + '">' + esc(setLabel(t, v)) + '</button>';
+            }).join('') + '</span>' : '') +
+            (stemCount ? '<button class="btn sm ghost" data-act="toggle-stems" data-id="' + t.id + '">' + icon(sim.openStems[t.id] ? 'down' : 'right') +
+              (sim.openStems[t.id] ? 'Hide' : 'Show') + ' other stems</button>' : '') +
+            '</div></div>' +
+            '<div class="tiles">' + tilesB(t) + '</div>' +
+            rackPath(t)
+            : '<div class="empty" style="padding-top:24px"><div class="empty-card">' +
+              '<h2>Bring in a track</h2><p class="lede">Drop a local file or pull audio from YouTube.</p>' +
+              emptyDrop() + '<div class="or"><span>or</span></div>' + ytField() + '</div></div>') +
+        '</main>' +
+        '<aside class="b-insp">' +
+          (t ? '<section class="card insp-sec"><div class="card-h"><span class="ct">Separation</span>' +
+            '<span class="ch">htdemucs</span></div><div class="card-b">' + sepBlock(t) + '</div></section>' +
+          '<section class="card insp-sec"><div class="card-h"><span class="ct">Pitch shift</span>' +
+            '<span class="ch">R3 + formant</span></div><div class="card-b">' + pitchBlock(t) + '</div></section>'
+          : '<section class="card insp-sec"><div class="card-h"><span class="ct">Getting started</span></div>' +
+            '<div class="card-b">' + (sim.model.installed
+              ? '<div class="fineprint">Add a track, then separate and pitch it. One job runs at a time.</div>'
+              : modelBlock()) + '</div></section>') +
+          '<section class="card insp-sec"><div class="card-h"><span class="ct">Activity</span>' +
+            '<span class="ch">' + (sim.job ? '1 active' : 'idle') + '</span></div><div class="card-b">' +
+            (sim.job
+              ? '<div class="stack"><div class="status-line"><b>' + esc(labelForKind(sim.job.kind)) + '</b></div>' +
+                '<div class="bar"><i style="width:' + Math.round(sim.job.progress * 100) + '%"></i></div>' +
+                '<div style="display:flex;justify-content:space-between"><span class="fineprint">' + esc(jobStage(sim.job)) + '</span>' +
+                '<button class="btn sm ghost" data-act="cancel">Cancel</button></div></div>'
+              : '<div class="fineprint">No jobs running. Long jobs show progress and can be cancelled.</div>') +
+            '</div></section>' +
+          '<section class="card insp-sec"><div class="card-h"><span class="ct">Recent</span></div><div class="card-b" style="padding:6px 8px">' +
+            RECENTS.map(function(r){
+              return '<button class="mini-row" data-act="recent" data-id="' + r.id + '">' +
+                icon(r.kind === 'youtube' ? 'video' : 'file') +
+                '<span class="mr-name">' + esc(r.title) + '</span><span class="mr-meta">' + (r.ok ? esc(r.meta) : 'missing') + '</span></button>';
+            }).join('') +
+          '</div></section>' +
+        '</aside>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* ------------------------------------------------------------------ variant C */
+  function stageClass(state){ return 'stage ' + state; }
+
+  function stageOneC(t){
+    var importing = sim.job && sim.job.kind === 'import';
+    var state = t ? 'done' : (importing ? 'active' : 'active');
+    var body;
+    if (importing){
+      body = '<div class="stack"><div class="status-line"><span class="dot run"></span><b>' + esc(jobStage(sim.job)) + '</b></div>' +
+        '<div class="bar"><i style="width:' + Math.round(sim.job.progress * 100) + '%"></i></div>' +
+        '<div style="display:flex;justify-content:space-between"><span class="fineprint">YouTube · bestaudio</span>' +
+        '<button class="btn sm ghost" data-act="cancel">Cancel</button></div></div>';
+    } else if (t){
+      body = '<div class="stack">' +
+        '<div style="display:flex;gap:10px;align-items:center">' +
+          '<span class="dock-ic">' + icon(t.origin === 'youtube' ? 'video' : 'file') + '</span>' +
+          '<div style="min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(t.file) + '</div>' +
+          '<div class="fineprint">' + fmtTime(t.dur) + ' · ' + esc(t.rate) + ' · ' + esc(t.size) + '</div></div></div>' +
+        '<div style="display:flex;gap:6px"><button class="btn sm" data-act="add">' + icon('plus') + 'Add another</button>' +
+        '<button class="btn sm ghost" data-act="remove" data-id="' + t.id + '">' + icon('trash') + 'Remove</button></div>' +
+      '</div>' +
+      '<div style="margin-top:auto;padding-top:12px;border-top:1px solid var(--line)">' + recentMini() + '</div>';
+    } else {
+      body = emptyDrop() + '<div class="or"><span>or</span></div>' + ytField();
+    }
+    return '<section class="' + stageClass(state) + '">' +
+      '<div class="stage-h"><span class="stage-num">' + (t || importing ? icon('check') : '1') + '</span>' +
+        '<div><div class="stage-t">Load</div><div class="stage-s">Local file or YouTube</div></div>' +
+        '<span style="flex:1"></span>' + (t ? '<span class="badge g">ready</span>' : '') + '</div>' +
+      '<div class="stage-b">' + body + '</div>' +
+      (t ? '' : '<div class="stage-foot">Nothing is uploaded. Files stay on this machine.</div>') +
+    '</section>';
+  }
+
+  function stageTwoC(t){
+    var sepDone = t && !!sim.stems[t.id];
+    var state = !t ? 'wait' : (sepDone ? 'done' : 'active');
+    var body;
+    if (!t){
+      body = '<div class="fineprint">Waiting for a track. Separation reads only the original, never a rendered copy.</div>';
+    } else if (sim.sep[t.id].status === 'failed'){
+      body = sepBlock(t);
+    } else if (sepDone){
+      var list = artifacts(t, 'orig');
+      var prim = list.filter(function(a){ return a.role === 'vocals' || a.role === 'instrumental'; });
+      var showAll = !!sim.openStems[t.id];
+      var stems = list.filter(function(a){ return a.role === 'stem'; });
+      body = '<div class="stack"><div class="status-line"><span class="dot ok"></span><b>4 stems ready</b><span>· htdemucs · CPU</span></div>' +
+        '<div class="ver-list">' + prim.map(function(a){
+          return '<div class="ver ' + (isPlayingArt(a) ? 'on' : '') + '" data-act="play" data-track="' + t.id + '" data-art="' + a.id + '">' +
+            '<span class="v-radio"></span><span class="v-name">' + esc(a.name) + '</span>' +
+            '<span class="v-meta">' + fmtTime(a.dur) + '</span>' + playIconFor(a) + '</div>';
+        }).join('') + '</div>' +
+        '<button class="btn sm ghost" data-act="toggle-stems" data-id="' + t.id + '" style="align-self:flex-start">' +
+          icon(showAll ? 'down' : 'right') + (showAll ? 'Hide' : 'Show') + ' ' + stems.length + ' other stems</button>' +
+        (showAll ? '<div class="ver-list">' + stems.map(function(a){
+          return '<div class="ver ' + (isPlayingArt(a) ? 'on' : '') + '" data-act="play" data-track="' + t.id + '" data-art="' + a.id + '">' +
+            '<span class="v-radio"></span><span class="v-name">' + esc(a.name) + '</span>' +
+            '<span class="v-meta">' + fmtTime(a.dur) + '</span>' + playIconFor(a) + '</div>';
+        }).join('') + '</div>' : '') +
+        '<button class="btn sm" data-act="separate" ' + (busy() ? 'disabled' : '') + ' style="align-self:flex-start">Separate again</button>' +
+      '</div>';
+    } else {
+      body = sepBlock(t);
+    }
+    return '<section class="' + stageClass(state) + '">' +
+      '<div class="stage-h"><span class="stage-num">' + (sepDone ? icon('check') : '2') + '</span>' +
+        '<div><div class="stage-t">Separate</div><div class="stage-s">Vocals out of the mix</div></div>' +
+        '<span style="flex:1"></span>' + (sepDone ? '<span class="badge g">4 stems</span>' : '') + '</div>' +
+      '<div class="stage-b">' + body + '</div>' +
+      '<div class="stage-foot">' + (sim.model.installed ? 'Model verified · runs locally, CPU-first' : 'Model download required before separating') + '</div>' +
+    '</section>';
+  }
+
+  function stageThreeC(t){
+    var rendered = t && sim.versions[t.id].length > 1;
+    var state = !t ? 'wait' : (rendered ? 'done' : 'active');
+    var body;
+    if (!t){
+      body = '<div class="fineprint">Waiting for a track. Pitch works on the original or on stems.</div>';
+    } else {
+      var vers = sim.versions[t.id];
+      var active = sim.active[t.id] || 'orig';
+      body = '<div class="stack">' +
+        '<div><div class="fineprint" style="margin-bottom:5px">Semitones</div>' + pitchBlock(t) + '</div>' +
+        '<div style="border-top:1px solid var(--line);padding-top:10px">' +
+
+          '<div class="fineprint" style="margin-bottom:5px">Versions · A/B compares Original with the newest</div>' +
+          '<div class="ver-list">' + vers.map(function(v){
+            return '<div class="ver ' + (v.key === active ? 'on' : '') + '" data-act="set-version" data-track="' + t.id + '" data-id="' + v.key + '">' +
+              '<span class="v-radio"></span><span class="v-name">' + esc(setLabel(t, v)) + '</span>' +
+              '<span class="v-meta">' + (v.key === 'orig' ? 'no shift' : 'rendered') + '</span>' +
+              '<button class="icon-btn" data-act="export" data-track="' + t.id + '" data-art="' + (artifacts(t, v.key)[0] || {}).id + '" title="Export">' + icon('download') + '</button>' +
+            '</div>';
+          }).join('') + '</div>' +
+        '</div>' +
+        '<div class="fineprint" style="margin-top:auto;padding-top:10px;border-top:1px solid var(--line)">' +
+          'Each render is an independent, content-addressed set. Older versions stay cached until the track is removed.</div>' +
+      '</div>';
+    }
+    return '<section class="' + stageClass(state) + '">' +
+      '<div class="stage-h"><span class="stage-num">' + (rendered ? icon('check') : '3') + '</span>' +
+        '<div><div class="stage-t">Shape &amp; export</div><div class="stage-s">Pitch, A/B, save</div></div>' +
+        '<span style="flex:1"></span>' + (rendered ? '<span class="badge g">' + esc(setLabel(t, vers[vers.length - 1])) + '</span>' : '') + '</div>' +
+      '<div class="stage-b">' + body + '</div>' +
+      '<div class="stage-foot">' + (t ? 'Exports use native save dialogs · WAV 24, FLAC 24 or MP3 320' : 'Native save dialog, no cloud round-trip') + '</div>' +
+    '</section>';
+  }
+
+  function renderC(){
+    var t = cur();
+    var info = listenInfo();
+    var playing = sim.playing && info;
+    var dur = info ? info.art.dur : 0;
+    var pos = playing ? Math.round(dur * 0.38) : 0;
+    return '<div class="shell-c">' +
+      '<div class="c-top">' +
+        '<div class="c-brand">' + logo(24) + '<span class="brand-name">StemForge</span></div>' +
+        '<div class="c-chips">' + sim.tracks.map(function(tr){
+          var st = trackStatus(tr);
+          return '<div class="t-chip' + (sim.selected === tr.id ? ' is-sel' : '') + '" data-act="select" data-id="' + tr.id + '" role="button" tabindex="0">' +
+            '<span class="dot ' + st.cls + '"></span><span>' + esc(tr.title) + '</span>' +
+            '<button class="icon-btn tc-x" style="width:18px;height:18px" data-act="remove" data-id="' + tr.id + '" title="Remove">' + icon('x') + '</button>' +
+          '</div>';
+        }).join('') +
+        '<button class="btn sm ghost" data-act="add">' + icon('plus') + 'Add audio</button></div>' +
+        '<button class="link" data-act="about">About</button>' +
+      '</div>' +
+      '<div class="c-stages">' + stageOneC(t) + stageTwoC(t) + stageThreeC(t) + '</div>' +
+      '<div class="c-dock">' +
+        '<div class="dock-now"><span class="dock-ic">' + icon('wave') + '</span>' +
+          '<div style="min-width:0"><div class="dn-title">' + esc(info ? info.art.name : 'Nothing playing') + '</div>' +
+          '<div class="dn-sub">' + esc(info ? info.track.title + (info.art.shift ? ' · ' + info.art.shift : '') : 'Select an output to preview') + '</div></div></div>' +
+        '<div class="dock-mid">' +
+          '<button class="b-play" data-act="toggle-transport" ' + (info ? '' : 'disabled') + '>' + icon(playing ? 'pause' : 'play') + '</button>' +
+          '<span class="mono" style="font-size:11px;color:var(--dim)">' + fmtTime(pos) + ' / ' + fmtTime(dur) + '</span>' +
+          (t ? abControl(t) : '') +
+        '</div>' +
+        '<div class="dock-right">' +
+          (info ? '<button class="btn sm" data-act="export" data-track="' + info.track.id + '" data-art="' + info.art.id + '">' + icon('download') + 'Export</button>'
+                : '<button class="btn sm" data-act="export" disabled>' + icon('download') + 'Export</button>') +
+          '<button class="icon-btn" data-act="about" title="Settings &amp; About">' + icon('settings') + '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* ------------------------------------------------------------------ modals */
+  function modalHtml(){
+    if (!sim.modal) return '';
+    if (sim.modal === 'export' && sim.exp){
+      var sizes = exportSizes(sim.exp.dur);
+      var fmts = [
+        { k:'wav', name:'WAV 24-bit', sub:'Master · 44.1 kHz stereo', size:sizes.wav },
+        { k:'flac', name:'FLAC 24-bit', sub:'Lossless, smaller', size:sizes.flac },
+        { k:'mp3', name:'MP3 320 kbps', sub:'Smallest, shareable', size:sizes.mp3 }
+      ];
+      return '<div class="backdrop" data-act="close-modal"><div class="modal" data-act="noop">' +
+        '<div class="modal-h"><div><div class="mt">Export “' + esc(sim.exp.label) + '”</div>' +
+          '<div class="ms">Native save dialog · mock</div></div>' +
+          '<button class="icon-btn" data-act="close-modal">' + icon('x') + '</button></div>' +
+        '<div class="modal-b">' +
+          '<div class="field"><label>File name</label>' +
+            '<input id="exp-name" value="' + esc(sim.exp.name + extFor(sim.exp.format)) + '"></div>' +
+          '<div class="fmt-list">' + fmts.map(function(f){
+            return '<div class="fmt ' + (sim.exp.format === f.k ? 'on' : '') + '" data-act="format" data-id="' + f.k + '">' +
+              '<span class="f-radio"></span><span class="f-name">' + f.name + '<div class="f-sub">' + f.sub + '</div></span>' +
+              '<span class="f-size">' + f.size + '</span></div>';
+          }).join('') + '</div>' +
+          '<div class="field"><label>Save to</label><div class="dest">' +
+            '<span class="path">' + esc(sim.exp.dir) + '/' + esc(sim.exp.name) + extFor(sim.exp.format) + '</span>' +
+            '<button class="btn sm" data-act="choose-folder">' + icon('folder') + 'Choose…</button></div></div>' +
+          '<div class="fineprint">A real save dialog opens here. Linux does not append extensions, so StemForge always writes the chosen one.</div>' +
+        '</div>' +
+        '<div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button>' +
+          '<button class="btn primary" data-act="export-confirm" ' + (busy() ? 'disabled' : '') + '>Export</button></div>' +
+      '</div></div>';
+    }
+    if (sim.modal === 'remove'){
+      var rt = track(sim.removeTarget);
+      return '<div class="backdrop" data-act="close-modal"><div class="modal" data-act="noop" style="width:min(420px,100%)">' +
+        '<div class="modal-h"><div class="mt">Remove track?</div>' +
+          '<button class="icon-btn" data-act="close-modal">' + icon('x') + '</button></div>' +
+        '<div class="modal-b"><div style="font-size:12.5px;line-height:1.55">' +
+          'Remove <b>' + esc(rt ? rt.title : '') + '</b> and delete its cached audio?</div>' +
+          '<div class="fineprint">This deletes the cached original, stems, renders and previews. The file on disk is not touched. You can add it again from Recent.</div></div>' +
+        '<div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button>' +
+          '<button class="btn primary" data-act="confirm-remove" style="background:var(--bad);color:#1b0b0b">Remove</button></div>' +
+      '</div></div>';
+    }
+    if (sim.modal === 'about'){
+      return '<div class="backdrop" data-act="close-modal"><div class="modal" data-act="noop">' +
+        '<div class="modal-h"><div class="mt">Settings &amp; About</div>' +
+          '<button class="icon-btn" data-act="close-modal">' + icon('x') + '</button></div>' +
+        '<div class="modal-b">' +
+          '<div class="about-sec"><h4>StemForge</h4>' +
+            '<div class="about-row"><span>Version</span><b>0.1.0</b></div>' +
+            '<div class="about-row"><span>Licence</span><b>GPL-3.0</b></div>' +
+            '<div class="about-row"><span>Third-party notices</span><button class="link" data-act="noop">THIRD_PARTY_NOTICES</button></div>' +
+            '<div class="about-row"><span>Corresponding source</span><button class="link" data-act="noop">Source offer</button></div>' +
+          '</div>' +
+          '<div class="about-sec"><h4>Storage</h4>' + cacheMeter() +
+            '<div class="fineprint">Closing the window stops the active job and clears the session track list. Cached audio and recent files stay, so re-importing is instant. There is no close prompt.</div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" data-act="clear-cache">Clear cached audio</button>' +
+            '<button class="btn sm ghost" data-act="noop">Clear recent files</button>' +
+            '<button class="btn sm ghost" data-act="open-log">Open log folder</button></div>' +
+          '</div>' +
+          '<div class="about-sec"><h4>Legal</h4>' +
+            '<div class="fineprint">YouTube downloads are subject to YouTube\u2019s Terms of Service. Only import content you have the right to use. htdemucs weights are downloaded from Hugging Face at runtime.</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="modal-f"><button class="btn" data-act="close-modal">Close</button></div>' +
+      '</div></div>';
+    }
+    return '';
+  }
+
+  /* ------------------------------------------------------------------ toast + render */
+  function toastHtml(){
+    if (!sim.toast) return '';
+    return '<div class="toast ' + sim.toast.kind + '">' + icon(sim.toast.kind === 'bad' ? 'alert' : 'check') +
+      '<span>' + esc(sim.toast.msg) + '</span></div>';
+  }
+
+  function render(){
+    var html = sim.variant === 'A' ? renderA() : sim.variant === 'B' ? renderB() : renderC();
+    document.getElementById('app').innerHTML = html + modalHtml() + toastHtml();
+    var t = cur();
+    document.getElementById('tb-title').textContent = 'StemForge' + (t ? ' — ' + t.title : '');
+    document.title = 'StemForge' + (t ? ' — ' + t.title : '') + ' · prototype';
+  }
+
+  /* ------------------------------------------------------------------ chrome sync */
+  var swKey = document.getElementById('sw-key');
+  var swName = document.getElementById('sw-name');
+  var stateSel = document.getElementById('sw-state');
+  var notesEl = document.getElementById('notes');
+
+  function sync(){
+    render();
+    swKey.textContent = sim.variant;
+    swName.textContent = VARIANTS[sim.variant];
+    stateSel.value = sim.scenario;
+    notesEl.hidden = !sim.notes;
+    try {
+      var u = new URL(location.href);
+      u.searchParams.set('variant', sim.variant);
+      u.searchParams.set('state', sim.scenario);
+      history.replaceState(null, '', u.toString());
+    } catch (e) { /* file:// in some browsers */ }
+  }
+
+  function setVariant(v){
+    sim.variant = v;
+    sync();
+  }
+  function cycleVariant(dir){
+    var keys = Object.keys(VARIANTS);
+    var i = keys.indexOf(sim.variant);
+    setVariant(keys[(i + dir + keys.length) % keys.length]);
+  }
+  function setScenario(k){
+    seed(k);
+    sync();
+  }
+
+  /* ------------------------------------------------------------------ events */
+  var ACTIONS = {
+    'select': function(el){ selectTrack(el.dataset.id); },
+    'add': function(){ addTracks(); },
+    'yt': function(){ importYoutube(); },
+    'recent': function(el){
+      if (el.dataset.id === 'gone'){ toast('File moved or deleted — remove it from Recent', 'bad'); sync(); return; }
+      ensureTrack1();
+      toast('Opened from cache', 'good');
+      sync();
+    },
+    'play': function(el){ togglePlay(el.dataset.track, el.dataset.art); },
+    'toggle-transport': function(){ toggleTransport(); },
+    'ab': function(el){ setAb(el.dataset.track, el.dataset.id); },
+    'set-version': function(el){ setVersion(el.dataset.track, el.dataset.id); },
+    'semi': function(el){ stepSemis(parseInt(el.dataset.id, 10)); },
+    'separate': function(){ doSeparate(); },
+    'render': function(){ doRender(); },
+    'retry': function(){ retrySeparation(); },
+    'cancel': function(){ cancelJob(); },
+    'download-model': function(){ downloadModel(); },
+    'toggle-offline': function(){ toggleOffline(); },
+    'export': function(el){ openExport(el.dataset.track, el.dataset.art); },
+    'format': function(el){ if (sim.exp){ sim.exp.format = el.dataset.id; sync(); } },
+    'choose-folder': function(){ chooseFolder(); },
+    'export-confirm': function(){ confirmExport(); },
+    'close-modal': function(){ closeModal(); },
+    'noop': function(){},
+    'remove': function(el){ askRemove(el.dataset.id); },
+    'confirm-remove': function(){ confirmRemove(); },
+    'about': function(){ openAbout(); },
+    'toggle-stems': function(el){ toggleStems(el.dataset.id); },
+    'open-log': function(){ toast('Opening logs/jobs/2026-11-15T12-04-11-t1.log'); sync(); },
+    'clear-cache': function(){ toast('Cleared cached audio not used by open tracks', 'good'); sync(); }
+  };
+
+  document.getElementById('app').addEventListener('click', function(e){
+    var el = e.target.closest('[data-act]');
+    if (!el) return;
+    var act = el.dataset.act;
+    if (ACTIONS[act]) ACTIONS[act](el);
+  });
+
+  document.getElementById('app').addEventListener('keydown', function(e){
+    var el = e.target.closest('[role="button"][data-act="select"]');
+    if (el && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); selectTrack(el.dataset.id); }
+  });
+
+  document.getElementById('app').addEventListener('input', function(e){
+    if (e.target.id === 'yt-url'){ sim.ytUrl = e.target.value; }
+    if (e.target.id === 'exp-name' && sim.exp){ sim.exp.name = e.target.value.replace(/\.[a-z0-9]+$/i, ''); }
+  });
+
+  document.getElementById('app').addEventListener('change', function(e){
+    if (e.target.dataset.act === 'toggle-offline'){ toggleOffline(); }
+  });
+
+  document.getElementById('sw-prev').addEventListener('click', function(){ cycleVariant(-1); });
+  document.getElementById('sw-next').addEventListener('click', function(){ cycleVariant(1); });
+  document.getElementById('sw-notes').addEventListener('click', function(){ sim.notes = !sim.notes; notesEl.hidden = !sim.notes; });
+  document.getElementById('notes-close').addEventListener('click', function(){ sim.notes = false; notesEl.hidden = true; });
+  stateSel.addEventListener('change', function(){ setScenario(stateSel.value); });
+
+  document.addEventListener('keydown', function(e){
+    if (isTyping()) return;
+    if (e.key === 'ArrowLeft'){ e.preventDefault(); cycleVariant(-1); }
+    else if (e.key === 'ArrowRight'){ e.preventDefault(); cycleVariant(1); }
+    else if (e.key === '?'){ sim.notes = !sim.notes; notesEl.hidden = !sim.notes; }
+    else if (e.key >= '1' && e.key <= '8'){
+      var k = SCENARIOS[parseInt(e.key, 10) - 1];
+      if (k) setScenario(k);
+    } else if (e.key === 'Escape' && sim.modal){ closeModal(); }
+  });
+
+  /* ------------------------------------------------------------------ boot */
+  var params = new URLSearchParams(location.search);
+  var v = (params.get('variant') || 'A').toUpperCase();
+  if (!VARIANTS[v]) v = 'A';
+  var st = params.get('state') || 'empty';
+  if (SCENARIOS.indexOf(st) === -1) st = 'empty';
+  sim.variant = v;
+  seed(st);
+  if (params.get('modal') === 'export' && cur()){
+    var first = artifacts(cur(), sim.active[cur().id])[0];
+    if (first) openExport(cur().id, first.id);
+  }
+  sync();
+
+  // Prototype-only seam so the flow can be driven and smoke-tested without a build.
+  window.__stemforgePrototype = {
+    state: function(){ return sim; },
+    finish: finishJob,
+    tick: tick,
+    render: sync
+  };
+  setInterval(tick, 190);
+})();
+</script>
+</body>
+</html>
