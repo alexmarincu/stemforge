@@ -397,10 +397,15 @@ async def test_degraded_preview_keeps_a_banner_and_disables_only_transport(
         harness.runner.stop(timeout=10)
 
 
-async def test_playback_controls_disable_while_a_mutating_job_runs(harness: Harness) -> None:
+async def test_playback_stays_enabled_while_second_job_actions_disable(
+    harness: Harness,
+) -> None:
+    """Ticket 08 §11: A/B and playback stay enabled while a Job runs."""
     async for user, workspace_page in _open_page(harness):
         (track_id,) = await _import(harness, user, workspace_page, "Playing.wav")
         await asyncio.sleep(0.05)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        render_key = harness.add_render(source_id, semitones=2)
         user.find(marker=f"track-row-{track_id}").click()
         await asyncio.sleep(0.05)
         assert _enabled(user, "transport-play") is True
@@ -412,11 +417,56 @@ async def test_playback_controls_disable_while_a_mutating_job_runs(harness: Harn
         with user:
             workspace_page.poll()
 
-        assert _enabled(user, "transport-play") is False
-        assert _enabled(user, f"track-play-{track_id}") is False
+        # Playback and A/B remain live during the import Job.
+        assert _enabled(user, "transport-play") is True
+        assert _enabled(user, "seek") is True
+        assert _enabled(user, "ab-original") is True
+        assert _enabled(user, "ab-preview") is True
+        assert _enabled(user, f"track-play-{track_id}") is True
+        assert _enabled(user, "output-play-original") is True
+
+        player = _player(user)
+        original = harness.service.preview_targets(track_id)[0].url
+        preview = f"/media/renders/{render_key}/original_preview.mp3"
+        user.find(marker="ab-preview").click()
+        assert player.props["src"] == preview
+        user.find(marker="ab-original").click()
+        assert player.props["src"] == original
+        user.find(marker="transport-play").click()
+        assert len(user.find(marker="player").elements) == 1
+
+        # Only actions that would submit a second Job are disabled.
+        assert _enabled(user, "add-audio") is False
+        assert _enabled(user, "separation-action") is False
+        assert _enabled(user, "pitch-action") is False
+        assert _enabled(user, "export-action") is False
 
         gate.set()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+        assert _enabled(user, "add-audio") is True
+        await user.should_see("Later")
+
+
+async def test_deleting_the_playing_preview_stops_and_reports_unavailable(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        (track_id,) = await _import(harness, user, workspace_page, "Gone.wav")
+        await asyncio.sleep(0.05)
         user.find(marker=f"track-row-{track_id}").click()
         await asyncio.sleep(0.05)
-        assert _enabled(user, "transport-play") is True
+        user.find(marker=f"track-play-{track_id}").click()
+        assert _player(user).props["src"] != ""
+
+        preview = harness.service.snapshot().tracks[0].source.preview_path
+        assert preview is not None
+        preview.unlink()
+        with user:
+            workspace_page.poll()
+        await asyncio.sleep(0.05)
+
+        assert _only(user, "now-playing").text == "Preview unavailable"
+        assert _enabled(user, "transport-play") is False
+        assert _enabled(user, f"track-play-{track_id}") is False
+        await user.should_see(marker="preview-unavailable")
+        assert len(user.find(marker="player").elements) == 1

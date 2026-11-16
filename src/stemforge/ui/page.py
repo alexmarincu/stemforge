@@ -307,6 +307,7 @@ class WorkspacePage:
         self._is_playing = False
         self._position_s = 0.0
         self._active_key: dict[str, str] = {}
+        self._unavailable_preview: set[str] = set()
 
     # -- composition --------------------------------------------------------
 
@@ -603,7 +604,8 @@ class WorkspacePage:
         return original, alternate
 
     def _transport(self, track: Track, targets: Sequence[PreviewTarget]) -> None:
-        active = self._active_target(track, targets)
+        unavailable = track.track_id in self._unavailable_preview
+        active = None if unavailable else self._active_target(track, targets)
         original, alternate = self._ab_pair(track, targets)
         playing = self._playing_track_id == track.track_id and self._is_playing
         duration = track.source.metadata.duration_s or 0.0
@@ -642,7 +644,7 @@ class WorkspacePage:
                     .props("dense")
                     .mark("seek")
                 )
-                seek.set_enabled(self._playback_allowed())
+                seek.set_enabled(self._playback_allowed() and active is not None)
                 with ui.element("div").classes("sf-transport-row"):
                     with ui.element("div").classes("sf-ab"):
                         ab_original = (
@@ -683,14 +685,16 @@ class WorkspacePage:
                     export.set_enabled(not self._busy())
 
     def _outputs(self, track: Track, targets: Sequence[PreviewTarget]) -> None:
-        active = self._active_target(track, targets)
+        unavailable = track.track_id in self._unavailable_preview
+        active = None if unavailable else self._active_target(track, targets)
         with ui.element("section").classes("sf-card").mark("outputs"):
             ui.label("Outputs").classes("sf-card-title")
-            if not targets:
+            if not targets or unavailable:
                 ui.label("Preview unavailable. Re-import the file to rebuild it.").classes(
                     "sf-unavailable"
                 ).mark("preview-unavailable")
-                return
+                if not targets:
+                    return
             for target in targets:
                 playing = (
                     self._playing_track_id == track.track_id
@@ -784,6 +788,7 @@ class WorkspacePage:
         if not same_track:
             self._position_s = 0.0
         player.pause()
+        self._unavailable_preview.discard(track.track_id)
         self._active_key[track.track_id] = target.key
         self._playing_track_id = track.track_id
         self._playing_key = target.key
@@ -804,6 +809,7 @@ class WorkspacePage:
         if player is None:
             return
         player.pause()
+        self._unavailable_preview.discard(track.track_id)
         self._active_key[track.track_id] = target.key
         player.set_source(target.url)
         if self._position_s > 0:
@@ -823,6 +829,32 @@ class WorkspacePage:
         self._playing_key = None
         self._refresh_playback()
 
+    def _reconcile_playback(self) -> None:
+        """Stop when a Job removed or replaced the file that is currently playing."""
+        track_id = self._playing_track_id
+        if track_id is None or not self._is_playing:
+            return
+        track = next(
+            (item for item in self.service.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
+        if track is None:
+            self._mark_preview_unavailable(track_id)
+            return
+        targets = self._targets(track)
+        if not any(target.key == self._playing_key for target in targets):
+            self._mark_preview_unavailable(track_id)
+
+    def _mark_preview_unavailable(self, track_id: str) -> None:
+        if self._player is not None:
+            self._player.pause()
+        self._is_playing = False
+        self._playing_track_id = None
+        self._playing_key = None
+        self._active_key.pop(track_id, None)
+        self._unavailable_preview.add(track_id)
+        self._refresh_playback()
+
     def _seek(self, event: events.ValueChangeEventArguments[float | None]) -> None:
         if event.value is None:
             return
@@ -831,18 +863,18 @@ class WorkspacePage:
             self._player.seek(self._position_s)
 
     def _playback_allowed(self) -> bool:
-        return self.context.playback_available and not self._busy()
+        """Playback is independent of Jobs (ticket 08 §11); only a degraded host blocks it."""
+        return self.context.playback_available
 
     def _apply_play_enabled(self, button: ui.button, *, available: bool = True) -> None:
         enabled = available and self._playback_allowed()
         button.set_enabled(enabled)
         if not enabled:
-            if not self.context.playback_available:
-                reason = "Playback unavailable"
-            elif not available:
-                reason = "No cached preview"
-            else:
-                reason = "Wait for the current Job"
+            reason = (
+                "Playback unavailable"
+                if not self.context.playback_available
+                else "No cached preview"
+            )
             button.tooltip(reason)
 
     def _refresh_playback(self) -> None:
@@ -972,6 +1004,7 @@ class WorkspacePage:
             self._job_bar.refresh()
 
         self._process_finished_jobs()
+        self._reconcile_playback()
         self._sync_actions()
 
     def _process_finished_jobs(self) -> None:
@@ -1076,6 +1109,7 @@ class WorkspacePage:
             remaining = self.service.snapshot().tracks
             self._selected_id = remaining[0].track_id if remaining else None
         self._active_key.pop(track.track_id, None)
+        self._unavailable_preview.discard(track.track_id)
         self._refresh_all()
 
     def _remove_recent(self, entry: RecentEntry) -> None:

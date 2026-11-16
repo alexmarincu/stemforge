@@ -17,13 +17,15 @@ cannot be exercised here.
   `bytes=N-M`, `bytes=0-0`, end clamping, whitespace/case tolerance, suffix,
   multi-range, invalid unit, empty/malformed, start past EOF, inverted range,
   empty file, and overlong integers.
-- `tests/ui/test_preview.py` (6 passed): exactly one `<audio>` element across
+- `tests/ui/test_preview.py` (7 passed): exactly one `<audio>` element across
   per-row play, rail play, transport play, track switching, and A/B; A/B swaps
   the source without a second player; missing preview is shown unavailable with
-  no dead URL; degraded preflight shows the persistent banner, disables
-  transport/seek/A-B/per-row play, and leaves Add audio, Separation, Pitch, and
-  Export enabled; play controls disable while a mutating Job runs and re-enable
-  when it finishes.
+  no dead URL; deleting the file that is currently playing stops the player and
+  shows “Preview unavailable”; degraded preflight shows the persistent banner,
+  disables transport/seek/A-B/per-row play, and leaves Add audio, Separation,
+  Pitch, and Export enabled; playback, seek, per-row play, and A/B stay enabled
+  during a Job while second-Job actions (Add audio, Separation, Pitch, Export)
+  are disabled (ticket 08 §11).
 - `uv run python -m stemforge --smoke-test`: exit 0, HTTP 200 on `/`.
 - `uv run python -m stemforge --self-test`: exit 0.
 - `ruff format --check`, `ruff check`, `mypy src/stemforge`, `lint-imports`:
