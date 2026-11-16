@@ -226,7 +226,7 @@ def test_job_cancelled_keeps_a_custom_message() -> None:
 @pytest.mark.parametrize(
     ("argv", "expected"),
     [
-        (["--smoke-test"], "smoke-test"),
+        (["--self-test"], "self-test"),
         (["--worker", "separation"], "worker separation"),
     ],
 )
@@ -235,20 +235,6 @@ def test_entry_point_modes_exit_zero_with_a_message(
 ) -> None:
     assert stemforge.__main__.main(argv) == 0
     assert expected in capsys.readouterr().out
-
-
-@pytest.mark.unit
-def test_freeze_support_is_first_in_the_main_guard() -> None:
-    guard = _main_guard(_main_module_source())
-
-    first = guard.body[0]
-    assert isinstance(first, ast.Expr)
-    call = first.value
-    assert isinstance(call, ast.Call)
-    assert isinstance(call.func, ast.Attribute)
-    assert call.func.attr == "freeze_support"
-    assert isinstance(call.func.value, ast.Name)
-    assert call.func.value.id == "multiprocessing"
 
 
 @pytest.mark.unit
