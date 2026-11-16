@@ -120,16 +120,19 @@ class ModelStore:
 
     def status(self) -> ModelStatus:
         """A cheap status for UI state; ``verified`` is only set by ``verify``."""
-        if not self.is_installed():
+        try:
+            size = self.path().stat().st_size
+        except OSError:
             return self._status(installed=False, verified=False, reason=STATUS_ABSENT)
-        marker = self._read_marker() or {}
-        verified_at = _parse_timestamp(marker.get("verified_at"))
+        marker = self._read_marker()
+        if size != self.spec.size_bytes or marker is None or not _marker_matches(marker, self.spec):
+            return self._status(installed=False, verified=False, reason=STATUS_ABSENT)
         return self._status(
             installed=True,
             verified=False,
-            size_bytes=self.spec.size_bytes,
-            sha256=self.spec.sha256,
-            verified_at=verified_at,
+            size_bytes=size,
+            sha256=_marker_str(marker, "sha256"),
+            verified_at=_parse_timestamp(marker.get("verified_at")),
         )
 
     def verify(self) -> ModelStatus:
@@ -437,3 +440,8 @@ def _parse_timestamp(value: object) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _marker_str(marker: Mapping[str, object], key: str) -> str | None:
+    value = marker.get(key)
+    return value if isinstance(value, str) else None
