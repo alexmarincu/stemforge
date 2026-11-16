@@ -167,14 +167,44 @@ def test_youtube_toggle_and_notice_are_delegated_to_settings(tmp_path: Path) -> 
 
 
 @pytest.mark.unit
-def test_submit_youtube_validates_and_starts_no_job(tmp_path: Path) -> None:
-    service, _, _ = _service(tmp_path)
+def test_submit_youtube_validates_then_submits_one_import_job(tmp_path: Path) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    settings = SettingsStore(paths)
+    runner = JobRunner(paths=paths)
+    service = WorkspaceService(
+        settings,
+        paths=paths,
+        runner=runner,
+        engines=ServiceEngines(media=object(), youtube=object()),  # type: ignore[arg-type]
+    )
 
-    video = service.submit_youtube("youtu.be/dQw4w9WgXcQ?t=5")
+    job_id = service.submit_youtube("youtu.be/dQw4w9WgXcQ?t=5")
 
-    assert video.video_id == "dQw4w9WgXcQ"
-    assert video.canonical_url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    assert service.runner.jobs() == []
+    jobs = runner.jobs()
+    assert len(jobs) == 1
+    assert jobs[0].job_id == job_id
+    assert jobs[0].kind.value == "import_youtube"
+    assert jobs[0].state.value == "queued"
+    assert jobs[0].title == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+
+@pytest.mark.unit
+def test_a_second_youtube_submit_reuses_the_active_job(tmp_path: Path) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    settings = SettingsStore(paths)
+    runner = JobRunner(paths=paths)
+    service = WorkspaceService(
+        settings,
+        paths=paths,
+        runner=runner,
+        engines=ServiceEngines(media=object(), youtube=object()),  # type: ignore[arg-type]
+    )
+
+    first = service.submit_youtube("youtu.be/dQw4w9WgXcQ")
+    second = service.submit_youtube("https://www.youtube.com/shorts/abcdefghijk")
+
+    assert second == first
+    assert len(runner.jobs()) == 1
 
 
 @pytest.mark.unit

@@ -13,7 +13,7 @@ import os
 from .paths import AppPaths
 
 # Tool caches that live inside a root and must exist before the tool is used.
-_CACHE_SUBDIRECTORIES = ("tmp", "deno")
+_CACHE_SUBDIRECTORIES = ("tmp", "deno", "yt-dlp")
 
 
 def configure() -> AppPaths:
