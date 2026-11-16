@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "todo": "TODO(ticket 12): fill sha256 with the verified hash of 955717e8.safetensors before the first release.",
+  "models": {
+    "htdemucs": {
+      "repo_id": "adefossez/HTDemucs",
+      "revision": "cbc8a9b1a87023b7fd74e7b3412e6321c0eab003",
+      "filename": "955717e8.safetensors",
+      "size": 84025440,
+      "sha256": null,
+      "distributed": false,
+      "source_url": "https://huggingface.co/adefossez/HTDemucs/blob/cbc8a9b1a87023b7fd74e7b3412e6321c0eab003/955717e8.safetensors",
+      "license": "MIT"
+    }
+  }
+}

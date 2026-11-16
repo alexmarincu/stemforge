@@ -38,7 +38,7 @@ jobs:
       - name: Install ShellCheck
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends shellcheck
       - name: ShellCheck
-        run: shellcheck -x scripts/*.sh
+        run: shellcheck -x scripts/*.sh packaging/linux/*.sh
 
   unit-linux:
     name: unit-linux
@@ -69,3 +69,49 @@ jobs:
         run: uv sync --frozen
       - name: Unit and UI tests
         run: uv run pytest -m "unit or ui"
+
+  frozen-linux:
+    name: frozen-linux
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install GUI runtime packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libgtk-3-0 \
+            libwebkit2gtk-4.1-0 \
+            gir1.2-webkit2-4.1 \
+            libgirepository1.0-dev \
+            libcairo2-dev \
+            pkg-config \
+            patchelf \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            meson \
+            ninja-build \
+            cmake \
+            libfuse2 \
+            fuse \
+            desktop-file-utils \
+            librsvg2-dev
+      - name: Install uv dependencies
+        run: uv sync --frozen --group build
+      - name: Build the frozen bundle
+        run: bash packaging/linux/build.sh
+      - name: Smoke-test the frozen bundle
+        run: bash packaging/linux/smoke-test.sh
+      - name: Upload frozen build reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frozen-linux-reports
+          path: |
+            build/reports/
+            build/pyinstaller/**/warn-*.txt
+          if-no-files-found: warn
