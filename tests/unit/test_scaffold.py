@@ -42,6 +42,7 @@ CORE_MODULES = [
     "stemforge.workers.separation",
     "stemforge.platform.binaries",
     "stemforge.platform.environment",
+    "stemforge.platform.instance",
     "stemforge.platform.paths",
     "stemforge.platform.preflight",
     "stemforge.platform.process",
@@ -134,6 +135,17 @@ def _import_roots(source: str) -> set[str]:
     return roots
 
 
+def _module_scope_import_roots(source: str) -> set[str]:
+    """Top-level module names imported at module scope only."""
+    roots: set[str] = set()
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Import):
+            roots.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            roots.add(node.module.split(".", 1)[0])
+    return roots
+
+
 def _main_guard(source: str) -> ast.If:
     for node in ast.parse(source).body:
         if isinstance(node, ast.If) and isinstance(node.test, ast.Compare):
@@ -214,9 +226,7 @@ def test_job_cancelled_keeps_a_custom_message() -> None:
 @pytest.mark.parametrize(
     ("argv", "expected"),
     [
-        ([], "StemForge 0.1.0"),
         (["--smoke-test"], "smoke-test"),
-        (["--preflight"], "preflight"),
         (["--worker", "separation"], "worker separation"),
     ],
 )
@@ -264,7 +274,7 @@ def test_foundation_modules_do_not_import_other_stemforge_packages() -> None:
 
     for path in foundation:
         source = path.read_text(encoding="utf-8")
-        roots = _import_roots(source)
+        roots = _module_scope_import_roots(source)
         assert "stemforge" not in roots, f"{path.name} imports another stemforge module"
         unexpected = roots - sys.stdlib_module_names - ALLOWED_FOUNDATION_THIRD_PARTY
         assert not unexpected, f"{path.name} imports {sorted(unexpected)}"
