@@ -201,6 +201,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     from stemforge.application import ServiceEngines, WorkspaceService
     from stemforge.engines.media import FfmpegTool
     from stemforge.integration.dialogs import NativeOpenDialog
+    from stemforge.integration.media import register_media_route
     from stemforge.integration.window import DEFAULT_WINDOW_SIZE, configure_window
     from stemforge.logging_setup import configure_logging
     from stemforge.platform import resources
@@ -222,9 +223,12 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
             service=service,
             dialogs=NativeOpenDialog(),
             show_recovery=sweep.deleted_anything,
+            preflight=report,
         )
     )
     configure_window(paths)
+    # Ticket 05 §6: one cache-rooted route, registered before the window starts.
+    register_media_route(app, paths.cache)
 
     runner = service.runner
 
@@ -454,19 +458,36 @@ def _show_fatal(
     preflight.show_fatal_message(message)
 
 
+def _dispatch_worker(argv: Sequence[str]) -> int:
+    """Route ``--worker <name>`` to the worker module without app setup."""
+    from stemforge import worker_protocol
+    from stemforge.workers import dispatch
+
+    index = argv.index("--worker")
+    if index + 1 >= len(argv):
+        print("stemforge: --worker needs a worker name", file=sys.stderr)
+        return worker_protocol.EXIT_INVALID_INPUT
+    name = argv[index + 1]
+    rest = [*argv[:index], *argv[index + 2 :]]
+    return dispatch(name, rest)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse the entry-point flags and return a process exit code."""
-    args = _build_parser().parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+
+    # Ticket 06 §7 order: worker dispatch happens before environment setup and
+    # the instance lock, so a second process can still run the bundled worker.
+    # The worker's own flags are not the app's, so this scan precedes argparse.
+    if "--worker" in raw:
+        return _dispatch_worker(raw)
+
+    args = _build_parser().parse_args(raw)
     try:
         paths = _configure()
     except OSError as error:
         return _configuration_failure(args, error)
 
-    # Ticket 06 §7 order: worker dispatch happens before the instance lock, so a
-    # second process can still run the bundled Separation worker.
-    if args.worker is not None:
-        print(f"StemForge {__version__}: worker {args.worker} is a safe stub in this build.")
-        return 0
     if args.import_path is not None:
         return _run_import(args.import_path, paths)
     if args.install_model:

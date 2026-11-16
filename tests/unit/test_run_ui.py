@@ -46,7 +46,8 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     monkeypatch.setattr(app, "on_shutdown", shutdown.append)
     monkeypatch.setattr(page, "configure", lambda context: captured.setdefault("context", context))
 
-    assert __main__._run_ui(paths, PreflightReport(checks=())) == 0
+    report = PreflightReport(checks=())
+    assert __main__._run_ui(paths, report) == 0
 
     assert captured["native"] is True
     assert captured["reload"] is False
@@ -56,5 +57,6 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     context = captured["context"]
     assert isinstance(context, page.UiContext)
     assert context.show_recovery is False
+    assert context.preflight is report
     assert len(startup) == 1
     assert len(shutdown) == 1

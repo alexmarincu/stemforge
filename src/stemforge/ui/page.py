@@ -18,15 +18,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Final, Protocol
 
-from nicegui import app, context, ui
+from nicegui import app, context, events, ui
 from nicegui.client import Client
 from nicegui.events import NativeEventArguments
 
 from stemforge import __version__, errors
-from stemforge.application import WorkspaceService
+from stemforge.application import PreviewTarget, WorkspaceService
 from stemforge.domain.models import OriginKind, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import AudioFileDialog, filter_drop_paths
+from stemforge.platform.preflight import PreflightReport
 from stemforge.ui import formatting
 from stemforge.ui.components.about import SettingsDialog
 from stemforge.ui.components.youtube import YouTubeRow
@@ -146,6 +147,29 @@ SHELL_CSS: Final = """
 .sf-job-progress { flex: 1; min-width: 80px; }
 .sf-job-pct { font-size: 10.5px; color: #7c8798; font-family: ui-monospace, monospace;
   width: 38px; }
+.sf-banner-degraded { background: #1d1a12; border-bottom: 1px solid #40341d; }
+.sf-banner-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sf-banner-headline { font-size: 12px; font-weight: 600; }
+.sf-banner-hint { font-size: 10.5px; color: #b9a77c; }
+.sf-transport { display: flex; flex-direction: column; gap: 8px; }
+.sf-transport-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sf-now { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.sf-now-title { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.sf-now-target { font-size: 10.5px; color: #8994a4; }
+.sf-time { font-size: 10.5px; color: #7c8798; font-family: ui-monospace, monospace; }
+.sf-ab { display: inline-flex; border: 1px solid #2a3240; border-radius: 8px; overflow: hidden; }
+.sf-ab .q-btn { border-radius: 0; font-size: 10.5px; }
+.sf-ab .q-btn.is-active { background: #3a2c14; color: #f0a83a; }
+.sf-output-row { display: flex; align-items: center; gap: 9px; padding: 4px 0;
+  border-top: 1px solid #1d222c; }
+.sf-output-row:first-of-type { border-top: 0; }
+.sf-output-row.is-active { background: #1b2230; border-radius: 8px; }
+.sf-output-name { flex: 1; min-width: 0; font-size: 12px; }
+.sf-output-meta { font-size: 10.5px; color: #7c8798; }
+.sf-unavailable { font-size: 11.5px; color: #a47878; }
+.sf-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sf-player { display: none; }
 """
 
 
@@ -157,6 +181,12 @@ class UiContext:
     dialogs: AudioFileDialog
     show_recovery: bool = False
     recovery_dismissed: bool = False
+    preflight: PreflightReport | None = None
+
+    @property
+    def playback_available(self) -> bool:
+        """False only for the preflight's degraded preview stack (ticket 14 §3)."""
+        return self.preflight is None or not self.preflight.degraded
 
 
 class RecentEntry(Protocol):
@@ -276,6 +306,13 @@ class WorkspacePage:
         self._recent_signature: tuple[tuple[str, bool], ...] | None = None
         self._client: Client | None = None
         self._last_busy = False
+        self._player: ui.audio | None = None
+        self._playing_track_id: str | None = None
+        self._playing_key: str | None = None
+        self._is_playing = False
+        self._position_s = 0.0
+        self._active_key: dict[str, str] = {}
+        self._unavailable_preview: set[str] = set()
 
     # -- composition --------------------------------------------------------
 
@@ -296,6 +333,9 @@ class WorkspacePage:
                         self._detail()
                 with ui.element("div"):
                     self._job_bar()
+                # One element per client for the whole app (ticket 08 §8).
+                with ui.element("div").classes("sf-player"):
+                    self._player = ui.audio("", controls=False).props("preload=none").mark("player")
         ui.timer(POLL_INTERVAL_S, self.poll)
         self._install_drop_handler()
 
@@ -351,6 +391,16 @@ class WorkspacePage:
                         ui.label(track.title).classes("sf-track-title")
                         ui.label(self._track_meta(track)).classes("sf-track-meta")
                     ui.element("span").classes("sf-dot")
+                playing = self._playing_track_id == track.track_id and self._is_playing
+                play = (
+                    ui.button(
+                        icon="pause" if playing else "play_arrow",
+                        on_click=lambda _=None, item=track: self._play_from_row(item.track_id),
+                    )
+                    .props("flat dense round size=sm")
+                    .mark("track-play", f"track-play-{track.track_id}")
+                )
+                self._apply_play_enabled(play, available=self.service.has_preview(track.track_id))
                 (
                     ui.button(
                         icon="close", on_click=lambda _=None, item=track: self._confirm_remove(item)
@@ -438,6 +488,14 @@ class WorkspacePage:
 
     @ui.refreshable_method
     def _banner(self) -> None:
+        # Degraded mode is persistent and stacks first (ticket 14 §2).
+        if not self.context.playback_available:
+            copy = formatting.copy_for(errors.PREFLIGHT_PREVIEW_UNAVAILABLE)
+            with ui.element("div").classes("sf-banner sf-banner-degraded").mark("playback-banner"):
+                ui.icon("volume_off")
+                with ui.element("div").classes("sf-banner-text flex-1"):
+                    ui.label(copy.headline).classes("sf-banner-headline")
+                    ui.label(copy.action).classes("sf-banner-hint")
         if not self.context.show_recovery or self.context.recovery_dismissed:
             return
         with ui.element("div").classes("sf-banner").mark("recovery-banner"):
@@ -476,6 +534,10 @@ class WorkspacePage:
             ui.label(track.title).classes("sf-title")
             ui.label(" · ".join(meta)).classes("sf-detail-meta")
             self._signal_path(track)
+            targets = self._targets(track)
+            self._transport(track, targets)
+            self._outputs(track, targets)
+            self._actions(track)
             with ui.element("section").classes("sf-card"):
                 ui.label("Source").classes("sf-card-title")
                 self._fact("File", filename or track.source.origin)
@@ -519,6 +581,317 @@ class WorkspacePage:
                 self._youtube_row.build()
             else:
                 self._youtube_row = None
+
+    # -- preview player -----------------------------------------------------
+
+    def _targets(self, track: Track) -> tuple[PreviewTarget, ...]:
+        return self.service.preview_targets(track.track_id)
+
+    def _active_target(
+        self, track: Track, targets: Sequence[PreviewTarget] | None = None
+    ) -> PreviewTarget | None:
+        if targets is None:
+            targets = self._targets(track)
+        if not targets:
+            return None
+        key = self._active_key.get(track.track_id)
+        for target in targets:
+            if target.key == key:
+                return target
+        return targets[0]
+
+    def _ab_pair(
+        self, track: Track, targets: Sequence[PreviewTarget] | None = None
+    ) -> tuple[PreviewTarget | None, PreviewTarget | None]:
+        if targets is None:
+            targets = self._targets(track)
+        original = next((target for target in targets if target.key == "original"), None)
+        alternate = next(
+            (target for target in reversed(targets) if target.key != "original"),
+            None,
+        )
+        return original, alternate
+
+    def _transport(self, track: Track, targets: Sequence[PreviewTarget]) -> None:
+        unavailable = track.track_id in self._unavailable_preview
+        active = None if unavailable else self._active_target(track, targets)
+        original, alternate = self._ab_pair(track, targets)
+        playing = self._playing_track_id == track.track_id and self._is_playing
+        duration = track.source.metadata.duration_s or 0.0
+        slider_max = duration if duration > 0 else 0.1
+        with ui.element("section").classes("sf-card").mark("transport"):
+            ui.label("Transport").classes("sf-card-title")
+            with ui.element("div").classes("sf-transport"):
+                with ui.element("div").classes("sf-transport-row"):
+                    play = (
+                        ui.button(
+                            icon="pause" if playing else "play_arrow",
+                            on_click=lambda _=None: self._toggle_transport(track.track_id),
+                        )
+                        .props("unelevated round")
+                        .style("background:#f0a83a;color:#141414")
+                        .mark("transport-play")
+                    )
+                    self._apply_play_enabled(play, available=active is not None)
+                    with ui.element("div").classes("sf-now"):
+                        ui.label(track.title).classes("sf-now-title")
+                        ui.label(
+                            f"{active.label}" if active is not None else "Preview unavailable"
+                        ).classes("sf-now-target").mark("now-playing")
+                    ui.label(formatting.format_duration(self._position_s)).classes("sf-time")
+                    ui.label(
+                        f"/ {formatting.format_duration(track.source.metadata.duration_s)}"
+                    ).classes("sf-time")
+                seek = (
+                    ui.slider(
+                        min=0.0,
+                        max=slider_max,
+                        step=0.1,
+                        value=min(max(self._position_s, 0.0), slider_max),
+                        on_change=self._seek,
+                    )
+                    .props("dense")
+                    .mark("seek")
+                )
+                seek.set_enabled(self._playback_allowed() and active is not None)
+                with ui.element("div").classes("sf-transport-row"):
+                    with ui.element("div").classes("sf-ab"):
+                        ab_original = (
+                            ui.button(
+                                "Original",
+                                on_click=lambda _=None: self._select_ab(track, "original"),
+                            )
+                            .props("flat dense no-caps size=sm")
+                            .mark("ab-original")
+                        )
+                        ab_preview = (
+                            ui.button(
+                                alternate.label if alternate is not None else "Preview",
+                                on_click=lambda _=None: self._select_ab(track, "preview"),
+                            )
+                            .props("flat dense no-caps size=sm")
+                            .mark("ab-preview")
+                        )
+                    for button, target in (
+                        (ab_original, original),
+                        (ab_preview, alternate),
+                    ):
+                        active_side = (
+                            target is not None and active is not None and target.key == active.key
+                        )
+                        if active_side:
+                            button.classes("is-active")
+                        button.set_enabled(target is not None and self._playback_allowed())
+                    export = (
+                        ui.button(
+                            "Export",
+                            icon="file_download",
+                            on_click=lambda _=None: self._not_yet("Export"),
+                        )
+                        .props("flat dense no-caps size=sm")
+                        .mark("export-action")
+                    )
+                    export.set_enabled(not self._busy())
+
+    def _outputs(self, track: Track, targets: Sequence[PreviewTarget]) -> None:
+        unavailable = track.track_id in self._unavailable_preview
+        active = None if unavailable else self._active_target(track, targets)
+        with ui.element("section").classes("sf-card").mark("outputs"):
+            ui.label("Outputs").classes("sf-card-title")
+            if not targets or unavailable:
+                ui.label("Preview unavailable. Re-import the file to rebuild it.").classes(
+                    "sf-unavailable"
+                ).mark("preview-unavailable")
+                if not targets:
+                    return
+            for target in targets:
+                playing = (
+                    self._playing_track_id == track.track_id
+                    and self._playing_key == target.key
+                    and self._is_playing
+                )
+                selected = active is not None and target.key == active.key
+                row = (
+                    ui.element("div")
+                    .classes(f"sf-output-row{' is-active' if selected else ''}")
+                    .mark("output-row", f"output-row-{target.key}")
+                )
+                with row:
+                    play = (
+                        ui.button(
+                            icon="pause" if playing else "play_arrow",
+                            on_click=lambda _=None, item=target: self._toggle_target(track, item),
+                        )
+                        .props("flat dense round size=sm")
+                        .mark("output-play", f"output-play-{target.key}")
+                    )
+                    self._apply_play_enabled(play)
+                    ui.label(target.label).classes("sf-output-name")
+                    if target.key == "original":
+                        ui.label("source").classes("sf-output-meta")
+                    else:
+                        ui.label("render").classes("sf-output-meta")
+
+    def _actions(self, track: Track) -> None:
+        del track
+        with ui.element("section").classes("sf-card").mark("track-actions"):
+            ui.label("Pitch and Separation").classes("sf-card-title")
+            with ui.element("div").classes("sf-actions"):
+                separation = (
+                    ui.button(
+                        "Separate vocals",
+                        icon="call_split",
+                        on_click=lambda _=None: self._not_yet("Separation"),
+                    )
+                    .props("flat no-caps")
+                    .mark("separation-action")
+                )
+                pitch = (
+                    ui.button(
+                        "Render pitch",
+                        icon="tune",
+                        on_click=lambda _=None: self._not_yet("Pitch"),
+                    )
+                    .props("flat no-caps")
+                    .mark("pitch-action")
+                )
+                separation.set_enabled(not self._busy())
+                pitch.set_enabled(not self._busy())
+
+    def _play_from_row(self, track_id: str) -> None:
+        track = next(
+            (item for item in self.service.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
+        if track is None:
+            return
+        target = self._active_target(track)
+        if target is None:
+            return
+        self._toggle_target(track, target)
+
+    def _toggle_transport(self, track_id: str) -> None:
+        track = next(
+            (item for item in self.service.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
+        if track is None:
+            return
+        target = self._active_target(track)
+        if target is not None:
+            self._toggle_target(track, target)
+
+    def _toggle_target(self, track: Track, target: PreviewTarget) -> None:
+        same_target = self._playing_track_id == track.track_id and self._playing_key == target.key
+        if same_target and self._is_playing:
+            self._pause()
+            return
+        self._start_target(track, target)
+
+    def _start_target(self, track: Track, target: PreviewTarget) -> None:
+        player = self._player
+        if player is None or not self._playback_allowed():
+            return
+        same_track = self._playing_track_id == track.track_id
+        position = self._position_s if same_track else 0.0
+        if not same_track:
+            self._position_s = 0.0
+        player.pause()
+        self._unavailable_preview.discard(track.track_id)
+        self._active_key[track.track_id] = target.key
+        self._playing_track_id = track.track_id
+        self._playing_key = target.key
+        self._is_playing = True
+        player.set_source(target.url)
+        if position > 0:
+            player.seek(position)
+        player.play()
+        self._refresh_playback()
+
+    def _select_ab(self, track: Track, side: str) -> None:
+        original, alternate = self._ab_pair(track)
+        target = original if side == "original" else alternate
+        if target is None or not self._playback_allowed():
+            return
+        was_playing = self._playing_track_id == track.track_id and self._is_playing
+        player = self._player
+        if player is None:
+            return
+        player.pause()
+        self._unavailable_preview.discard(track.track_id)
+        self._active_key[track.track_id] = target.key
+        player.set_source(target.url)
+        if self._position_s > 0:
+            player.seek(self._position_s)
+        if was_playing:
+            player.play()
+        self._playing_track_id = track.track_id if was_playing else None
+        self._playing_key = target.key if was_playing else None
+        self._is_playing = was_playing
+        self._refresh_playback()
+
+    def _pause(self) -> None:
+        if self._player is not None:
+            self._player.pause()
+        self._is_playing = False
+        self._playing_track_id = None
+        self._playing_key = None
+        self._refresh_playback()
+
+    def _reconcile_playback(self) -> None:
+        """Stop when a Job removed or replaced the file that is currently playing."""
+        track_id = self._playing_track_id
+        if track_id is None or not self._is_playing:
+            return
+        track = next(
+            (item for item in self.service.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
+        if track is None:
+            self._mark_preview_unavailable(track_id)
+            return
+        targets = self._targets(track)
+        if not any(target.key == self._playing_key for target in targets):
+            self._mark_preview_unavailable(track_id)
+
+    def _mark_preview_unavailable(self, track_id: str) -> None:
+        if self._player is not None:
+            self._player.pause()
+        self._is_playing = False
+        self._playing_track_id = None
+        self._playing_key = None
+        self._active_key.pop(track_id, None)
+        self._unavailable_preview.add(track_id)
+        self._refresh_playback()
+
+    def _seek(self, event: events.ValueChangeEventArguments[float | None]) -> None:
+        if event.value is None:
+            return
+        self._position_s = float(event.value)
+        if self._player is not None:
+            self._player.seek(self._position_s)
+
+    def _playback_allowed(self) -> bool:
+        """Playback is independent of Jobs (ticket 08 §11); only a degraded host blocks it."""
+        return self.context.playback_available
+
+    def _apply_play_enabled(self, button: ui.button, *, available: bool = True) -> None:
+        enabled = available and self._playback_allowed()
+        button.set_enabled(enabled)
+        if not enabled:
+            reason = (
+                "Playback unavailable"
+                if not self.context.playback_available
+                else "No cached preview"
+            )
+            button.tooltip(reason)
+
+    def _refresh_playback(self) -> None:
+        self._tracks.refresh()
+        self._detail.refresh()
+
+    def _not_yet(self, feature: str) -> None:
+        ui.notify(f"{feature} arrives in a later build.", type="info")
 
     @ui.refreshable_method
     def _job_bar(self) -> None:
@@ -649,6 +1022,7 @@ class WorkspacePage:
             self._job_bar.refresh()
 
         self._process_finished_jobs()
+        self._reconcile_playback()
         self._sync_actions()
 
     def _process_finished_jobs(self) -> None:
@@ -742,6 +1116,8 @@ class WorkspacePage:
 
     def _remove_track(self, track: Track, dialog: ui.dialog) -> None:
         dialog.close()
+        if self._playing_track_id == track.track_id:
+            self._pause()
         try:
             self.service.remove_track(track.track_id)
         except StemForgeError as error:
@@ -750,6 +1126,8 @@ class WorkspacePage:
         if self._selected_id == track.track_id:
             remaining = self.service.snapshot().tracks
             self._selected_id = remaining[0].track_id if remaining else None
+        self._active_key.pop(track.track_id, None)
+        self._unavailable_preview.discard(track.track_id)
         self._refresh_all()
 
     def _remove_recent(self, entry: RecentEntry) -> None:
@@ -791,6 +1169,10 @@ class WorkspacePage:
         return None
 
     def _select_track(self, track_id: str) -> None:
+        if track_id != self._playing_track_id and self._is_playing:
+            self._pause()
+        if track_id != self._playing_track_id:
+            self._position_s = 0.0
         self._selected_id = track_id
         track = self._selected_track()
         if track is not None:
