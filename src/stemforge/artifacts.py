@@ -388,6 +388,22 @@ class ArtifactStore:
             _raise_wrapped(exc, f"create staging for {job_id}")
         return staging
 
+    def discard_staging(self, job_id: str) -> bool:
+        """Delete ``staging/<job_id>/`` after a cancel or failure.
+
+        Missing staging is not an error: a Job that failed before staging or one
+        whose directory was already promoted has nothing left to discard.
+        """
+        _validate_identity(job_id, "job id")
+        staging = self.staging_dir / job_id
+        with self._lock:
+            existed = staging.exists() or staging.is_symlink()
+            try:
+                _remove_tree(staging)
+            except OSError as exc:
+                _raise_wrapped(exc, f"discard staging for {job_id}")
+            return existed
+
     # -- commits ------------------------------------------------------------
 
     def commit_source(
