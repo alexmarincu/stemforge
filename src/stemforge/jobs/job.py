@@ -4,3 +4,7 @@ Ticket 08 owns the implementation. ``JobContext`` is the only pipeline-facing se
 """
 
 from __future__ import annotations
+
+from stemforge.domain.cancellation import CancelToken
+
+__all__ = ["CancelToken"]
