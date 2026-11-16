@@ -1,0 +1,111 @@
+# StemForge Glossary
+
+The shared vocabulary for StemForge. Definitions are conceptual; implementation details belong in ADRs and tickets.
+
+## Artifact
+
+A rendered audio output derived from a Track: a pitch-shifted version, a Stem, or an export candidate. An Artifact never overwrites the Track's original audio.
+
+## Artifact set
+
+The group of Artifacts one Job produces, sharing provenance and one presentation gain: a Source's canonical audio and preview, a Separation's Stems, Instrumental, and previews, or a Render's shifted masters and previews.
+
+## Bundle
+
+The complete, per-platform application package a user downloads: the frozen application, its Vendor binaries, and its licence files. A Bundle is replaced as a whole; nothing inside it is patched in place.
+
+## Cache
+
+The rebuildable on-disk store of imported Sources and derived Artifacts. It is shared across Workspaces and survives restarts, but is not a project library: its contents may be discarded and rebuilt from the Source.
+
+## Corresponding Source
+
+The source code, build scripts, and materials needed to rebuild a distributed binary, as defined by the GPL. StemForge ships it with each release rather than relying on a repository link alone.
+
+## Degraded mode
+
+A way of running StemForge with one capability missing — in v1, Preview — while the rest of the app still works. A degraded mode is announced, never silent.
+
+## Diagnostics report
+
+The local summary of versions, paths, settings, and recent log lines a user copies when asking for help. StemForge never uploads it, zips it, or writes it on its own.
+
+## Export
+
+Copying an Artifact to a user-chosen location on disk through a native save dialog.
+
+## Instrumental
+
+The non-vocal mix of a Track, stored as a derived Artifact (the sum of the non-vocal Stems) and presented as one of the two primary Separation outputs. It is not a Stem.
+
+## Job
+
+A long-running local operation with observable progress and cancellation: import, download, decode, pitch render, Separation, or Export.
+
+## Model weights
+
+The pretrained parameters of the separation model. They are a third-party download, not part of StemForge's licensed bundle, and are not covered by its GPL-3.0 licence.
+
+## Partial
+
+A file that is still being written and has not been promoted to an Artifact. Partials are never played, exported, or counted as cached audio, and they do not survive a restart.
+
+## Pitch shift
+
+A transformed version of a Track or Stem shifted by an integer number of semitones while preserving tempo.
+
+## Portable build
+
+The Windows Bundle distributed as an archive with no installer. "Portable" describes the absence of installation, not where StemForge keeps its data.
+
+## Preflight
+
+The startup checks that decide whether StemForge can open, and with which capabilities. A failed preflight either stops the app before its window exists or puts it into a degraded mode.
+
+## Preview
+
+In-app playback of a Track or Artifact before Export.
+
+## Render
+
+The explicit action that produces a Pitch shift Artifact set from a Track's original audio or from all of its Stems. A Render never modifies its inputs, does not imply a Separation, and leaves earlier sets cached as independent Artifacts.
+
+## Separation
+
+The local process that splits a Track into Stems using a separation model.
+
+## Source
+
+Where a Track came from: a local audio file or a YouTube URL.
+
+## Source offer
+
+The shipped statement that identifies where Corresponding Source can be obtained and how to request it. It accompanies every binary artifact, not just the repository.
+
+## Stem
+
+An isolated component of a Track produced by Separation. StemForge generates four (vocals, drums, bass, other) and presents Vocals and Instrumental as the primary outputs.
+
+## Thin AppImage
+
+The single-file Linux Bundle that relies on the host's GTK, WebKitGTK, and GStreamer for its native window and Preview instead of carrying them. It is not self-contained, and it is not the primary Linux artifact.
+
+## Third-party notices
+
+The shipped inventory of every third-party component, its version, licence, and source link.
+
+## Track
+
+A single audio item loaded into the Workspace, identified by its Source and title, with one original audio artifact.
+
+## Vendor binary
+
+A third-party executable shipped inside a Bundle rather than installed by the user — currently FFmpeg, ffprobe, Rubber Band, and Deno. Each keeps its own licence and notice.
+
+## Workspace
+
+The session-scoped collection of Tracks and their Artifacts. It is ephemeral and is not a persistent project library.
+
+## YouTube import
+
+Loading a Track's audio from a YouTube URL. It is the only operation in StemForge that uses the network, and v1 accepts a single public, non-age-gated video per import — no playlists, channels, accounts, or cookies.
