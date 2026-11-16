@@ -344,7 +344,7 @@ class FfmpegTool:
             raise StemForgeError(
                 errors.MEDIA_ENCODE_FAILED,
                 "ffmpeg could not extract the embedded cover",
-                detail=_tail(run.stderr),
+                detail=_tail(run.stderr) or None,
                 context={"path": str(src)},
             )
         os.replace(partial, target)
@@ -383,7 +383,7 @@ class FfmpegTool:
                 raise StemForgeError(
                     errors.DECODE_FAILED,
                     "ffmpeg could not decode the source",
-                    detail=_tail(run.stderr),
+                    detail=_tail(run.stderr) or None,
                     context={"path": str(src)},
                 )
             info = self._validate(
@@ -525,7 +525,7 @@ class FfmpegTool:
                 raise StemForgeError(
                     errors.MEDIA_ENCODE_FAILED,
                     f"ffmpeg could not encode the {operation}",
-                    detail=_tail(run.stderr),
+                    detail=_tail(run.stderr) or None,
                     context={"path": str(dst)},
                 )
             self._validate(partial, expect, operation=operation)
@@ -640,6 +640,8 @@ class FfmpegTool:
         return argv
 
     def _detect_soxr(self) -> bool:
+        # FFmpeg lists filter names under ``-filters`` but resampler engines are
+        # AVOptions of ``aresample``; this header is where ``soxr`` appears.
         try:
             run = process.run_capture(
                 [str(self.ffmpeg), "-hide_banner", "-h", "filter=aresample"],
