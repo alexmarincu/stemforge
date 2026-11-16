@@ -29,6 +29,8 @@ from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import AudioFileDialog, filter_drop_paths
 from stemforge.platform.preflight import PreflightReport
 from stemforge.ui import formatting
+from stemforge.ui.components.about import SettingsDialog
+from stemforge.ui.components.youtube import YouTubeRow
 
 TITLE: Final = "StemForge"
 POLL_INTERVAL_S: Final = 0.4
@@ -76,6 +78,8 @@ SHELL_CSS: Final = """
   border-radius: 6px; cursor: pointer; min-width: 0; flex: 1; }
 .sf-recent-hit:hover { background: #171d26; }
 .sf-recent-row.is-missing { opacity: 0.55; }
+.sf-recent-row.is-off { opacity: 0.55; }
+.sf-recent-hit.is-disabled { cursor: default; }
 .sf-recent-title { flex: 1; min-width: 0; font-size: 11.5px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 .sf-recent-meta { font-size: 10px; color: #7c8798; flex: none; }
@@ -100,6 +104,20 @@ SHELL_CSS: Final = """
 .sf-dropzone.is-disabled { opacity: 0.55; cursor: default; }
 .sf-drop-title { font-size: 13px; font-weight: 600; }
 .sf-drop-sub { font-size: 11.5px; color: #8b97a8; }
+.sf-or { display: flex; align-items: center; gap: 10px; font-size: 10.5px;
+  letter-spacing: 0.08em; text-transform: uppercase; color: #7c8798; }
+.sf-or::before, .sf-or::after { content: ""; height: 1px; background: #232833; flex: 1; }
+.sf-yt { display: flex; flex-direction: column; gap: 7px; }
+.sf-yt-row { display: flex; align-items: stretch; gap: 8px; }
+.sf-yt-input { flex: 1; min-width: 0; }
+.sf-yt-button { flex: none; }
+.sf-yt-error { font-size: 11.5px; color: #f1b7b7; }
+.sf-yt-status { font-size: 11.5px; color: #9fd3ad; }
+.sf-yt-disclaimer { font-size: 11px; color: #7c8798; line-height: 1.45; }
+.sf-setting-row { display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 8px 0; }
+.sf-setting-main { display: flex; flex-direction: column; gap: 2px; }
+.sf-setting-label { font-size: 12.5px; font-weight: 550; }
 .sf-detail { display: flex; flex-direction: column; gap: 18px; max-width: 980px; }
 .sf-title { font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
 .sf-detail-meta { font-size: 11.5px; color: #8994a4; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -279,6 +297,7 @@ class WorkspacePage:
         self._job_bar_visible = False
         self._notice: tuple[str, str, str, str | None] | None = None
         self._add_button: ui.button | None = None
+        self._youtube_row: YouTubeRow | None = None
         self._recent_signature: tuple[tuple[str, bool], ...] | None = None
         self._client: Client | None = None
         self._last_busy = False
@@ -391,31 +410,41 @@ class WorkspacePage:
         entries = self.service.recent_files()
         if not entries:
             return
+        youtube_off = not self.service.youtube_enabled()
         ui.label("Recent").classes("sf-rail-label")
         visible = entries if self._recent_expanded else entries[:RECENT_VISIBLE]
         for entry in visible:
             available = self.service.recent_available(entry.source_id)
             missing = "" if available else " is-missing"
+            blocked = youtube_off and entry.origin_kind is OriginKind.YOUTUBE
+            off = " is-off" if blocked else ""
             row = (
                 ui.element("div")
-                .classes(f"sf-recent-row{missing}")
+                .classes(f"sf-recent-row{missing}{off}")
                 .mark("recent", f"recent-{entry.source_id}")
             )
             with row:
                 hit = (
                     ui.element("div")
-                    .classes("sf-recent-hit")
+                    .classes(f"sf-recent-hit{' is-disabled' if blocked else ''}")
                     .mark("recent-row")
-                    .on("click", lambda _=None, item=entry: self._open_recent(item))
                 )
+                if not blocked:
+                    hit.on(
+                        "click",
+                        lambda _=None, item=entry: self._open_recent(item),
+                    )
                 with hit:
                     ui.icon("movie" if entry.origin_kind is OriginKind.YOUTUBE else "description")
                     ui.label(entry.title).classes("sf-recent-title")
-                    ui.label(
-                        formatting.format_relative_time(entry.last_opened)
-                        if available
-                        else "missing"
-                    ).classes("sf-recent-meta")
+                    if blocked:
+                        ui.label(formatting.YOUTUBE_OFF).classes("sf-recent-meta")
+                    else:
+                        ui.label(
+                            formatting.format_relative_time(entry.last_opened)
+                            if available
+                            else "missing"
+                        ).classes("sf-recent-meta")
                 if not available:
                     (
                         ui.button(
@@ -443,7 +472,12 @@ class WorkspacePage:
         with bar:
             ui.element("i").style(f"width:{percent}%")
         with ui.element("div").classes("sf-foot-line"):
-            ui.label("Settings & About").classes("sf-fineprint")
+            (
+                ui.button(formatting.SETTINGS_TITLE, on_click=self._open_settings)
+                .props("flat dense no-caps size=sm")
+                .classes("sf-fineprint")
+                .mark("settings-about")
+            )
             ui.label(f"v{__version__}").classes("sf-fineprint")
 
     @ui.refreshable_method
@@ -484,6 +518,7 @@ class WorkspacePage:
         if track is None:
             self._empty_state()
             return
+        self._youtube_row = None
         meta = [self._origin_label(track)]
         filename = self._filename(track)
         if filename:
@@ -512,12 +547,14 @@ class WorkspacePage:
     def _empty_state(self) -> None:
         busy = self._busy()
         disabled = " is-disabled" if busy else ""
+        youtube_on = self.service.youtube_enabled()
+        lede = formatting.EMPTY_LEDE_YOUTUBE if youtube_on else formatting.EMPTY_LEDE
         with (
             ui.element("div").classes("sf-empty").mark("empty-state"),
             ui.element("div").classes("sf-empty-card"),
         ):
             ui.label("Bring in a track").classes("sf-empty-title")
-            ui.label("Drop a local file. Everything runs on this machine.").classes("sf-lede")
+            ui.label(lede).classes("sf-lede")
             dropzone = (
                 ui.element("div")
                 .classes(f"sf-dropzone{disabled}")
@@ -528,6 +565,12 @@ class WorkspacePage:
                 ui.icon("upload_file").classes("text-3xl").style("color:#8b97a8")
                 ui.label("Drop audio files here").classes("sf-drop-title")
                 ui.label("WAV, MP3, FLAC, M4A — or choose files…").classes("sf-drop-sub")
+            if youtube_on:
+                ui.label("or").classes("sf-or")
+                self._youtube_row = YouTubeRow(self.service, busy=busy)
+                self._youtube_row.build()
+            else:
+                self._youtube_row = None
 
     # -- preview player -----------------------------------------------------
 
@@ -879,7 +922,12 @@ class WorkspacePage:
         if self._busy():
             return
         if entry.origin_kind is OriginKind.YOUTUBE:
-            ui.notify("YouTube import is not available in this version.", type="info")
+            message = (
+                formatting.YOUTUBE_UNAVAILABLE
+                if self.service.youtube_enabled()
+                else formatting.YOUTUBE_OFF
+            )
+            ui.notify(message, type="info")
             return
         try:
             job_id = self.service.open_recent(entry.source_id)
@@ -1042,6 +1090,13 @@ class WorkspacePage:
         self.context.recovery_dismissed = True
         self._banner.refresh()
 
+    def _open_settings(self) -> None:
+        SettingsDialog(self.service, on_youtube_toggle=self._on_youtube_toggle).open()
+
+    def _on_youtube_toggle(self) -> None:
+        self._detail.refresh()
+        self._recent.refresh()
+
     # -- small state --------------------------------------------------------
 
     def _busy(self) -> bool:
@@ -1077,6 +1132,8 @@ class WorkspacePage:
         busy = self._busy()
         if self._add_button is not None:
             self._add_button.set_enabled(not busy)
+        if self._youtube_row is not None:
+            self._youtube_row.set_busy(busy)
         if busy != self._last_busy:
             self._last_busy = busy
             self._detail.refresh()

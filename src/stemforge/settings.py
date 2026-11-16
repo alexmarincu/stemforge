@@ -25,6 +25,8 @@ from stemforge.platform.storage import DEFAULT_CACHE_CAP_BYTES
 SCHEMA_VERSION: Final = 1
 MAX_RECENT_FILES: Final = 10
 SETTINGS_FILENAME: Final = "settings.json"
+# Ticket 09 §7: the shipped YouTube consent wording has one version in v1.
+YOUTUBE_NOTICE_VERSION: Final = 1
 
 _LOG = logging.getLogger(__name__)
 
@@ -53,6 +55,11 @@ class Settings:
     cache_cap_bytes: int = DEFAULT_CACHE_CAP_BYTES
     # Ticket 13 §7: explicit consent for the htdemucs download.
     model_consent: ModelConsent | None = None
+    # Ticket 09 §7: the YouTube row toggle and the one-time ToS acknowledgment.
+    youtube_enabled: bool = True
+    youtube_notice_acknowledged: bool = False
+    youtube_notice_version: int = 0
+    youtube_notice_accepted_at: datetime | None = None
 
 
 class SettingsStore:
@@ -113,6 +120,51 @@ class SettingsStore:
             if self._settings.model_consent is None:
                 return
             self._write_locked(replace(self._settings, model_consent=None))
+
+    # -- YouTube (ticket 09 §7) --------------------------------------------
+
+    @property
+    def youtube_enabled(self) -> bool:
+        with self._lock:
+            return self._settings.youtube_enabled
+
+    def set_youtube_enabled(self, enabled: bool) -> None:
+        """Persist the Behaviour → YouTube import toggle."""
+        with self._lock:
+            if enabled == self._settings.youtube_enabled:
+                return
+            self._write_locked(replace(self._settings, youtube_enabled=enabled))
+
+    def youtube_notice_is_current(self) -> bool:
+        """Whether the one-time consent was acknowledged for the shipped notice."""
+        with self._lock:
+            settings = self._settings
+            return bool(
+                settings.youtube_notice_acknowledged
+                and settings.youtube_notice_version >= YOUTUBE_NOTICE_VERSION
+                and settings.youtube_notice_accepted_at is not None
+            )
+
+    def accept_youtube_notice(
+        self,
+        *,
+        version: int = YOUTUBE_NOTICE_VERSION,
+        accepted_at: datetime | None = None,
+    ) -> datetime:
+        """Record the one-time YouTube ToS acknowledgment and its timestamp."""
+        if version < 1:
+            raise ValueError("consent version must be positive")
+        stamp = accepted_at or datetime.now(UTC)
+        with self._lock:
+            self._write_locked(
+                replace(
+                    self._settings,
+                    youtube_notice_acknowledged=True,
+                    youtube_notice_version=version,
+                    youtube_notice_accepted_at=stamp,
+                )
+            )
+        return stamp
 
     def recent_files(self) -> tuple[RecentFile, ...]:
         with self._lock:
@@ -224,6 +276,10 @@ class SettingsStore:
         ):
             return self._recover_corrupt(raw, reason="invalid cache_cap_bytes")
 
+        youtube_enabled = payload.get("youtube_enabled", True)
+        if not isinstance(youtube_enabled, bool):
+            return self._recover_corrupt(raw, reason="invalid youtube_enabled")
+
         return Settings(
             schema_version=version,
             recent=recent,
@@ -231,6 +287,10 @@ class SettingsStore:
             first_run=first_run,
             cache_cap_bytes=cache_cap_bytes,
             model_consent=_parse_model_consent(payload),
+            youtube_enabled=youtube_enabled,
+            youtube_notice_acknowledged=_parse_youtube_acknowledged(payload),
+            youtube_notice_version=_parse_youtube_notice_version(payload),
+            youtube_notice_accepted_at=_parse_youtube_notice_timestamp(payload),
         )
 
     def _recover_corrupt(self, raw: str, *, reason: str) -> Settings:
@@ -310,7 +370,37 @@ def _to_payload(settings: Settings) -> dict[str, object]:
                 else None
             )
         },
+        "youtube_enabled": settings.youtube_enabled,
+        "youtube_notice_acknowledged": settings.youtube_notice_acknowledged,
+        "youtube_notice_version": settings.youtube_notice_version,
+        "youtube_notice_accepted_at": (
+            settings.youtube_notice_accepted_at.isoformat()
+            if settings.youtube_notice_accepted_at is not None
+            else None
+        ),
     }
+
+
+def _parse_youtube_acknowledged(payload: Mapping[str, object]) -> bool:
+    record = payload.get("youtube_notice_acknowledged", False)
+    return record if isinstance(record, bool) else False
+
+
+def _parse_youtube_notice_version(payload: Mapping[str, object]) -> int:
+    record = payload.get("youtube_notice_version", 0)
+    if isinstance(record, int) and not isinstance(record, bool) and record >= 0:
+        return record
+    return 0
+
+
+def _parse_youtube_notice_timestamp(payload: Mapping[str, object]) -> datetime | None:
+    record = payload.get("youtube_notice_accepted_at")
+    if not isinstance(record, str):
+        return None
+    try:
+        return datetime.fromisoformat(record)
+    except ValueError:
+        return None
 
 
 def _parse_model_consent(payload: Mapping[str, object]) -> ModelConsent | None:

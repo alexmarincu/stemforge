@@ -20,6 +20,7 @@ from stemforge.artifacts import ArtifactStore, RemoveReport, SweepReport
 from stemforge.domain.models import JobKind, ModelConsent, OriginKind, Source, Track
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
 from stemforge.engines.media import MediaTool
+from stemforge.engines.youtube import YouTubeVideo, parse_youtube_url
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import Job, JobContext, JobRun
 from stemforge.jobs.runner import JobRunner
@@ -306,6 +307,38 @@ class WorkspaceService:
         return run
 
     # -- Jobs ---------------------------------------------------------------
+
+    def youtube_enabled(self) -> bool:
+        """Whether the empty-state YouTube row is enabled (ticket 09 §7)."""
+        return self._settings.youtube_enabled
+
+    def set_youtube_enabled(self, enabled: bool) -> None:
+        self._settings.set_youtube_enabled(enabled)
+
+    def youtube_notice_acknowledged(self) -> bool:
+        """Whether the one-time YouTube disclaimer was accepted."""
+        return self._settings.youtube_notice_is_current()
+
+    def accept_youtube_notice(self) -> None:
+        """Persist the one-time YouTube ToS acknowledgment."""
+        self._settings.accept_youtube_notice()
+
+    def validate_youtube(self, url: str) -> YouTubeVideo:
+        """Validate one YouTube URL for the field; no Job and no service state.
+
+        The UI calls this before the consent gate, so a rejected paste is only a
+        field error and never reaches ``submit_youtube``.
+        """
+        return parse_youtube_url(url)
+
+    def submit_youtube(self, url: str) -> YouTubeVideo:
+        """Validate one YouTube URL synchronously and return the video.
+
+        Ticket 15 deliberately starts no Job: this seam is filled by ticket 16's
+        ``import_youtube`` submission. Rejected shapes raise the field-level code
+        before the caller reaches any service state, so no Job can exist.
+        """
+        return parse_youtube_url(url)
 
     def import_local(self, path: str | Path) -> str:
         """Submit a local import Job and return its id (deduped while active)."""
