@@ -12,6 +12,7 @@ import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 from uuid import uuid4
 
 from stemforge import errors
@@ -51,6 +52,21 @@ class RemoveOutcome:
     track: Track
     cache_removed: bool
     report: RemoveReport | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PreviewTarget:
+    """One playable preview URL for a Track (ticket 09).
+
+    ``original`` is the unshifted source preview; committed pitch renders expose
+    their original preview for the A/B hook. The UI never builds these URLs
+    itself: the service confines every path to the cache root that the single
+    ``/media`` route serves.
+    """
+
+    key: str
+    label: str
+    url: str
 
 
 class WorkspaceService:
@@ -165,6 +181,63 @@ class WorkspaceService:
     def sweep_stale(self) -> SweepReport:
         """Run the startup sweep once; the UI shows recovery copy when it deleted work."""
         return self._artifacts.sweep_stale()
+
+    # -- Preview -----------------------------------------------------------
+
+    def has_preview(self, track_id: str) -> bool:
+        """Whether the Track's source preview exists inside the cache."""
+        track = next(
+            (item for item in self.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
+        return track is not None and self._preview_url(track.source.preview_path) is not None
+
+    def preview_targets(self, track_id: str) -> tuple[PreviewTarget, ...]:
+        """The playable previews for one Track, original first.
+
+        Only files inside the cache root are exposed. A missing preview is simply
+        absent, which lets the UI mark its row unavailable instead of requesting a
+        URL that can only 404.
+        """
+        track = next(
+            (item for item in self.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
+        if track is None:
+            return ()
+        targets: list[PreviewTarget] = []
+        source_url = self._preview_url(track.source.preview_path)
+        if source_url is not None:
+            targets.append(PreviewTarget(key="original", label="Original", url=source_url))
+        renders = sorted(self._artifacts.iter_renders(), key=lambda item: item.created_at)
+        for artifact in renders:
+            if artifact.source_id != track.source_id:
+                continue
+            preview = artifact.path_for("original_preview")
+            url = self._preview_url(preview)
+            if url is None:
+                continue
+            targets.append(
+                PreviewTarget(
+                    key=artifact.render_key,
+                    label=_render_label(artifact.manifest),
+                    url=url,
+                )
+            )
+        return tuple(targets)
+
+    def _preview_url(self, path: Path | None) -> str | None:
+        if path is None:
+            return None
+        try:
+            root = self._artifacts.root.resolve(strict=False)
+            resolved = path.resolve(strict=True)
+            if not resolved.is_relative_to(root) or not resolved.is_file():
+                return None
+            relative = resolved.relative_to(root).as_posix()
+        except (OSError, ValueError):
+            return None
+        return "/media/" + quote(relative, safe="/")
 
     # -- Model -------------------------------------------------------------
 
@@ -292,3 +365,16 @@ class WorkspaceService:
             duration_s=source.metadata.duration_s,
         )
         return track
+
+
+def _render_label(manifest: Mapping[str, object]) -> str:
+    """A version label for the A/B hook: ``+3`` or ``+3 stems``."""
+    semitones = manifest.get("semitones")
+    label = (
+        f"{semitones:+d}"
+        if isinstance(semitones, int) and not isinstance(semitones, bool)
+        else "Render"
+    )
+    if manifest.get("scope") == "stems":
+        label += " stems"
+    return label
