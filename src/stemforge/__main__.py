@@ -68,6 +68,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="write the JSON report to PATH",
     )
     parser.add_argument(
+        "--import",
+        dest="import_path",
+        metavar="PATH",
+        help="import one local audio file headlessly, then exit",
+    )
+    parser.add_argument(
         "--worker",
         metavar="NAME",
         help="run an internal worker (separation); dispatched by the frozen binary",
@@ -104,6 +110,11 @@ def _configuration_failure(args: argparse.Namespace, error: OSError) -> int:
         fail_on_degraded=False,
     )
     diagnostics = _diagnostics_text(report, paths)
+    if args.import_path is not None:
+        from stemforge import errors
+
+        print(f"error {errors.PREFLIGHT_STORAGE_UNWRITABLE}: {_one_line(str(error))}")
+        return 1
     if args.preflight:
         if args.report is not None:
             preflight.write_report(args.report, report)
@@ -174,6 +185,65 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
         print("Preview isn't available on this system; starting in degraded mode.")
     print("The UI is not implemented in this scaffold.")
     return 0
+
+
+def _one_line(text: str | None, *, limit: int = 240) -> str:
+    """Collapse a coded error's detail to one printable line."""
+    if not text:
+        return "see the job log"
+    collapsed = " ".join(text.split())
+    return collapsed if len(collapsed) <= limit else f"{collapsed[: limit - 3]}..."
+
+
+def _run_import(path: str, paths: AppPaths) -> int:
+    """Run one local import Job synchronously and print a one-line result."""
+    from stemforge import errors
+    from stemforge.application import ServiceEngines, WorkspaceService
+    from stemforge.engines.media import FfmpegTool
+    from stemforge.errors import StemForgeError
+    from stemforge.jobs import JobState
+    from stemforge.logging_setup import configure_logging
+    from stemforge.settings import SettingsStore
+
+    settings = SettingsStore(paths)
+    configure_logging(paths)
+    service = WorkspaceService(
+        settings,
+        paths=paths,
+        engines=ServiceEngines(media=FfmpegTool()),
+    )
+    runner = service.runner
+    runner.start()
+    try:
+        job_id = service.import_local(path)
+        runner.wait_idle()
+        snapshot = runner.snapshot(job_id)
+    except StemForgeError as error:
+        print(f"error {error.code}: {_one_line(error.detail)}")
+        return 1
+    except Exception as error:
+        print(f"error {errors.INTERNAL_UNEXPECTED}: {_one_line(str(error))}")
+        return 1
+    finally:
+        runner.stop()
+
+    if snapshot.state is JobState.SUCCEEDED:
+        source_id = snapshot.result_keys.get("source_id", "")
+        track_id = snapshot.result_keys.get("track_id", "")
+        track = next(
+            (item for item in service.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
+        title = track.title if track is not None else Path(path).stem
+        print(f'imported "{title}" source={source_id} track={track_id}')
+        return 0
+    if snapshot.state is JobState.CANCELLED:
+        print(f"cancelled {snapshot.kind.value} job {snapshot.job_id}")
+        return 2
+
+    code = snapshot.error_code or errors.INTERNAL_UNEXPECTED
+    print(f"error {code}: {_one_line(snapshot.error_detail)}")
+    return 1
 
 
 def _fatal_code(report: preflight.PreflightReport) -> str:
@@ -252,6 +322,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.worker is not None:
         print(f"StemForge {__version__}: worker {args.worker} is a safe stub in this build.")
         return 0
+    if args.import_path is not None:
+        return _run_import(args.import_path, paths)
 
     if args.self_test or args.smoke_test or args.smoke_separation:
         from stemforge import smoke
