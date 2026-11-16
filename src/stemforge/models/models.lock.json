@@ -1,16 +1,18 @@
 {
   "schema": 1,
-  "todo": "TODO(ticket 12): fill sha256 with the verified hash of 955717e8.safetensors before the first release.",
   "models": {
     "htdemucs": {
       "repo_id": "adefossez/HTDemucs",
       "revision": "cbc8a9b1a87023b7fd74e7b3412e6321c0eab003",
       "filename": "955717e8.safetensors",
       "size": 84025440,
-      "sha256": null,
+      "sha256": "d9fa14133cfcc034a6758923bb3a8ca9f8dfd0b582134643bbf83f72c17576dd",
       "distributed": false,
+      "download_url": "https://huggingface.co/adefossez/HTDemucs/resolve/cbc8a9b1a87023b7fd74e7b3412e6321c0eab003/955717e8.safetensors",
       "source_url": "https://huggingface.co/adefossez/HTDemucs/blob/cbc8a9b1a87023b7fd74e7b3412e6321c0eab003/955717e8.safetensors",
-      "license": "MIT"
+      "license": "No licence granted: the Demucs author states the weights' licence is unclear and likely non-commercial.",
+      "licence_notice_version": 1,
+      "licence_notice": "These weights are not part of StemForge and are not covered by StemForge's GPL-3.0 licence. The Demucs author states their licence is unclear: the training data included research-only MusDB material, and FAIR's models are likely non-commercial. Download only if that is acceptable to you."
     }
   }
 }
