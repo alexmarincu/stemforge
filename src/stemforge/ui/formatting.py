@@ -150,7 +150,7 @@ COPY_BY_CODE: Final[Mapping[str, ErrorCopy]] = MappingProxyType(
         ),
         errors.STORAGE_PERMISSION_DENIED: ErrorCopy(
             "StemForge can't write to its data folder.",
-            "Check the folder's permissions, or set STEMFORGE_HOME to a writable folder.",
+            "Check the folder's permissions, or set `STEMFORGE_HOME` to a writable folder.",
         ),
         errors.INTERNAL_UNEXPECTED: ErrorCopy(
             "Something went wrong.",
@@ -158,27 +158,32 @@ COPY_BY_CODE: Final[Mapping[str, ErrorCopy]] = MappingProxyType(
         ),
         errors.PREFLIGHT_PLATFORM_UNSUPPORTED: ErrorCopy(
             "StemForge runs on 64-bit Linux and 64-bit Windows.",
-            "Linux needs glibc 2.35 or newer; Windows needs Windows 10 22H2 or 11, x64.",
+            "Linux needs glibc 2.35 or newer; Windows needs Windows 10 22H2 or Windows 11, x64.",
         ),
         errors.PREFLIGHT_WINDOW_UNAVAILABLE: ErrorCopy(
             "StemForge needs GTK 3 and WebKitGTK 4.1 to open its window.",
-            "Install GTK 3 and WebKitGTK 4.1, then start StemForge again.",
+            "Debian/Ubuntu: `sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0 "
+            "gir1.2-webkit2-4.1` · Fedora: `sudo dnf install gtk3 webkit2gtk4.1` · "
+            "Arch: `sudo pacman -S gtk3 webkit2gtk-4.1`",
         ),
         errors.PREFLIGHT_WEBVIEW2_MISSING: ErrorCopy(
             "StemForge needs the Microsoft Edge WebView2 Runtime.",
-            "Install the Evergreen Bootstrapper from Microsoft, then start StemForge again.",
+            "Install the Evergreen Bootstrapper from "
+            "https://developer.microsoft.com/microsoft-edge/webview2/ and start StemForge again.",
         ),
         errors.PREFLIGHT_BUNDLE_DAMAGED: ErrorCopy(
             "StemForge is missing files from its installation.",
-            "Reinstall StemForge, or extract the portable archive again.",
+            "Reinstall StemForge, or if you use the portable build, extract the archive again.",
         ),
         errors.PREFLIGHT_STORAGE_UNWRITABLE: ErrorCopy(
             "StemForge can't write to its data folder.",
-            "Check the folder's permissions, or set STEMFORGE_HOME to a writable folder.",
+            "Check the folder's permissions, or set `STEMFORGE_HOME` to a writable folder.",
         ),
         errors.PREFLIGHT_PREVIEW_UNAVAILABLE: ErrorCopy(
             "Playback isn't available on this system.",
-            "Install gstreamer1.0-plugins-good; separation, pitch, and export still work.",
+            "WebKitGTK needs GStreamer's good plugins: `sudo apt install "
+            "gstreamer1.0-plugins-good` (Fedora `gstreamer1-plugins-good`, Arch "
+            "`gst-plugins-good`). Separation, pitch, and export still work.",
         ),
         errors.PLAYBACK_UNAVAILABLE: ErrorCopy(
             "Couldn't play this file. It may have been cleared from the cache.",
@@ -240,3 +245,18 @@ def copy_for(code: str, reason: str | None = None) -> ErrorCopy:
         if specific is not None:
             return specific
     return COPY_BY_CODE.get(code, COPY_BY_CODE[errors.INTERNAL_UNEXPECTED])
+
+
+def fatal_copy(code: str, *, path: str | None = None) -> ErrorCopy:
+    """Return the exact preflight fatal sentence and fix line.
+
+    The storage sentence names the unwritable path; every other fatal code uses
+    its static ticket 14 §3 sentence.
+    """
+    copy = copy_for(code)
+    if path is not None and code in {
+        errors.PREFLIGHT_STORAGE_UNWRITABLE,
+        errors.STORAGE_PERMISSION_DENIED,
+    }:
+        return ErrorCopy(f"StemForge can't write to {path}.", copy.action)
+    return copy
