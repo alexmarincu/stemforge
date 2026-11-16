@@ -12,6 +12,7 @@ seam until the UI lands.
 from __future__ import annotations
 
 import argparse
+import logging
 import multiprocessing
 import os
 import sys
@@ -178,12 +179,64 @@ def _diagnostics_text(report: preflight.PreflightReport, paths: AppPaths) -> str
 
 
 def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
-    """The window seam; ticket 8 replaces this with ``ui.run(native=True)``."""
-    del paths
-    print(f"StemForge {__version__}: preflight ok.")
-    if report.degraded:
-        print("Preview isn't available on this system; starting in degraded mode.")
-    print("The UI is not implemented in this scaffold.")
+    """Open the native workspace window and run the app until it closes."""
+    from nicegui import app, ui
+
+    from stemforge.application import ServiceEngines, WorkspaceService
+    from stemforge.engines.media import FfmpegTool
+    from stemforge.integration.dialogs import NativeOpenDialog
+    from stemforge.integration.window import DEFAULT_WINDOW_SIZE, configure_window
+    from stemforge.logging_setup import configure_logging
+    from stemforge.platform import resources
+    from stemforge.settings import SettingsStore
+    from stemforge.ui import page
+
+    settings = SettingsStore(paths)
+    configure_logging(paths)
+    service = WorkspaceService(
+        settings,
+        paths=paths,
+        engines=ServiceEngines(media=FfmpegTool()),
+    )
+    # Ticket 07 §7: the sweep runs once behind the single-instance lock, before
+    # the Workspace is built; its residue alone triggers the recovery banner.
+    sweep = service.sweep_stale()
+    page.configure(
+        page.UiContext(
+            service=service,
+            dialogs=NativeOpenDialog(),
+            show_recovery=sweep.deleted_anything,
+        )
+    )
+    configure_window(paths)
+
+    runner = service.runner
+
+    def shutdown() -> None:
+        runner.stop()
+        try:
+            settings.save()
+        except OSError:
+            logging.getLogger("stemforge").warning("could not save settings on shutdown")
+
+    app.on_startup(runner.start)
+    app.on_shutdown(shutdown)
+    favicon = resources.assets_dir() / "stemforge-512.png"
+    try:
+        ui.run(
+            native=True,
+            reload=False,
+            show=False,
+            window_size=DEFAULT_WINDOW_SIZE,
+            title=page.TITLE,
+            favicon=favicon if favicon.is_file() else None,
+            fastapi_docs=False,
+            endpoint_documentation="none",
+            show_welcome_message=False,
+            uvicorn_logging_level="warning",
+        )
+    finally:
+        runner.stop()
     return 0
 
 
