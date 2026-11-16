@@ -10,6 +10,7 @@ import pytest
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.models import OriginKind
+from stemforge.errors import StemForgeError
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
@@ -121,3 +122,29 @@ def test_artifact_store_uses_the_cache_cap_from_settings(tmp_path: Path) -> None
     service = WorkspaceService(settings, paths=paths)
 
     assert service.artifacts.cap_bytes == 12345
+
+
+@pytest.mark.unit
+def test_model_gate_refuses_without_consent_before_submitting(tmp_path: Path) -> None:
+    service, _, _ = _service(tmp_path)
+
+    with pytest.raises(StemForgeError) as raised:
+        service.install_model()
+
+    assert raised.value.code == "separation.model_missing"
+    assert raised.value.detail == "reason=consent"
+    assert service.runner.jobs() == []
+    assert service.model_status().needs_download is True
+
+
+@pytest.mark.unit
+def test_accepting_the_model_licence_records_the_pinned_version(tmp_path: Path) -> None:
+    service, settings, _ = _service(tmp_path)
+
+    consent = service.accept_model_licence()
+
+    assert consent.version == service.model_spec().licence_notice_version
+    assert consent.acknowledged is True
+    assert service.model_consent_is_current() is True
+    assert settings.model_consent() == consent
+    assert service.model_status().installed is False

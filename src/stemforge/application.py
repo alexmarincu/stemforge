@@ -16,13 +16,20 @@ from uuid import uuid4
 
 from stemforge import errors
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.models import JobKind, Source, Track
+from stemforge.domain.models import JobKind, ModelConsent, Source, Track
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
 from stemforge.engines.media import MediaTool
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import Job, JobContext, JobRun
 from stemforge.jobs.runner import JobRunner
+from stemforge.models import ModelSpec, ModelStatus, ModelStore
 from stemforge.pipeline.import_job import run_local_import
+from stemforge.pipeline.model_job import (
+    ModelInstallJob,
+    Transport,
+    consent_is_current,
+    require_model_consent,
+)
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
 
@@ -48,6 +55,7 @@ class WorkspaceService:
         artifacts: ArtifactStore | None = None,
         runner: JobRunner | None = None,
         engines: ServiceEngines | None = None,
+        models: ModelStore | None = None,
     ) -> None:
         self._settings = settings
         self._paths = paths if paths is not None else settings.paths
@@ -58,6 +66,7 @@ class WorkspaceService:
         )
         self._runner = runner if runner is not None else JobRunner(paths=self._paths)
         self._engines = engines if engines is not None else ServiceEngines()
+        self._models = models if models is not None else ModelStore(self._paths)
         self._workspace = Workspace()
         self._lock = threading.Lock()
 
@@ -81,6 +90,10 @@ class WorkspaceService:
     def engines(self) -> ServiceEngines:
         return self._engines
 
+    @property
+    def models(self) -> ModelStore:
+        return self._models
+
     def snapshot(self) -> WorkspaceSnapshot:
         """Return an immutable view of the Workspace for the UI."""
         with self._lock:
@@ -91,6 +104,72 @@ class WorkspaceService:
 
     def remove_recent(self, source_id: str) -> bool:
         return self._settings.remove_recent(source_id)
+
+    # -- Model -------------------------------------------------------------
+
+    def model_spec(self) -> ModelSpec:
+        """The pinned model identity and licence-notice version."""
+        return self._models.spec
+
+    def model_status(self) -> ModelStatus:
+        """A cheap installed-or-not check; the Job/verify seam re-hashes before use."""
+        return self._models.status()
+
+    def model_consent(self) -> ModelConsent | None:
+        return self._settings.model_consent()
+
+    def model_consent_is_current(self) -> bool:
+        return consent_is_current(
+            self._settings.model_consent(),
+            required_version=self._models.spec.licence_notice_version,
+        )
+
+    def accept_model_licence(self) -> ModelConsent:
+        """Persist the explicit acknowledgement required before downloading."""
+        return self._settings.accept_model_licence(version=self._models.spec.licence_notice_version)
+
+    def install_model(
+        self,
+        *,
+        accept_licence: bool = False,
+        transport: Transport | None = None,
+    ) -> str:
+        """Submit a model-install Job and return its id.
+
+        Without a current consent record this raises before submitting, so the
+        UI can show the model gate without a failed Job in the history.
+        """
+        if accept_licence:
+            self.accept_model_licence()
+        if not self._models.is_installed():
+            require_model_consent(
+                self._settings.model_consent(),
+                required_version=self._models.spec.licence_notice_version,
+            )
+        spec = self._models.spec
+        job = Job(
+            kind=JobKind.MODEL_INSTALL,
+            identity=(JobKind.MODEL_INSTALL.value, spec.name, spec.revision),
+            title=spec.name,
+            run=self._model_install_run(transport),
+        )
+        return self._runner.submit(job)
+
+    def _model_install_run(self, transport: Transport | None) -> JobRun:
+        def run(ctx: JobContext) -> Mapping[str, str]:
+            job = ModelInstallJob(
+                store=self._models,
+                consent=self._settings.model_consent(),
+                transport=transport,
+            )
+            result = job.run(ctx)
+            return {
+                "model": result.status.name,
+                "sha256": result.status.sha256 or "",
+                "path": str(result.status.path),
+            }
+
+        return run
 
     # -- Jobs ---------------------------------------------------------------
 
