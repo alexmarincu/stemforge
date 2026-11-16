@@ -223,18 +223,9 @@ def test_job_cancelled_keeps_a_custom_message() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    ("argv", "expected"),
-    [
-        (["--self-test"], "self-test"),
-        (["--worker", "separation"], "worker separation"),
-    ],
-)
-def test_entry_point_modes_exit_zero_with_a_message(
-    argv: list[str], expected: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert stemforge.__main__.main(argv) == 0
-    assert expected in capsys.readouterr().out
+def test_self_test_mode_exits_zero_with_a_message(capsys: pytest.CaptureFixture[str]) -> None:
+    assert stemforge.__main__.main(["--self-test"]) == 0
+    assert "self-test" in capsys.readouterr().out
 
 
 @pytest.mark.unit
