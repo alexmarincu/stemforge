@@ -22,7 +22,11 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Topic :: Multimedia :: Sound/Audio",
 ]
-dependencies = ["platformdirs>=4.14.5,<5"]
+dependencies = [
+  "nicegui==4.0.0",
+  "platformdirs>=4.14.5,<5",
+  "pywebview==6.2.1",
+]
 
 [project.scripts]
 stemforge = "stemforge.__main__:main"
@@ -42,6 +46,10 @@ build = ["pyinstaller==6.22.3"]
 
 [tool.uv]
 default-groups = ["dev"]
+# demucs 4.1.0 declares numpy<2 for macOS x86_64 only (CONTEXT.md, verified
+# 2026-11-16). v1 targets Linux and Windows, so restricting the resolved
+# environments keeps `uv lock` satisfiable; without this, resolution fails.
+environments = ["sys_platform == 'linux'", "sys_platform == 'win32'"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/stemforge"]
