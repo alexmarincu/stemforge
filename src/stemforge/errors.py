@@ -18,6 +18,14 @@ IMPORT_DOWNLOAD_FAILED: Final = "import.download_failed"
 IMPORT_YOUTUBE_UNAVAILABLE: Final = "import.youtube_unavailable"
 IMPORT_YOUTUBE_AGE_RESTRICTED: Final = "import.youtube_age_restricted"
 IMPORT_FILE_UNAVAILABLE: Final = "import.file_unavailable"
+IMPORT_TOO_LONG: Final = "import.too_long"
+IMPORT_YOUTUBE_URL_INVALID: Final = "import.youtube_url_invalid"
+IMPORT_YOUTUBE_PLAYLIST: Final = "import.youtube_playlist"
+IMPORT_YOUTUBE_TOO_LONG: Final = "import.youtube_too_long"
+IMPORT_YOUTUBE_LIVE: Final = "import.youtube_live"
+IMPORT_YOUTUBE_RATE_LIMITED: Final = "import.youtube_rate_limited"
+IMPORT_YOUTUBE_EXTRACTOR_OUTDATED: Final = "import.youtube_extractor_outdated"
+IMPORT_NETWORK: Final = "import.network"
 
 # decode.*
 DECODE_FAILED: Final = "decode.failed"
@@ -45,6 +53,7 @@ EXPORT_WRITE_FAILED: Final = "export.write_failed"
 
 # storage.*
 STORAGE_DISK_FULL: Final = "storage.disk_full"
+STORAGE_CACHE_FULL: Final = "storage.cache_full"
 STORAGE_PERMISSION_DENIED: Final = "storage.permission_denied"
 
 # internal.*
@@ -72,6 +81,14 @@ ALL_CODES: Final[frozenset[str]] = frozenset(
         IMPORT_YOUTUBE_UNAVAILABLE,
         IMPORT_YOUTUBE_AGE_RESTRICTED,
         IMPORT_FILE_UNAVAILABLE,
+        IMPORT_TOO_LONG,
+        IMPORT_YOUTUBE_URL_INVALID,
+        IMPORT_YOUTUBE_PLAYLIST,
+        IMPORT_YOUTUBE_TOO_LONG,
+        IMPORT_YOUTUBE_LIVE,
+        IMPORT_YOUTUBE_RATE_LIMITED,
+        IMPORT_YOUTUBE_EXTRACTOR_OUTDATED,
+        IMPORT_NETWORK,
         DECODE_FAILED,
         SEPARATION_MODEL_MISSING,
         SEPARATION_MODEL_DOWNLOAD_FAILED,
@@ -87,6 +104,7 @@ ALL_CODES: Final[frozenset[str]] = frozenset(
         MEDIA_VALIDATION_FAILED,
         EXPORT_WRITE_FAILED,
         STORAGE_DISK_FULL,
+        STORAGE_CACHE_FULL,
         STORAGE_PERMISSION_DENIED,
         INTERNAL_UNEXPECTED,
         PREFLIGHT_PLATFORM_UNSUPPORTED,
