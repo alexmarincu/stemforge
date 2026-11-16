@@ -251,6 +251,7 @@ class WorkspacePage:
         self._add_button: ui.button | None = None
         self._recent_signature: tuple[tuple[str, bool], ...] | None = None
         self._client: Client | None = None
+        self._last_busy = False
 
     # -- composition --------------------------------------------------------
 
@@ -725,8 +726,12 @@ class WorkspacePage:
         self._detail.refresh()
 
     def _sync_actions(self) -> None:
+        busy = self._busy()
         if self._add_button is not None:
-            self._add_button.set_enabled(not self._busy())
+            self._add_button.set_enabled(not busy)
+        if busy != self._last_busy:
+            self._last_busy = busy
+            self._detail.refresh()
 
     def _refresh_all(self) -> None:
         self._tracks.refresh()
