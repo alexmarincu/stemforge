@@ -139,7 +139,7 @@ def test_self_test_requires_vendor_binaries_when_asked(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_self_test_imports_nicegui_but_never_torch_or_demucs(tmp_path: Path) -> None:
+def test_self_test_imports_the_gui_stack_but_not_demucs(tmp_path: Path) -> None:
     harness = tmp_path / "harness"
     harness.mkdir()
     (harness / "sitecustomize.py").write_text(
@@ -168,7 +168,12 @@ def test_self_test_imports_nicegui_but_never_torch_or_demucs(tmp_path: Path) -> 
     reports = [
         line for line in result.stdout.splitlines() if line.startswith("STEMFORGE_HEAVY_MODULES=")
     ]
-    assert reports == ["STEMFORGE_HEAVY_MODULES=nicegui"]
+    assert len(reports) == 1
+    imported = set(reports[0].split("=", 1)[1].split(",")) - {""}
+    # torch is optional until ticket 12; when installed, --self-test asserts +cpu.
+    assert "nicegui" in imported
+    assert "demucs" not in imported
+    assert imported <= {"nicegui", "torch"}
 
 
 @pytest.mark.unit
