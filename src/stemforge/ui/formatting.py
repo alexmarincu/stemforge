@@ -40,7 +40,8 @@ COPY_BY_CODE: Final[Mapping[str, ErrorCopy]] = MappingProxyType(
             "Try again; if it keeps failing, open the job log.",
         ),
         errors.IMPORT_YOUTUBE_UNAVAILABLE: ErrorCopy(
-            "This video isn't available. It may be private, removed, or region-locked.",
+            "This video isn't available. It may be private, removed, "
+            "region-locked, or members-only.",
             "Try another video.",
         ),
         errors.IMPORT_YOUTUBE_AGE_RESTRICTED: ErrorCopy(
@@ -124,7 +125,7 @@ COPY_BY_CODE: Final[Mapping[str, ErrorCopy]] = MappingProxyType(
             "Try again; if it keeps failing, open the job log.",
         ),
         errors.MEDIA_PROBE_FAILED: ErrorCopy(
-            "StemForge can't read this file. It may be damaged or unsupported.",
+            "StemForge can't read this file. It may be damaged or in a format it doesn't support.",
             "Try WAV, MP3, FLAC, or M4A.",
         ),
         errors.MEDIA_ENCODE_FAILED: ErrorCopy(
