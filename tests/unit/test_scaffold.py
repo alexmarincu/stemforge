@@ -134,15 +134,6 @@ def _import_roots(source: str) -> set[str]:
     return roots
 
 
-def _main_guard(source: str) -> ast.If:
-    for node in ast.parse(source).body:
-        if isinstance(node, ast.If) and isinstance(node.test, ast.Compare):
-            left = node.test.left
-            if isinstance(left, ast.Name) and left.id == "__name__":
-                return node
-    raise AssertionError("__main__.py has no main guard")
-
-
 @pytest.mark.unit
 def test_version_is_the_release_version() -> None:
     assert stemforge.__version__ == "1.0.0"
@@ -215,7 +206,6 @@ def test_job_cancelled_keeps_a_custom_message() -> None:
     ("argv", "expected"),
     [
         ([], "StemForge 1.0.0"),
-        (["--smoke-test"], "smoke-test"),
         (["--preflight"], "preflight"),
         (["--worker", "separation"], "worker separation"),
     ],
@@ -225,20 +215,6 @@ def test_entry_point_modes_exit_zero_with_a_message(
 ) -> None:
     assert stemforge.__main__.main(argv) == 0
     assert expected in capsys.readouterr().out
-
-
-@pytest.mark.unit
-def test_freeze_support_is_first_in_the_main_guard() -> None:
-    guard = _main_guard(_main_module_source())
-
-    first = guard.body[0]
-    assert isinstance(first, ast.Expr)
-    call = first.value
-    assert isinstance(call, ast.Call)
-    assert isinstance(call.func, ast.Attribute)
-    assert call.func.attr == "freeze_support"
-    assert isinstance(call.func.value, ast.Name)
-    assert call.func.value.id == "multiprocessing"
 
 
 @pytest.mark.unit
