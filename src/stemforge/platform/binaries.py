@@ -1,14 +1,17 @@
-"""Resolution of ffmpeg, ffprobe, Rubber Band, Deno, and the worker command.
+"""Resolution of the bundled FFmpeg, ffprobe, Rubber Band, and Deno executables.
 
 Vendored binaries live at the Bundle root (``<bundle>/vendor/**``), never inside
-``_internal`` (ADR 0010). Development prefers ``vendor/`` in the checkout, then
-falls back to ``PATH``. A frozen build has no fallback: a missing binary raises
-:class:`BundleDamagedError`, whose ``code`` is the ticket 14
-``preflight.bundle_damaged`` exit-8 failure.
+``_internal`` (ADR 0010). Resolution order is ``vendor/`` first, then an optional
+per-binary environment override, then ``PATH`` in development. A frozen build
+has no fallback: a missing binary raises :class:`BundleDamagedError`, whose
+``code`` is the ticket 14 ``preflight.bundle_damaged`` exit-8 failure.
 
-Optional per-binary environment overrides (``STEMFORGE_FFMPEG``,
-``STEMFORGE_FFPROBE``, ``STEMFORGE_RUBBERBAND``, ``STEMFORGE_DENO``) point local
-diagnostics and tests at a system binary without copying it into ``vendor/``.
+The environment overrides (``STEMFORGE_FFMPEG``, ``STEMFORGE_FFPROBE``,
+``STEMFORGE_RUBBERBAND``, ``STEMFORGE_DENO``) point local diagnostics and tests
+at a system binary without copying it into ``vendor/``.
+
+Foundation code: no ``stemforge`` imports outside ``platform``, so both
+``engines`` and ``platform`` consumers can use it.
 """
 
 from __future__ import annotations
@@ -27,10 +30,19 @@ from . import resources
 # contracts put `stemforge.errors` on the same foundation layer).
 PREFLIGHT_BUNDLE_DAMAGED: Final = "preflight.bundle_damaged"
 
-FFMPEG_ENV_VAR: Final = "STEMFORGE_FFMPEG"
-FFPROBE_ENV_VAR: Final = "STEMFORGE_FFPROBE"
-RUBBERBAND_ENV_VAR: Final = "STEMFORGE_RUBBERBAND"
-DENO_ENV_VAR: Final = "STEMFORGE_DENO"
+FFMPEG_ENV: Final = "STEMFORGE_FFMPEG"
+FFPROBE_ENV: Final = "STEMFORGE_FFPROBE"
+RUBBERBAND_ENV: Final = "STEMFORGE_RUBBERBAND"
+DENO_ENV: Final = "STEMFORGE_DENO"
+
+# The ticket 4 spelling stays as an alias so both names keep working.
+FFMPEG_ENV_VAR: Final = FFMPEG_ENV
+FFPROBE_ENV_VAR: Final = FFPROBE_ENV
+RUBBERBAND_ENV_VAR: Final = RUBBERBAND_ENV
+DENO_ENV_VAR: Final = DENO_ENV
+
+VENDOR_DIRNAME: Final = "vendor"
+FFMPEG_DIRNAME: Final = "ffmpeg"
 
 
 class BundleDamagedError(FileNotFoundError):
@@ -42,69 +54,84 @@ class BundleDamagedError(FileNotFoundError):
         self.relative = relative
         self.bundle_root = bundle_root
         self.detail = detail
-        message = f"{resources.VENDOR_DIRNAME}/{relative.as_posix()} is missing from {bundle_root}"
+        message = f"{VENDOR_DIRNAME}/{relative.as_posix()} is missing from {bundle_root}"
         if detail:
             message = f"{message} ({detail})"
         super().__init__(message)
 
 
-def _executable_name(name: str) -> str:
+def bundle_root() -> Path:
+    """The directory that holds ``vendor/``: the repo root, or the Bundle root."""
+    return resources.bundle_root()
+
+
+def executable_name(name: str) -> str:
+    """``name`` with the platform executable suffix."""
     return f"{name}.exe" if sys.platform.startswith("win") else name
 
 
 def _unavailable(relative: Path, detail: str | None = None) -> Path | None:
     """Return ``None`` in development; a frozen build cannot run without the binary."""
     if resources.is_frozen():
-        raise BundleDamagedError(relative, bundle_root=resources.bundle_root(), detail=detail)
+        raise BundleDamagedError(relative, bundle_root=bundle_root(), detail=detail)
     return None
 
 
 def find_vendor(relative: str | Path, env_var: str | None = None) -> Path | None:
     """Resolve one vendored file relative to ``vendor/``.
 
-    Order: an explicit environment override, the Bundle root, then ``PATH`` in
-    development. Returns ``None`` when a development checkout has no binary;
-    raises :class:`BundleDamagedError` when a frozen Bundle has none.
+    Order: ``vendor/`` in the Bundle root, an explicit environment override, then
+    ``PATH`` in development. Returns ``None`` when a development checkout has no
+    binary; raises :class:`BundleDamagedError` when a frozen Bundle has none.
     """
     relative_path = Path(relative)
 
-    if env_var is not None:
-        override = os.environ.get(env_var)
-        if override:
-            candidate = Path(override).expanduser()
-            if candidate.is_file():
-                return candidate
-            return _unavailable(relative_path, f"{env_var}={override} is not a file")
-
-    vendored = resources.vendor_dir() / relative_path
+    vendored = bundle_root() / VENDOR_DIRNAME / relative_path
     if vendored.is_file():
         return vendored
 
     if resources.is_frozen():
-        raise BundleDamagedError(relative_path, bundle_root=resources.bundle_root())
+        raise BundleDamagedError(relative_path, bundle_root=bundle_root())
+
+    if env_var is not None:
+        override = os.environ.get(env_var, "").strip()
+        if override:
+            candidate = Path(override).expanduser()
+            if candidate.is_file():
+                return candidate
+            raise FileNotFoundError(f"{env_var} does not point to a file: {candidate}")
 
     found = shutil.which(relative_path.name)
     return Path(found) if found is not None else None
 
 
-def ffmpeg() -> Path | None:
-    """The vendored FFmpeg executable, if present."""
-    return find_vendor(Path("ffmpeg") / _executable_name("ffmpeg"), FFMPEG_ENV_VAR)
+def _required(name: str, env_var: str) -> Path:
+    resolved = find_vendor(Path(FFMPEG_DIRNAME) / executable_name(name), env_var)
+    if resolved is None:
+        raise FileNotFoundError(
+            f"{name} is neither vendored under {VENDOR_DIRNAME}/{FFMPEG_DIRNAME} nor on PATH"
+        )
+    return resolved
 
 
-def ffprobe() -> Path | None:
-    """The vendored ffprobe executable, if present."""
-    return find_vendor(Path("ffmpeg") / _executable_name("ffprobe"), FFPROBE_ENV_VAR)
+def ffmpeg() -> Path:
+    """Absolute path to the FFmpeg executable."""
+    return _required("ffmpeg", FFMPEG_ENV)
+
+
+def ffprobe() -> Path:
+    """Absolute path to the ffprobe executable."""
+    return _required("ffprobe", FFPROBE_ENV)
 
 
 def rubberband() -> Path | None:
     """The vendored Rubber Band CLI, if present."""
-    return find_vendor(Path("rubberband") / _executable_name("rubberband"), RUBBERBAND_ENV_VAR)
+    return find_vendor(Path("rubberband") / executable_name("rubberband"), RUBBERBAND_ENV)
 
 
 def deno() -> Path | None:
     """The vendored Deno executable, if present."""
-    return find_vendor(Path("deno") / _executable_name("deno"), DENO_ENV_VAR)
+    return find_vendor(Path("deno") / executable_name("deno"), DENO_ENV)
 
 
 def worker_command(argv: Sequence[str]) -> list[str]:

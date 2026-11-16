@@ -161,9 +161,10 @@ def _check_bundle_root(checks: list[Check], *, require_vendor: bool) -> None:
     for name, resolver in VENDOR_BINARIES:
         try:
             path = resolver()
-        except binaries.BundleDamagedError as exc:
+        except OSError as exc:
             # Ticket 4's skeleton Bundle has no vendor binaries yet; ticket 19
-            # flips REQUIRE_VENDOR=1 and turns this into a failure.
+            # flips REQUIRE_VENDOR=1 and turns this into a failure. In
+            # development a tool missing from vendor/ and PATH also lands here.
             _check(
                 checks,
                 name,
