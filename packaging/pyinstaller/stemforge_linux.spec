@@ -1,10 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 """Linux onedir spec: NiceGUI as data, the Bundle root beside ``_internal``.
 
-Ticket 10 §1–§3. PyInstaller 6.22.3 places the frozen payload in
+Ticket 10 §1–§3 and ticket 13. PyInstaller 6.22.3 places the frozen payload in
 ``dist/StemForge/_internal``; ``packaging/linux/build.sh`` adds ``vendor/``,
-``run.sh``, and the licence tree beside the launcher. torch and Demucs are not
-dependencies yet: ticket 13 adds their hidden imports and the 168 MB trim.
+``run.sh``, and the licence tree beside the launcher. The Separation worker's
+torch/Demucs imports happen inside ``run()``, so they are listed as hidden
+imports; ``torch/test`` and ``torch/bin`` are trimmed (162 MB measured).
 """
 
 from pathlib import Path
@@ -18,6 +19,9 @@ datas = [
     (str(SRC / "assets"), "assets"),
     (str(SRC / "models" / "models.lock.json"), "models"),
     *collect_data_files("nicegui"),
+    # demucs/remote/files.txt is read by the legacy repo fallback; the HF path
+    # used by the worker needs no network data but the package is tiny.
+    *collect_data_files("demucs"),
 ]
 
 hiddenimports = [
@@ -25,6 +29,24 @@ hiddenimports = [
     "webview",
     "webview.platforms.gtk",
     "stemforge.ui.page",
+    # The worker imports torch/Demucs inside run(); a call-time import is
+    # invisible to static analysis and research 04 measured a 150 MB bundle
+    # when these were omitted (ticket 13).
+    "torch",
+    "demucs.api",
+    "demucs.apply",
+    "demucs.audio",
+    "demucs.hdemucs",
+    "demucs.hf",
+    "demucs.htdemucs",
+    "demucs.pretrained",
+    "demucs.repo",
+    "demucs.spec",
+    "demucs.states",
+    "demucs.transformer",
+    "demucs.utils",
+    "demucs.wiener",
+    "stemforge.workers.separation",
     # The pytest/User-simulation helpers pull pytest and mypy into the
     # payload; the shipped app never imports them.
     *(name for name in collect_submodules("nicegui") if not name.startswith("nicegui.testing")),
@@ -44,6 +66,24 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
+# Ticket 13 / ticket 12: an inference-only bundle does not need torch's test
+# suite or its command-line helpers (~162 MB measured). ``import torch`` refuses
+# to load unless torch_shm_manager exists, so that one file stays.
+_TORCH_KEEP_BIN = {"torch_shm_manager", "torch_shm_manager.exe"}
+
+
+def _keep(entry):
+    destination = entry[0].replace("\\", "/")
+    if destination in {"torch/test", "torch/bin"}:
+        return False
+    if destination.startswith(("torch/test/", "torch/bin/")):
+        return destination.rsplit("/", 1)[-1] in _TORCH_KEEP_BIN
+    return True
+
+
+a.datas = [entry for entry in a.datas if _keep(entry)]
+a.binaries = [entry for entry in a.binaries if _keep(entry)]
 
 pyz = PYZ(a.pure)
 
