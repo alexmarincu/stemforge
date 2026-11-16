@@ -11,6 +11,10 @@ uv run mypy src/stemforge
 uv run lint-imports
 uv run pytest -m "unit or ui"
 
+self_test_home="$(mktemp -d "${TMPDIR:-/tmp}/stemforge-selftest.XXXXXX")"
+trap 'rm -rf "$self_test_home"' EXIT
+STEMFORGE_HOME="$self_test_home" uv run stemforge --self-test
+
 # Integration tests need the real tools. Until ticket 13 vendors them, use PATH.
 if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
   uv run pytest -m integration
