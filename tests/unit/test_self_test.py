@@ -1,11 +1,17 @@
-"""``python -m stemforge --self-test``: exit 0, summary, and no heavy imports."""
+"""The diagnostic flags: ``--self-test``, ``--smoke-test``, ``--smoke-separation``.
+
+Each flag prints one JSON report, writes the same report with ``--report``, and
+uses its exit code as the authoritative result (ticket 10 §7).
+"""
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,47 +29,117 @@ def _environment(home: Path, *, harness: Path | None = None) -> dict[str, str]:
     return env
 
 
-def _run_self_test(
-    home: Path, cwd: Path, *, harness: Path | None = None
+def _run(
+    *args: str, home: Path, cwd: Path, harness: Path | None = None
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "stemforge", "--self-test"],
+        [sys.executable, "-m", "stemforge", *args],
         cwd=cwd,
         env=_environment(home, harness=harness),
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=90,
         check=False,
     )
 
 
+def _report(completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
+    return json.loads(completed.stdout)
+
+
+def _check(report: dict[str, Any], name: str) -> dict[str, Any]:
+    for check in report["checks"]:
+        if check["name"] == name:
+            return check
+    raise AssertionError(f"{name} missing from report")
+
+
 @pytest.mark.unit
-def test_self_test_exits_zero_and_writes_the_settings_and_log(tmp_path: Path) -> None:
+def test_self_test_reports_a_healthy_source_checkout(tmp_path: Path) -> None:
     home = tmp_path / "home"
 
-    result = _run_self_test(home, tmp_path)
+    result = _run("--self-test", home=home, cwd=tmp_path)
 
     assert result.returncode == 0, result.stderr
-    assert "StemForge 0.1.0 self-test" in result.stdout
-    assert "self-test ok" in result.stdout
-    assert "workspace: 0 tracks" in result.stdout
-    for path in (
-        home / "data",
-        home / "cache",
-        home / "logs",
-        home / "data" / "models",
-        home / "config",
-        home / "data" / "webview",
-    ):
-        assert str(path) in result.stdout
+    report = _report(result)
+    assert report["check"] == "self-test"
+    assert report["ok"] is True
+    assert report["frozen"] is False
+    assert _check(report, "import.nicegui")["status"] == "ok"
+    assert _check(report, "import.pywebview")["status"] == "ok"
+    assert _check(report, "assets")["status"] == "ok"
+    assert _check(report, "models.lock")["status"] == "ok"
+    assert _check(report, "workspace")["status"] == "ok"
+    assert _check(report, "workspace")["detail"] == "0 tracks"
+    for name in ("paths.data", "paths.cache", "paths.logs", "paths.models", "paths.config"):
+        assert _check(report, name)["status"] == "ok"
+
+
+@pytest.mark.unit
+def test_self_test_writes_the_settings_file_and_log(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+
+    result = _run("--self-test", home=home, cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
     assert (home / "config" / "settings.json").is_file()
-    assert (home / "logs" / "stemforge.log").is_file()
     log_text = (home / "logs" / "stemforge.log").read_text(encoding="utf-8")
     assert "self-test" in log_text
 
 
 @pytest.mark.unit
-def test_self_test_does_not_import_nicegui_torch_or_demucs(tmp_path: Path) -> None:
+def test_self_test_writes_the_report_file(tmp_path: Path) -> None:
+    report_path = tmp_path / "reports" / "self-test.json"
+
+    result = _run("--self-test", "--report", str(report_path), home=tmp_path / "home", cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    written = json.loads(report_path.read_text(encoding="utf-8"))
+    assert written == _report(result)
+
+
+@pytest.mark.unit
+def test_self_test_reports_missing_vendor_binaries_without_failing(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+
+    result = _run("--self-test", home=home, cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    report = _report(result)
+    binary_names = {"vendor.ffmpeg", "vendor.ffprobe", "vendor.rubberband", "vendor.deno"}
+    binary_checks = [check for check in report["checks"] if check["name"] in binary_names]
+    assert {check["name"] for check in binary_checks} == binary_names
+    assert all(check["required"] is False for check in binary_checks if check["status"] != "ok")
+
+
+@pytest.mark.unit
+def test_self_test_requires_vendor_binaries_when_asked(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    empty_path = tmp_path / "empty-path"
+    empty_path.mkdir()
+
+    result = subprocess.run(
+        [sys.executable, "-m", "stemforge", "--self-test"],
+        cwd=tmp_path,
+        env={
+            **_environment(home),
+            "PATH": str(empty_path),
+            "STEMFORGE_REQUIRE_VENDOR": "1",
+        },
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    report = _report(result)
+    assert report["ok"] is False
+    assert _check(report, "vendor.ffmpeg")["required"] is True
+
+
+@pytest.mark.unit
+def test_self_test_imports_the_gui_stack_but_not_demucs(tmp_path: Path) -> None:
     harness = tmp_path / "harness"
     harness.mkdir()
     (harness / "sitecustomize.py").write_text(
@@ -86,18 +162,69 @@ def test_self_test_does_not_import_nicegui_torch_or_demucs(tmp_path: Path) -> No
         encoding="utf-8",
     )
 
-    result = _run_self_test(tmp_path / "home", tmp_path, harness=harness)
+    result = _run("--self-test", home=tmp_path / "home", cwd=tmp_path, harness=harness)
 
     assert result.returncode == 0, result.stderr
     reports = [
         line for line in result.stdout.splitlines() if line.startswith("STEMFORGE_HEAVY_MODULES=")
     ]
-    assert reports == ["STEMFORGE_HEAVY_MODULES="]
+    assert len(reports) == 1
+    imported = set(reports[0].split("=", 1)[1].split(",")) - {""}
+    # torch is optional until ticket 12; when installed, --self-test asserts +cpu.
+    assert "nicegui" in imported
+    assert "demucs" not in imported
+    assert imported <= {"nicegui", "torch"}
+
+
+@pytest.mark.unit
+def test_smoke_test_serves_the_root_page(tmp_path: Path) -> None:
+    result = _run("--smoke-test", home=tmp_path / "home", cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    report = _report(result)
+    assert report["check"] == "smoke-test"
+    assert report["ok"] is True
+    assert report["frozen"] is False
+    assert report["server"]["status"] == 200
+    assert report["server"]["url"] == f"http://127.0.0.1:{report['server']['port']}/"
+    assert report["server"]["seconds"] < 30
+    assert _check(report, "import.nicegui")["status"] == "ok"
+
+
+@pytest.mark.unit
+def test_smoke_test_writes_the_report_file(tmp_path: Path) -> None:
+    report_path = tmp_path / "reports" / "smoke-test.json"
+
+    result = _run(
+        "--smoke-test", "--report", str(report_path), home=tmp_path / "home", cwd=tmp_path
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(report_path.read_text(encoding="utf-8"))["server"]["status"] == 200
+
+
+@pytest.mark.unit
+def test_smoke_separation_is_an_honest_stub(tmp_path: Path) -> None:
+    report_path = tmp_path / "reports" / "smoke-separation.json"
+
+    result = _run(
+        "--smoke-separation",
+        "--report",
+        str(report_path),
+        home=tmp_path / "home",
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 1
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["check"] == "smoke-separation"
+    assert report["ok"] is False
+    assert report["message"] == "not available in this build"
 
 
 @pytest.mark.unit
 def test_the_entry_point_still_imports_nothing_heavy_at_module_scope() -> None:
     source = (PROJECT_ROOT / "src" / "stemforge" / "__main__.py").read_text(encoding="utf-8")
 
-    for module in ("nicegui", "torch", "demucs"):
+    for module in ("nicegui", "torch", "demucs", "webview"):
         assert f"import {module}" not in source
