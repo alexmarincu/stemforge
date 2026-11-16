@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install uv dependencies
+        run: uv sync --frozen
+      - name: Ruff format
+        run: uv run ruff format --check .
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: mypy
+        run: uv run mypy src/stemforge
+      - name: Import contracts
+        run: uv run lint-imports
+      - name: Lockfile is current
+        run: uv lock --check
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends shellcheck
+      - name: ShellCheck
+        run: shellcheck -x scripts/*.sh
+
+  unit-linux:
+    name: unit-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install uv dependencies
+        run: uv sync --frozen
+      - name: Unit and UI tests
+        run: uv run pytest -m "unit or ui"
+
+  unit-windows:
+    name: unit-windows
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install uv dependencies
+        run: uv sync --frozen
+      - name: Unit and UI tests
+        run: uv run pytest -m "unit or ui"
