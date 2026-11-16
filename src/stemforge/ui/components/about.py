@@ -1,9 +1,8 @@
-"""The Settings & About modal's Behaviour section (ticket 08 §12, ticket 09 §7).
+"""The Settings & About modal's Behaviour and Storage sections (ticket 08 §12, 09 §7).
 
 Ticket 22 owns the full About content (licences, notices, source offer). This
-module is the merge point for settings: for now it carries the persisted
-YouTube import toggle and nothing else, so disabling hides only the empty-state
-YouTube row.
+module is the merge point for settings: the persisted YouTube import toggle and
+the "Clear YouTube cache" action, which deletes only ``<cache>/yt-dlp/``.
 """
 
 from __future__ import annotations
@@ -28,6 +27,7 @@ class SettingsDialog:
     ) -> None:
         self._service = service
         self._on_youtube_toggle = on_youtube_toggle
+        self._cache_size: ui.label | None = None
 
     def open(self) -> None:
         with (
@@ -52,6 +52,25 @@ class SettingsDialog:
                     .props("dense")
                 )
                 toggle.on_value_change(self._apply_youtube_toggle)
+            ui.label(formatting.SETTINGS_STORAGE).classes("sf-card-title")
+            with ui.element("div").classes("sf-setting-row"):
+                with ui.element("div").classes("sf-setting-main"):
+                    ui.label(formatting.YOUTUBE_CACHE_LABEL).classes("sf-setting-label")
+                    ui.label(formatting.YOUTUBE_CACHE_HINT).classes("sf-fineprint")
+                with ui.row().classes("items-center gap-3"):
+                    self._cache_size = (
+                        ui.label(self._size_text())
+                        .classes("sf-fineprint")
+                        .mark("youtube-cache-size")
+                    )
+                    (
+                        ui.button(
+                            formatting.YOUTUBE_CACHE_CLEAR,
+                            on_click=self._clear_youtube_cache,
+                        )
+                        .props("flat no-caps")
+                        .mark("clear-youtube-cache")
+                    )
             with ui.row().classes("w-full justify-end"):
                 (
                     ui.button(formatting.SETTINGS_CLOSE, on_click=dialog.close)
@@ -64,3 +83,15 @@ class SettingsDialog:
         self._service.set_youtube_enabled(bool(event.value))
         if self._on_youtube_toggle is not None:
             self._on_youtube_toggle()
+
+    def _clear_youtube_cache(self) -> None:
+        freed = self._service.clear_youtube_cache()
+        if self._cache_size is not None:
+            self._cache_size.set_text(self._size_text())
+        ui.notify(
+            f"YouTube cache cleared ({formatting.format_bytes(freed)}).",
+            type="positive",
+        )
+
+    def _size_text(self) -> str:
+        return formatting.format_bytes(self._service.youtube_cache_bytes())

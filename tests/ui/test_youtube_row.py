@@ -20,10 +20,12 @@ from pathlib import Path
 import pytest
 from nicegui.testing.user_simulation import user_simulation
 
+from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
 from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
+from stemforge.errors import StemForgeError
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
@@ -41,7 +43,6 @@ CONSENT_BODY = (
     "Service prohibit downloading except where the law permits, and downloading may infringe "
     "copyright. Only continue if you have the right to use this content."
 )
-PENDING = "Valid YouTube link. Import isn't available in this build yet."
 
 
 @pytest.fixture(autouse=True)
@@ -111,6 +112,25 @@ class FakeMedia:
         return -3.0
 
 
+class FakeYouTube:
+    """The row tests never reach the network: resolve fails as unavailable."""
+
+    def resolve(self, video: object, *, cancel: CancelToken, log: logging.Logger) -> None:
+        del video, log
+        cancel.check()
+        raise StemForgeError(
+            errors.IMPORT_YOUTUBE_UNAVAILABLE,
+            "fake YouTube adapter",
+            detail="reason=unavailable",
+        )
+
+    def download(self, *args: object, **kwargs: object) -> None:
+        raise AssertionError("the row tests must not download")
+
+    def tool_versions(self) -> dict[str, str]:
+        return {"yt_dlp": "2026.10.26", "yt_dlp_ejs": "0.8.0", "deno": "2.9.8"}
+
+
 class FakeDialog:
     async def choose_audio_files(self) -> tuple[Path, ...]:
         return ()
@@ -134,7 +154,8 @@ class Harness:
             paths=self.paths,
             artifacts=ArtifactStore(self.paths),
             runner=self.runner,
-            engines=ServiceEngines(media=FakeMedia()),
+            engines=ServiceEngines(media=FakeMedia(), youtube=FakeYouTube()),
+            youtube_delay=lambda _: None,
         )
         self.context = page.UiContext(service=self.service, dialogs=FakeDialog())
 
@@ -224,7 +245,7 @@ async def test_consent_appears_once_then_persists_with_the_disclaimer(
 ) -> None:
     calls = _spy_seam(harness, monkeypatch)
 
-    async for user, _workspace_page in _open_page(harness):
+    async for user, workspace_page in _open_page(harness):
         await user.should_see(marker="youtube-disclaimer")
         await user.should_see(DISCLAIMER)
 
@@ -243,11 +264,11 @@ async def test_consent_appears_once_then_persists_with_the_disclaimer(
         await asyncio.sleep(0.1)
 
         await user.should_not_see(marker="youtube-consent")
-        await user.should_see(marker="youtube-status")
-        await user.should_see(PENDING)
         await user.should_see(marker="youtube-disclaimer")
         assert calls == [VALID_URL]
         assert harness.service.youtube_notice_acknowledged() is True
+        assert [job.kind.value for job in harness.runner.jobs()] == ["import_youtube"]
+        assert await asyncio.to_thread(harness.runner.wait_idle, 10) is True
 
         payload = json.loads(harness.settings.path.read_text(encoding="utf-8"))
         assert payload["youtube_notice_acknowledged"] is True
@@ -255,12 +276,15 @@ async def test_consent_appears_once_then_persists_with_the_disclaimer(
         assert isinstance(payload["youtube_notice_accepted_at"], str)
 
         # The same page does not ask again.
+        with user:
+            workspace_page.poll()
+        await user.should_see(marker="youtube-row")
+        user.find(marker="youtube-url").type(VALID_URL)
         user.find(marker="youtube-import").click()
         await asyncio.sleep(0.05)
         await user.should_not_see(marker="youtube-consent")
         assert len(calls) == 2
-        assert harness.runner.jobs() == []
-        assert "yt_dlp" not in sys.modules
+        assert "yt_dlp" not in getattr(sys.modules["stemforge.engines.youtube"], "__dict__", {})
 
         # A fresh page build reads the persisted acknowledgment and stays quiet.
         await user.open("/")
