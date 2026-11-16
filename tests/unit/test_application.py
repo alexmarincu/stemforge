@@ -148,3 +148,41 @@ def test_accepting_the_model_licence_records_the_pinned_version(tmp_path: Path) 
     assert service.model_consent_is_current() is True
     assert settings.model_consent() == consent
     assert service.model_status().installed is False
+
+
+@pytest.mark.unit
+def test_youtube_toggle_and_notice_are_delegated_to_settings(tmp_path: Path) -> None:
+    service, _, paths = _service(tmp_path)
+
+    assert service.youtube_enabled() is True
+    assert service.youtube_notice_acknowledged() is False
+
+    service.set_youtube_enabled(False)
+    service.accept_youtube_notice()
+
+    assert service.youtube_enabled() is False
+    assert service.youtube_notice_acknowledged() is True
+    assert SettingsStore(paths).youtube_enabled is False
+    assert SettingsStore(paths).youtube_notice_is_current() is True
+
+
+@pytest.mark.unit
+def test_submit_youtube_validates_and_starts_no_job(tmp_path: Path) -> None:
+    service, _, _ = _service(tmp_path)
+
+    video = service.submit_youtube("youtu.be/dQw4w9WgXcQ?t=5")
+
+    assert video.video_id == "dQw4w9WgXcQ"
+    assert video.canonical_url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert service.runner.jobs() == []
+
+
+@pytest.mark.unit
+def test_submit_youtube_refuses_a_playlist_before_any_job(tmp_path: Path) -> None:
+    service, _, _ = _service(tmp_path)
+
+    with pytest.raises(StemForgeError) as raised:
+        service.submit_youtube("https://www.youtube.com/playlist?list=PL123")
+
+    assert raised.value.code == "import.youtube_playlist"
+    assert service.runner.jobs() == []
