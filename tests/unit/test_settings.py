@@ -153,7 +153,84 @@ def test_save_writes_valid_json(paths: AppPaths) -> None:
         "export_dir": None,
         "first_run": True,
         "cache_cap_bytes": 8 * 1024**3,
+        "models": {"consent": None},
     }
+
+
+@pytest.mark.unit
+def test_model_consent_defaults_to_none(paths: AppPaths) -> None:
+    store = SettingsStore(paths)
+
+    assert store.model_consent() is None
+
+
+@pytest.mark.unit
+def test_accept_model_licence_persists_the_acknowledgment(paths: AppPaths) -> None:
+    store = SettingsStore(paths)
+    accepted_at = datetime(2026, 11, 17, 9, 30, tzinfo=UTC)
+
+    consent = store.accept_model_licence(version=1, accepted_at=accepted_at)
+
+    assert consent.version == 1
+    assert consent.acknowledged is True
+    assert consent.accepted_at == accepted_at
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    assert payload["models"] == {
+        "consent": {
+            "version": 1,
+            "acknowledged": True,
+            "accepted_at": accepted_at.isoformat(),
+        }
+    }
+    reloaded = SettingsStore(paths)
+    assert reloaded.model_consent() == consent
+
+
+@pytest.mark.unit
+def test_clear_model_consent_persists_the_removal(paths: AppPaths) -> None:
+    store = SettingsStore(paths)
+    store.accept_model_licence(version=1)
+
+    store.clear_model_consent()
+
+    assert store.model_consent() is None
+    assert SettingsStore(paths).model_consent() is None
+    assert json.loads(store.path.read_text(encoding="utf-8"))["models"]["consent"] is None
+
+
+@pytest.mark.unit
+def test_an_invalid_consent_record_means_no_consent_and_keeps_other_settings(
+    paths: AppPaths,
+) -> None:
+    paths.config.mkdir(parents=True, exist_ok=True)
+    (paths.config / "settings.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "recent": [],
+                "export_dir": None,
+                "first_run": False,
+                "cache_cap_bytes": 1024,
+                "models": {"consent": {"version": 0, "acknowledged": "yes"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = SettingsStore(paths)
+
+    assert store.model_consent() is None
+    assert store.first_run is False
+    assert store.settings.cache_cap_bytes == 1024
+    assert not list(paths.config.glob("settings.corrupt-*.json"))
+
+
+@pytest.mark.unit
+def test_accept_model_licence_rejects_a_stale_version(paths: AppPaths) -> None:
+    store = SettingsStore(paths)
+
+    with pytest.raises(ValueError, match="version"):
+        store.accept_model_licence(version=0)
 
 
 @pytest.mark.unit
