@@ -20,6 +20,7 @@ from typing import Final, cast
 
 from stemforge.domain.models import OriginKind
 from stemforge.platform.paths import AppPaths
+from stemforge.platform.storage import DEFAULT_CACHE_CAP_BYTES
 
 SCHEMA_VERSION: Final = 1
 MAX_RECENT_FILES: Final = 10
@@ -48,6 +49,8 @@ class Settings:
     recent: tuple[RecentFile, ...] = ()
     export_dir: Path | None = None
     first_run: bool = True
+    # Ticket 07 §2: the audio cache cap, counted over sources/ and renders/ only.
+    cache_cap_bytes: int = DEFAULT_CACHE_CAP_BYTES
 
 
 class SettingsStore:
@@ -184,11 +187,20 @@ class SettingsStore:
         if not isinstance(first_run, bool):
             return self._recover_corrupt(raw, reason="invalid first_run")
 
+        cache_cap_bytes = payload.get("cache_cap_bytes", DEFAULT_CACHE_CAP_BYTES)
+        if (
+            not isinstance(cache_cap_bytes, int)
+            or isinstance(cache_cap_bytes, bool)
+            or cache_cap_bytes < 0
+        ):
+            return self._recover_corrupt(raw, reason="invalid cache_cap_bytes")
+
         return Settings(
             schema_version=version,
             recent=recent,
             export_dir=export_dir,
             first_run=first_run,
+            cache_cap_bytes=cache_cap_bytes,
         )
 
     def _recover_corrupt(self, raw: str, *, reason: str) -> Settings:
@@ -256,6 +268,7 @@ def _to_payload(settings: Settings) -> dict[str, object]:
         ],
         "export_dir": str(settings.export_dir) if settings.export_dir is not None else None,
         "first_run": settings.first_run,
+        "cache_cap_bytes": settings.cache_cap_bytes,
     }
 
 
