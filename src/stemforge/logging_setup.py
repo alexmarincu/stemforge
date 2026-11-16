@@ -21,6 +21,8 @@ APP_LOG_FILENAME: Final = "stemforge.log"
 APP_LOG_MAX_BYTES: Final = 2 * 1024 * 1024
 APP_LOG_BACKUP_COUNT: Final = 3
 JOB_LOG_MAX_BYTES: Final = 10 * 1024 * 1024
+JOB_LOG_RETENTION: Final = 20
+JOB_LOG_MAX_AGE_DAYS: Final = 7
 LEVEL_ENV_VAR: Final = "STEMFORGE_LOG_LEVEL"
 
 _LOG_FORMAT: Final = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
@@ -94,6 +96,52 @@ def job_log_handler(
     handler = _CappedFileHandler(jobs_dir / f"{stamp}-{job_id}.log", max_bytes=JOB_LOG_MAX_BYTES)
     handler.setFormatter(logging.Formatter(_LOG_FORMAT, _LOG_DATE_FORMAT))
     return handler
+
+
+def sweep_job_logs(
+    paths: AppPaths,
+    *,
+    keep: int = JOB_LOG_RETENTION,
+    max_age_days: float = JOB_LOG_MAX_AGE_DAYS,
+    now: datetime | None = None,
+) -> tuple[Path, ...]:
+    """Delete Job logs beyond the newest ``keep`` or older than ``max_age_days``.
+
+    Both rules apply: a file is removed when it falls outside the newest ``keep``
+    *or* its mtime is older than the age limit. Missing or unreadable entries are
+    ignored; this is a best-effort startup sweep (ticket 07 §6).
+    """
+    if keep < 1:
+        raise ValueError("keep must be positive")
+    if max_age_days < 0:
+        raise ValueError("max_age_days must not be negative")
+
+    jobs_dir = paths.logs / "jobs"
+    if not jobs_dir.is_dir():
+        return ()
+
+    candidates: list[tuple[float, Path]] = []
+    for entry in jobs_dir.iterdir():
+        if entry.suffix != ".log" or not entry.is_file():
+            continue
+        try:
+            candidates.append((entry.stat().st_mtime, entry))
+        except OSError:
+            continue
+    candidates.sort(key=lambda item: (item[0], item[1].name), reverse=True)
+
+    cutoff = (now or datetime.now(UTC)).timestamp() - max_age_days * 86_400
+    removed: list[Path] = []
+    for index, (mtime, path) in enumerate(candidates):
+        if index < keep and mtime >= cutoff:
+            continue
+        try:
+            path.unlink()
+        except OSError:
+            logging.getLogger(LOGGER_NAME).warning("could not remove Job log %s", path)
+            continue
+        removed.append(path)
+    return tuple(removed)
 
 
 def _resolve_level(level: int | str | None) -> int:
