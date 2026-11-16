@@ -346,6 +346,8 @@ def _source_from_artifact(
         artist=_as_str(record.get("artist")),
         album=_as_str(record.get("album")),
         duration_s=_as_float(record.get("duration_s")),
+        sample_rate=_as_int(record.get("sample_rate")),
+        channels=_as_int(record.get("channels")),
     )
     return Source(
         source_id=source_id,
@@ -374,3 +376,13 @@ def _as_float(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value)
+
+
+def _as_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value)
+    return None

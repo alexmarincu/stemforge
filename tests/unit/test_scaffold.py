@@ -229,8 +229,10 @@ def test_self_test_mode_exits_zero_with_a_message(capsys: pytest.CaptureFixture[
 
 
 @pytest.mark.unit
-def test_entry_point_does_not_import_the_heavy_stack() -> None:
-    assert not _import_roots(_main_module_source()) & HEAVY_MODULES
+def test_entry_point_only_imports_the_heavy_stack_lazily() -> None:
+    # The UI lands in _run_ui; what matters is that importing __main__ (and
+    # therefore --self-test/--worker dispatch) does not import NiceGUI or torch.
+    assert not _module_scope_import_roots(_main_module_source()) & HEAVY_MODULES
 
 
 @pytest.mark.unit
