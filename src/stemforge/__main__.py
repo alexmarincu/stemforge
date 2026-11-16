@@ -4,9 +4,9 @@ The frozen-build contract (ticket 06 §11) requires ``freeze_support()`` to be t
 first statement in the main guard, and the heavy stack (NiceGUI, torch, Demucs) to
 stay out of this module's imports. ``--self-test``, ``--smoke-test``, and
 ``--smoke-separation`` live in :mod:`stemforge.smoke`; ``--preflight`` runs the
-startup checks and never opens a window. A normal launch takes the
-single-instance lock before the preflight report, then stops at the ``_run_ui``
-seam until the UI lands.
+startup checks and never opens a window; ``--import`` and ``--install-model`` run
+one Job headlessly. A normal launch takes the single-instance lock before the
+preflight report, then stops at the ``_run_ui`` seam until the UI lands.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from stemforge import __version__
 from stemforge.platform import preflight
 
 if TYPE_CHECKING:
+    from stemforge.application import WorkspaceService
     from stemforge.platform.paths import AppPaths
 
 
@@ -75,6 +76,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="import one local audio file headlessly, then exit",
     )
     parser.add_argument(
+        "--install-model",
+        action="store_true",
+        help="download and verify the pinned htdemucs model, then exit",
+    )
+    parser.add_argument(
+        "--accept-model-licence",
+        action="store_true",
+        help="accept the model-weights licence notice for an unattended --install-model",
+    )
+    parser.add_argument(
         "--worker",
         metavar="NAME",
         help="run an internal worker (separation); dispatched by the frozen binary",
@@ -112,6 +123,11 @@ def _configuration_failure(args: argparse.Namespace, error: OSError) -> int:
     )
     diagnostics = _diagnostics_text(report, paths)
     if args.import_path is not None:
+        from stemforge import errors
+
+        print(f"error {errors.PREFLIGHT_STORAGE_UNWRITABLE}: {_one_line(str(error))}")
+        return 1
+    if args.install_model:
         from stemforge import errors
 
         print(f"error {errors.PREFLIGHT_STORAGE_UNWRITABLE}: {_one_line(str(error))}")
@@ -299,6 +315,82 @@ def _run_import(path: str, paths: AppPaths) -> int:
     return 1
 
 
+def _print_model_notice(service: WorkspaceService) -> None:
+    from stemforge.ui import formatting
+
+    copy = formatting.model_licence_copy(service.model_spec())
+    print(copy.title)
+    print(copy.summary)
+    print(copy.identity)
+    print(copy.notice)
+
+
+def _run_install_model(args: argparse.Namespace, paths: AppPaths) -> int:
+    """Download and verify the pinned model, honouring the consent gate."""
+    from stemforge import errors
+    from stemforge.application import WorkspaceService
+    from stemforge.errors import StemForgeError
+    from stemforge.jobs import JobState
+    from stemforge.logging_setup import configure_logging
+    from stemforge.settings import SettingsStore
+
+    settings = SettingsStore(paths)
+    configure_logging(paths)
+    service = WorkspaceService(settings, paths=paths)
+    spec = service.model_spec()
+
+    status = service.models.verify()
+    if (
+        not status.verified
+        and not service.model_consent_is_current()
+        and not args.accept_model_licence
+    ):
+        _print_model_notice(service)
+        if not sys.stdin.isatty():
+            print(
+                f"error {errors.SEPARATION_MODEL_MISSING}: consent required; "
+                "rerun with --accept-model-licence"
+            )
+            return 1
+        try:
+            answer = input("Type 'yes' to accept and download: ")
+        except EOFError:
+            answer = ""
+        if answer.strip().lower() not in {"yes", "y"}:
+            print(f"error {errors.SEPARATION_MODEL_MISSING}: consent declined")
+            return 1
+
+    runner = service.runner
+    runner.start()
+    try:
+        job_id = service.install_model(accept_licence=args.accept_model_licence)
+        runner.wait_idle()
+        snapshot = runner.snapshot(job_id)
+    except StemForgeError as error:
+        print(f"error {error.code}: {_one_line(error.detail)}")
+        return 1
+    except Exception as error:
+        print(f"error {errors.INTERNAL_UNEXPECTED}: {_one_line(str(error))}")
+        return 1
+    finally:
+        runner.stop()
+
+    if snapshot.state is JobState.SUCCEEDED:
+        verb = "installed" if not status.verified else "verified"
+        print(
+            f"{verb} {spec.name} revision={spec.revision[:8]} "
+            f"sha256={spec.sha256} bytes={spec.size_bytes}"
+        )
+        return 0
+    if snapshot.state is JobState.CANCELLED:
+        print(f"cancelled {snapshot.kind.value} job {snapshot.job_id}")
+        return 2
+
+    code = snapshot.error_code or errors.INTERNAL_UNEXPECTED
+    print(f"error {code}: {_one_line(snapshot.error_detail)}")
+    return 1
+
+
 def _fatal_code(report: preflight.PreflightReport) -> str:
     from stemforge import errors
 
@@ -377,6 +469,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.import_path is not None:
         return _run_import(args.import_path, paths)
+    if args.install_model:
+        return _run_install_model(args, paths)
 
     if args.self_test or args.smoke_test or args.smoke_separation:
         from stemforge import smoke

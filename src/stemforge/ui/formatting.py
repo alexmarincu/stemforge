@@ -12,13 +12,31 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from stemforge import errors
+
+if TYPE_CHECKING:
+    from stemforge.models.spec import ModelSpec
 
 MAX_HEADLINE_LENGTH: Final = 90
 _MIB: Final = 1024 * 1024
 _GIB: Final = 1024 * _MIB
+
+MODEL_LICENCE_TITLE: Final = "Separation model not installed"
+MODEL_LICENCE_SUMMARY: Final = (
+    "htdemucs runs locally. The weights download once from Hugging Face and are "
+    "verified by SHA-256."
+)
+MODEL_LICENCE_NOTICE: Final = (
+    "These weights are **not part of StemForge** and are **not covered by StemForge's "
+    "GPL-3.0 licence**. The Demucs author states their licence is unclear: the training "
+    "data included research-only MusDB material, and FAIR's models are likely "
+    "non-commercial. Download only if that is acceptable to you."
+)
+MODEL_LICENCE_ACCEPT_LABEL: Final = "Download model"
+MODEL_LICENCE_DETAILS_LABEL: Final = "Licence details"
+MODEL_LICENCE_DECLINE_LABEL: Final = "Cancel"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +45,19 @@ class ErrorCopy:
 
     headline: str
     action: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModelLicenceCopy:
+    """The model gate's user-facing prose (ticket 13 §7, ticket 08 §10)."""
+
+    title: str
+    summary: str
+    identity: str
+    notice: str
+    accept_label: str
+    details_label: str
+    decline_label: str
 
 
 COPY_BY_CODE: Final[Mapping[str, ErrorCopy]] = MappingProxyType(
@@ -244,6 +275,24 @@ REASON_COPY: Final[Mapping[tuple[str, str], ErrorCopy]] = MappingProxyType(
         ),
     }
 )
+
+
+def model_licence_copy(spec: ModelSpec) -> ModelLicenceCopy:
+    """Return the model-gate copy for one pinned model record.
+
+    The licence prose lives here, not in the lock or the pipeline, so the UI is
+    the only module with user-facing sentences (ticket 14 §9).
+    """
+    megabytes = f"{spec.size_bytes / 1_000_000:.0f} MB"
+    return ModelLicenceCopy(
+        title=MODEL_LICENCE_TITLE,
+        summary=f"{MODEL_LICENCE_SUMMARY[:-1]} ({megabytes}).",
+        identity=(f"{spec.repo_id} · revision {spec.revision[:8]}… · {spec.size_bytes:,} bytes"),
+        notice=MODEL_LICENCE_NOTICE,
+        accept_label=MODEL_LICENCE_ACCEPT_LABEL,
+        details_label=MODEL_LICENCE_DETAILS_LABEL,
+        decline_label=MODEL_LICENCE_DECLINE_LABEL,
+    )
 
 
 def copy_for(code: str, reason: str | None = None) -> ErrorCopy:
