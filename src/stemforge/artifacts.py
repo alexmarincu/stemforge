@@ -186,6 +186,7 @@ def require_free_space(path: Path, needed: int, *, floor: int = GIB) -> None:
         raise StemForgeError(
             errors.STORAGE_DISK_FULL,
             f"not enough free space on {target}: need {required} bytes, have {free}",
+            retryable=True,
             context={"path": str(target), "required": required, "free": free},
         )
 
