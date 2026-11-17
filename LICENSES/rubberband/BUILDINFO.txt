@@ -81,12 +81,12 @@
                 "-Dlv2=disabled",
                 "-Dladspa=disabled",
                 "-Djni=disabled",
-                "-Dcmdline=enabled",
+                "-Dcmdline=auto",
                 "-Dtests=disabled",
                 "-Dextra_lib_dirs=<libsndfile-build>",
                 "-Dextra_include_dirs=<libsndfile-source>/include"
               ],
-              "notes": "Ticket 10 \u00a78 builds this with MSVC on windows-2022 after libsndfile 1.2.2. No public prebuilt Rubber Band archive is named by the decision record; scripts/vendor-fetch.ps1 therefore accepts a prebuilt pinned directory with -RubberBandPrebuilt when Meson/MSVC are unavailable, and verifies rubberband.exe --version 4.0.0 plus the co-located sndfile.dll.",
+              "notes": "Ticket 10 \u00a78 builds this with MSVC on windows-2022 after libsndfile 1.2.2. cmdline=auto lets Meson fall back from pkg-config to cpp.find_library('sndfile', dirs: extra_lib_dirs) when pkg-config-lite cannot parse a Windows path; the CLI is still built when the fallback finds sndfile.lib. No public prebuilt Rubber Band archive is named by the decision record; scripts/vendor-fetch.ps1 therefore accepts a prebuilt pinned directory with -RubberBandPrebuilt when Meson/MSVC are unavailable, and verifies rubberband.exe --version 4.0.0 plus the co-located sndfile.dll.",
               "post_build": [
                 "meson compile -C build",
                 "copy build/rubberband.exe and the libsndfile sndfile.dll beside it"
