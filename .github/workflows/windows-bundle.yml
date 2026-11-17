@@ -7,6 +7,26 @@ name: Windows bundle evidence
 # uploads evidence artifacts (and the binaries only when explicitly requested).
 
 on:
+  # Ticket 11 §5: the nightly calls this job; the dispatch inputs stay available
+  # for manual evidence runs. The nightly passes upload_binaries: false.
+  workflow_call:
+    inputs:
+      allow_licence_pending:
+        description: "Build without the ticket 22 licence tree (non-release evidence only)"
+        type: boolean
+        default: false
+      with_separation:
+        description: "Install the pinned weights into a temporary STEMFORGE_HOME and run --smoke-separation"
+        type: boolean
+        default: true
+      upload_binaries:
+        description: "Upload the portable ZIP and setup.exe (large; normally release.yml owns them)"
+        type: boolean
+        default: false
+      timeout-minutes:
+        description: Job ceiling; the nightly passes 50, a dispatch keeps 35
+        type: number
+        default: 35
   workflow_dispatch:
     inputs:
       allow_licence_pending:
@@ -33,7 +53,7 @@ jobs:
   windows-bundle:
     name: windows-2022 bundle
     runs-on: windows-2022
-    timeout-minutes: 35
+    timeout-minutes: ${{ inputs.timeout-minutes || 35 }}
     env:
       PYTHONUTF8: "1"
       STEMFORGE_REQUIRE_VENDOR: "1"
@@ -157,6 +177,7 @@ jobs:
             dist/SHA256SUMS
             dist/UNSIGNED.txt
           if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload the built binaries
         if: ${{ inputs.upload_binaries && !inputs.allow_licence_pending }}
@@ -167,3 +188,4 @@ jobs:
             dist/*-portable.zip
             dist/*-setup.exe
           if-no-files-found: error
+          retention-days: 7
