@@ -136,6 +136,9 @@ _TAG_FIELDS = (
     "copyright",
 )
 
+# Ticket 05 §9: WAV carries INFO tags but never the comment tag (ICMT).
+_WAV_TAG_FIELDS = tuple(field for field in _TAG_FIELDS if field != "comment")
+
 _TAG_ALIASES: Mapping[str, tuple[str, ...]] = {
     "album_artist": ("album_artist", "albumartist", "album artist"),
     "track": ("track", "tracknumber"),
@@ -187,9 +190,9 @@ def _export_codec_args(fmt: ExportFormat) -> list[str]:
             ]
 
 
-def _tag_args(tags: Mapping[str, str]) -> list[str]:
+def _tag_args(tags: Mapping[str, str], fields: Sequence[str] = _TAG_FIELDS) -> list[str]:
     arguments: list[str] = []
-    for key in _TAG_FIELDS:
+    for key in fields:
         value = tags.get(key)
         if value:
             arguments.extend(["-metadata", f"{key}={value}"])
@@ -443,7 +446,7 @@ class FfmpegTool:
             "-id3v2_version",
             "3",
         ]
-        argv.extend(_tag_args({"title": title, "artist": artist}))
+        argv.extend(_tag_args({"title": title, "artist": artist}, fields=("title", "artist")))
         self._encode(
             argv,
             dst,
@@ -489,7 +492,8 @@ class FfmpegTool:
             argv.extend(["-map", "1:v:0", "-c:v", "copy", "-disposition:v", "attached_pic"])
         argv.extend(["-map_metadata", "-1", "-map_chapters", "-1", "-af", f"volume={gain_db}dB"])
         argv.extend(_export_codec_args(fmt))
-        argv.extend(_tag_args(dict(metadata.tags())))
+        tag_fields = _WAV_TAG_FIELDS if fmt is ExportFormat.WAV24 else _TAG_FIELDS
+        argv.extend(_tag_args(dict(metadata.tags()), fields=tag_fields))
 
         expect = _Expect(
             codec=_EXPORT_CODECS[fmt],
