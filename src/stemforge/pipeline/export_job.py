@@ -537,7 +537,7 @@ def _commit_without_overwrite(
     """
     for _ in range(9_999):
         final = unique_export_path(destination, base_name, suffix)
-        if final.exists():
+        if os.path.lexists(final):
             continue
         try:
             os.replace(partial, final)
