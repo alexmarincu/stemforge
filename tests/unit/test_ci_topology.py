@@ -260,6 +260,9 @@ def test_licensing_runs_the_notice_gates(ci: dict[str, Any]) -> None:
     text = _flat(ci["jobs"]["licensing"])
     assert "generate_notices.py --check-release" in text
     assert "generate_notices.py --check" in text
+    # The notice tests need the full installed metadata, so they live here
+    # rather than in the torch-free unit jobs.
+    assert "pytest -m licensing" in text
 
 
 def test_windows_integration_analyses_powershell_and_preflights(ci: dict[str, Any]) -> None:
