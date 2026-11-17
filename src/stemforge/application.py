@@ -2,12 +2,13 @@
 
 The service owns the Workspace and orchestrates Jobs on behalf of the UI. It is
 constructible headless: no NiceGUI, no torch, and injectable placeholders for the
-ArtifactStore, JobRunner, and engine adapters (ticket 06 §13). Local import is
-wired here; Separation, Render, and Export follow in their tickets.
+ArtifactStore, JobRunner, and engine adapters (ticket 06 §13). Local import and
+Export are wired here; Separation and Render follow in their tickets.
 """
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -17,14 +18,23 @@ from uuid import uuid4
 
 from stemforge import errors
 from stemforge.artifacts import ArtifactStore, RemoveReport, SweepReport
-from stemforge.domain.models import JobKind, ModelConsent, OriginKind, Source, Track
+from stemforge.domain.models import JobKind, JobState, ModelConsent, OriginKind, Source, Track
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
-from stemforge.engines.media import MediaTool
+from stemforge.engines.media import ExportFormat, MediaTool
 from stemforge.engines.youtube import YouTubeVideo, parse_youtube_url
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import Job, JobContext, JobRun
 from stemforge.jobs.runner import JobRunner
 from stemforge.models import ModelSpec, ModelStatus, ModelStore
+from stemforge.pipeline.export_job import (
+    ExportTarget,
+    resolve_export_target,
+    run_export_job,
+)
+from stemforge.pipeline.export_job import (
+    export_targets as enumerate_export_targets,
+)
+from stemforge.pipeline.export_names import unique_export_path
 from stemforge.pipeline.import_job import run_local_import
 from stemforge.pipeline.model_job import (
     ModelInstallJob,
@@ -68,6 +78,18 @@ class PreviewTarget:
     key: str
     label: str
     url: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExportedFile:
+    """The file one finished Export Job produced, for the toast and its actions."""
+
+    job_id: str
+    path: Path
+    format: ExportFormat
+    size_bytes: int
+    duration_s: float
+    gain_db: float
 
 
 class WorkspaceService:
@@ -239,6 +261,186 @@ class WorkspaceService:
         except (OSError, ValueError):
             return None
         return "/media/" + quote(relative, safe="/")
+
+    # -- Export ------------------------------------------------------------
+
+    def export_targets(self, track: Track | str) -> tuple[ExportTarget, ...]:
+        """Every existing, valid export selection for one Track.
+
+        The master, the unshifted Stems and Instrumental, and every member of
+        each committed pitch render set. Missing artifacts and invalid manifests
+        are omitted rather than offered as a failing action (ticket 05 §7).
+        """
+        found = self._find_track(track)
+        if found is None:
+            return ()
+        return enumerate_export_targets(
+            self._artifacts,
+            source_id=found.source_id,
+            title=found.title,
+        )
+
+    def submit_export(
+        self,
+        track: Track | str,
+        target: ExportTarget | str,
+        fmt: ExportFormat | str,
+        destination_dir: Path | str,
+    ) -> str:
+        """Submit one Export Job and return its id.
+
+        ``target`` is a value from :meth:`export_targets` or its stable key. The
+        Job re-resolves the key against the committed manifests, so a queued
+        Export follows a re-separation instead of a stale path. The native save
+        dialog and format sheet (#18) own the file name and overwrite consent.
+        """
+        found = self._find_track(track)
+        if found is None:
+            raise KeyError(track.track_id if isinstance(track, Track) else track)
+        media = self._engines.media
+        if media is None:
+            raise StemForgeError(
+                errors.INTERNAL_UNEXPECTED,
+                "no media engine is configured for export",
+            )
+
+        export_format = ExportFormat(fmt)
+        target_key = target.key if isinstance(target, ExportTarget) else str(target)
+        if isinstance(target, ExportTarget) and target.source_id != found.source_id:
+            raise StemForgeError(
+                errors.MEDIA_PROBE_FAILED,
+                "the selected export target belongs to another source",
+                detail="target",
+                context={"source_id": found.source_id, "target": target_key},
+            )
+        resolved = resolve_export_target(
+            self._artifacts,
+            source_id=found.source_id,
+            key=target_key,
+            title=found.title,
+        )
+        if resolved is None:
+            raise StemForgeError(
+                errors.MEDIA_PROBE_FAILED,
+                "the selected export target is no longer available",
+                detail="target",
+                context={"source_id": found.source_id, "target": target_key},
+            )
+
+        destination = Path(destination_dir).expanduser().absolute()
+        job = Job(
+            kind=JobKind.EXPORT,
+            identity=(
+                JobKind.EXPORT.value,
+                found.track_id,
+                resolved.key,
+                export_format.value,
+                str(destination),
+            ),
+            title=found.title,
+            run=self._export_run(resolved, export_format, destination, media),
+        )
+        return self._runner.submit(job)
+
+    def export_result(self, job_id: str) -> ExportedFile | None:
+        """Return the finished file's facts, or ``None`` before success."""
+        try:
+            snapshot = self._runner.snapshot(job_id)
+        except KeyError:
+            return None
+        if snapshot.state is not JobState.SUCCEEDED:
+            return None
+        keys = snapshot.result_keys
+        try:
+            return ExportedFile(
+                job_id=job_id,
+                path=Path(keys["path"]),
+                format=ExportFormat(keys["format"]),
+                size_bytes=int(keys["size"]),
+                duration_s=float(keys["duration_s"]),
+                gain_db=float(keys["gain_db"]),
+            )
+        except (KeyError, ValueError):
+            return None
+
+    def preview_export(
+        self,
+        track: Track | str,
+        target: ExportTarget | str,
+        fmt: ExportFormat | str,
+        destination_dir: Path | str,
+    ) -> Path:
+        """The filename the Job would write, without creating anything.
+
+        The format sheet uses this for its size/name summary; the Job uses the
+        same collision sequence when it commits (ticket 08 §9).
+        """
+        found = self._find_track(track)
+        if found is None:
+            raise KeyError(track.track_id if isinstance(track, Track) else track)
+        target_key = target.key if isinstance(target, ExportTarget) else str(target)
+        if isinstance(target, ExportTarget) and target.source_id != found.source_id:
+            raise StemForgeError(
+                errors.MEDIA_PROBE_FAILED,
+                "the selected export target belongs to another source",
+                detail="target",
+                context={"source_id": found.source_id, "target": target_key},
+            )
+        resolved = resolve_export_target(
+            self._artifacts,
+            source_id=found.source_id,
+            key=target_key,
+            title=found.title,
+        )
+        if resolved is None:
+            raise StemForgeError(
+                errors.MEDIA_PROBE_FAILED,
+                "the selected export target is no longer available",
+                detail="target",
+                context={"source_id": found.source_id, "target": target_key},
+            )
+        destination = Path(destination_dir).expanduser().absolute()
+        return unique_export_path(
+            destination,
+            resolved.base_name,
+            ExportFormat(fmt).suffix,
+        )
+
+    def _export_run(
+        self,
+        target: ExportTarget,
+        fmt: ExportFormat,
+        destination: Path,
+        media: MediaTool,
+    ) -> JobRun:
+        def run(ctx: JobContext) -> Mapping[str, str]:
+            result = run_export_job(
+                ctx,
+                artifacts=self._artifacts,
+                media=media,
+                source_id=target.source_id,
+                target=target,
+                fmt=fmt,
+                destination_dir=destination,
+            )
+            return {
+                "path": str(result.path),
+                "format": result.fmt.value,
+                "size": str(result.size_bytes),
+                "duration_s": f"{result.duration_s:.6f}",
+                "gain_db": f"{result.gain_db:.6f}",
+                "sha256": result.sha256,
+                "manifest": json.dumps(result.manifest, sort_keys=True, ensure_ascii=False),
+            }
+
+        return run
+
+    def _find_track(self, track: Track | str) -> Track | None:
+        track_id = track.track_id if isinstance(track, Track) else str(track)
+        return next(
+            (item for item in self.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
 
     # -- Model -------------------------------------------------------------
 
