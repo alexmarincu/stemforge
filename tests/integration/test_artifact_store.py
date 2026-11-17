@@ -141,7 +141,7 @@ def test_lru_evicts_whole_source_subtrees_on_a_real_cache(tmp_path: Path) -> Non
     sizes = {key: _dir_size(store.sources_dir / key) for key in ("oldest", "middle", "newest")}
     capped = ArtifactStore(paths, cap_bytes=sizes["middle"] + sizes["newest"])
 
-    report = capped.enforce_cap(set())
+    report = capped.enforce_cap()
 
     assert [entry.key for entry in report.evicted] == ["oldest"]
     assert not (paths.cache / "sources" / "oldest").exists()

@@ -23,7 +23,7 @@ import pytest
 
 from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
-from stemforge.artifacts import ArtifactStore
+from stemforge.artifacts import ArtifactStore, estimate_import_bytes
 from stemforge.domain.cancellation import CancelToken
 from stemforge.engines.media import (
     CanonicalMetadata,
@@ -52,8 +52,15 @@ def ffmpeg() -> Path:
 
 
 def _make_wav(ffmpeg: Path, target: Path, *, duration: float, rate: int, channels: int) -> Path:
-    expression = "sin(2*PI*440*t)" if channels == 1 else "sin(2*PI*440*t)|sin(2*PI*440*t)"
-    layout = "mono" if channels == 1 else "stereo"
+    if channels == 1:
+        expression = "sin(2*PI*440*t)"
+        layout = "mono"
+    elif channels == 2:
+        expression = "sin(2*PI*440*t)|sin(2*PI*440*t)"
+        layout = "stereo"
+    else:
+        expression = "|".join("sin(2*PI*440*t)" for _ in range(channels))
+        layout = "5.1" if channels == 6 else f"{channels}c"
     result = subprocess.run(
         [
             str(ffmpeg),
@@ -95,13 +102,25 @@ def thirty_one_minute_wav(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path
     )
 
 
+@pytest.fixture(scope="session")
+def six_channel_wav(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
+    root = tmp_path_factory.mktemp("import-surround-fixtures")
+    return _make_wav(
+        ffmpeg,
+        root / "six-channels.wav",
+        duration=3.0,
+        rate=48_000,
+        channels=6,
+    )
+
+
 class Harness:
     """A headless service wired to the real store, settings, and FFmpeg."""
 
-    def __init__(self, home: Path, *, media: MediaTool) -> None:
+    def __init__(self, home: Path, *, media: MediaTool, cap_bytes: int | None = None) -> None:
         self.paths = AppPaths.for_home(home).ensure()
         self.settings = SettingsStore(self.paths)
-        self.store = ArtifactStore(self.paths)
+        self.store = ArtifactStore(self.paths, cap_bytes=cap_bytes)
         self.runner = JobRunner(paths=self.paths)
         self.service = WorkspaceService(
             self.settings,
@@ -162,6 +181,7 @@ def test_local_import_commits_a_source_track_and_recent_file(
     assert manifest["content_hash"] == source_id
     assert manifest["origin"] == str(three_second_wav)
     assert manifest["metadata"]["title"] == "three-seconds"
+    assert manifest["downmixed"] is False
     roles = {entry["role"]: entry["path"] for entry in manifest["files"]}
     assert {"native", "canonical", "preview"} <= set(roles)
     for relative in roles.values():
@@ -185,6 +205,7 @@ def test_local_import_commits_a_source_track_and_recent_file(
     assert track.source.canonical_path is not None
     assert track.source.canonical_path.is_file()
     assert track.title == "three-seconds"
+    assert track.source.downmixed is False
 
     recent = harness.service.recent_files()
     assert len(recent) == 1
@@ -202,6 +223,87 @@ def test_local_import_commits_a_source_track_and_recent_file(
     assert all(path.is_relative_to(home) for path in created), sorted(
         str(path) for path in created if not path.is_relative_to(home)
     )
+
+
+def test_a_six_channel_source_records_the_downmix_and_keeps_stereo_canonical(
+    six_channel_wav: Path, real_harness: Harness
+) -> None:
+    harness = real_harness
+
+    job_id = harness.service.import_local(six_channel_wav)
+    assert harness.runner.wait_idle(timeout=120) is True
+    snapshot = harness.runner.snapshot(job_id)
+    assert snapshot.state is JobState.SUCCEEDED, snapshot
+
+    source_id = snapshot.result_keys["source_id"]
+    source_dir = harness.paths.cache / "sources" / source_id
+    manifest = json.loads((source_dir / "source.json").read_text(encoding="utf-8"))
+    assert manifest["downmixed"] is True
+
+    roles = {entry["role"]: entry["path"] for entry in manifest["files"]}
+    canonical = FfmpegTool().probe(source_dir / roles["canonical"])
+    assert canonical.channels == 2
+    assert canonical.sample_rate == 44_100
+
+    track = harness.service.snapshot().tracks[0]
+    assert track.source.downmixed is True
+    assert track.source.metadata.channels == 2
+
+
+def test_an_import_reserves_room_evicts_a_stale_set_and_protects_the_live_track(
+    tmp_path: Path, three_second_wav: Path, ffmpeg: Path
+) -> None:
+    home = tmp_path / "home"
+    paths = AppPaths.for_home(home).ensure()
+    pre = ArtifactStore(paths)
+    staging = pre.stage("stale-source-job")
+    stale_bytes = b"stale canonical audio"
+    (staging / "canonical.wav").write_bytes(stale_bytes)
+    pre.commit_source(
+        staging,
+        "stale-source",
+        {
+            "schema_version": 1,
+            "kind": "source",
+            "source_id": "stale-source",
+            "files": [
+                {
+                    "path": "canonical.wav",
+                    "role": "canonical",
+                    "size": len(stale_bytes),
+                    "sha256": hashlib.sha256(stale_bytes).hexdigest(),
+                }
+            ],
+        },
+    )
+    estimate = estimate_import_bytes(3.0, native_bytes=three_second_wav.stat().st_size)
+    cap = pre.usage_bytes() + estimate - 1
+    assert cap > estimate
+
+    with Harness(home, media=FfmpegTool(), cap_bytes=cap) as harness:
+        first = harness.service.import_local(three_second_wav)
+        assert harness.runner.wait_idle(timeout=120) is True
+        first_snapshot = harness.runner.snapshot(first)
+        assert first_snapshot.state is JobState.SUCCEEDED, first_snapshot
+
+        live_id = first_snapshot.result_keys["source_id"]
+        live_dir = harness.paths.cache / "sources" / live_id
+        assert live_dir.is_dir()
+        assert not (harness.paths.cache / "sources" / "stale-source").exists()
+        assert harness.store.usage_bytes() + estimate > cap
+
+        second_source = _make_wav(
+            ffmpeg, tmp_path / "second.wav", duration=2.0, rate=44_100, channels=2
+        )
+        second = harness.service.import_local(second_source)
+        assert harness.runner.wait_idle(timeout=120) is True
+        second_snapshot = harness.runner.snapshot(second)
+
+        assert second_snapshot.state is JobState.FAILED
+        assert second_snapshot.error_code == errors.STORAGE_CACHE_FULL
+        assert live_dir.is_dir()
+        assert len(harness.service.snapshot().tracks) == 1
+        assert harness.service.snapshot().tracks[0].source_id == live_id
 
 
 def test_reimporting_the_same_bytes_keeps_one_track(

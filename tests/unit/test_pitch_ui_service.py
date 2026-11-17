@@ -23,6 +23,7 @@ from stemforge.domain.models import (
     SourceMetadata,
     Track,
 )
+from stemforge.engines.media import MediaInfo
 from stemforge.errors import StemForgeError
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform.paths import AppPaths
@@ -436,12 +437,21 @@ class _BlockingPitch:
         raise AssertionError("not reached")
 
 
+class _ProbeMedia:
+    def probe(self, path: Path) -> MediaInfo:
+        del path
+        return MediaInfo("pcm_f32le", 44_100, 2, 1.0, "wav", {})
+
+
 @pytest.mark.unit
 def test_removing_the_track_cancels_its_active_job_before_deleting_the_cache(
     tmp_path: Path,
 ) -> None:
     pitch = _BlockingPitch()
-    service, store = _service(tmp_path, engines=ServiceEngines(pitch=pitch, media=object()))
+    service, store = _service(
+        tmp_path,
+        engines=ServiceEngines(pitch=pitch, media=_ProbeMedia()),  # type: ignore[arg-type]
+    )
     _commit_source(store)
     track = service._accept_source(_track().source)
     service.runner.start()

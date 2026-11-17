@@ -222,7 +222,7 @@ class SeparationCard:
             ui.label(formatting.MODEL_LICENCE_DETAILS_LABEL).classes("sf-card-title")
             ui.label(copy.notice).classes("sf-gate-notice").mark("model-licence-notice")
             ui.label(formatting.SEPARATION_MODEL_CONSENT).classes("sf-fineprint")
-            reason = status.reason or _detail_reason(failure_detail) or "absent"
+            reason = status.reason or formatting.reason_from_detail(failure_detail) or "absent"
             ui.label(f"{errors.SEPARATION_MODEL_MISSING} · reason={reason}").classes(
                 "sf-notice-detail"
             ).mark("separation-model-code")
@@ -264,7 +264,7 @@ class SeparationCard:
                 button.set_enabled(not busy)
 
     def _download_error(self, failure: SeparationFailure, *, busy: bool = False) -> None:
-        reason = _detail_reason(failure.detail)
+        reason = formatting.reason_from_detail(failure.detail)
         copy = formatting.copy_for(failure.code, reason)
         ui.label(copy.headline).classes("sf-notice-headline")
         ui.label(copy.action).classes("sf-notice-action")
@@ -504,7 +504,7 @@ class SeparationCard:
         failure = self._failures.get(track.track_id)
         if failure is None or failure.code == errors.SEPARATION_MODEL_MISSING:
             return
-        copy = formatting.copy_for(failure.code, _detail_reason(failure.detail))
+        copy = formatting.copy_for(failure.code, formatting.reason_from_detail(failure.detail))
         with ui.element("div").classes("sf-notice").mark("separation-error"):
             ui.label(copy.headline).classes("sf-notice-headline")
             ui.label(copy.action).classes("sf-notice-action")
@@ -724,12 +724,3 @@ class SeparationCard:
         self._expanded.discard(track_id)
         self._selected_set.pop(track_id, None)
         self._failures.pop(track_id, None)
-
-
-def _detail_reason(detail: str | None) -> str | None:
-    if not detail:
-        return None
-    for part in detail.replace("\n", " ").split():
-        if part.startswith("reason="):
-            return part.removeprefix("reason=")
-    return None

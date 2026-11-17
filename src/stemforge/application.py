@@ -24,6 +24,7 @@ from stemforge import errors
 from stemforge.artifacts import (
     ArtifactStore,
     ClearReport,
+    EvictionReport,
     RemoveReport,
     RenderArtifact,
     SeparationArtifact,
@@ -195,7 +196,9 @@ class SeparationSet:
     based_on_earlier_separation: bool = False
 
 
-_STEM_LABELS: Mapping[str, str] = {
+# Separation output labels for the UI. Instrumental is a stored Artifact, not a
+# Stem (GLOSSARY), so this map is deliberately not named for stems.
+_SEPARATION_ROLE_LABELS: Mapping[str, str] = {
     "vocals": "Vocals",
     INSTRUMENTAL_ROLE: "Instrumental",
     "drums": "Drums",
@@ -385,6 +388,10 @@ class WorkspaceService:
     def sweep_stale(self) -> SweepReport:
         """Run the startup sweep once; the UI shows recovery copy when it deleted work."""
         return self._artifacts.sweep_stale()
+
+    def enforce_cache_cap(self) -> EvictionReport:
+        """Run the startup LRU pass after the sweep (ticket 07 §2, §7)."""
+        return self._artifacts.enforce_cap()
 
     def youtube_cache_bytes(self) -> int:
         """The size of ``<cache>/yt-dlp/`` shown in Settings & About."""
@@ -673,7 +680,7 @@ class WorkspaceService:
             return None
         return PreviewTarget(
             key=f"{set_key}:{stem}",
-            label=_STEM_LABELS[stem],
+            label=_SEPARATION_ROLE_LABELS[stem],
             url=url,
         )
 

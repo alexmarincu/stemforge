@@ -11,7 +11,7 @@ import asyncio
 import logging
 import threading
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
@@ -43,10 +43,12 @@ class FakeMedia:
         duration_s: float = DURATION_S,
         title: str | None = None,
         fail_probe: bool = False,
+        source_channels: int = CHANNELS,
     ) -> None:
         self.duration_s = duration_s
         self.title = title
         self.fail_probe = fail_probe
+        self.source_channels = source_channels
         self._gate: threading.Event | None = None
         self.decode_started = threading.Event()
 
@@ -63,7 +65,7 @@ class FakeMedia:
         return MediaInfo(
             codec="pcm_s16le",
             sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
+            channels=self.source_channels,
             duration_s=self.duration_s,
             format="wav",
             tags={},
@@ -83,7 +85,7 @@ class FakeMedia:
             duration_s=self.duration_s,
             sample_rate=SAMPLE_RATE,
             channels=CHANNELS,
-            downmixed=False,
+            downmixed=self.source_channels > CHANNELS,
         )
 
     def extract_metadata(self, src: Path) -> CanonicalMetadata:
@@ -177,6 +179,16 @@ def harness(tmp_path: Path) -> Iterator[Harness]:
         item.runner.stop(timeout=10)
 
 
+@pytest.fixture
+def multichannel_harness(tmp_path: Path) -> Iterator[Harness]:
+    item = Harness(root=tmp_path, media=FakeMedia(source_channels=6), dialog=FakeDialog())
+    item.runner.start()
+    try:
+        yield item
+    finally:
+        item.runner.stop(timeout=10)
+
+
 async def _open_page(harness: Harness):
     built: list[page.WorkspacePage] = []
 
@@ -215,7 +227,48 @@ async def test_empty_state_explains_the_way_in(harness: Harness) -> None:
         await user.should_see("Drop audio files here")
         await user.should_see("WAV, MP3, FLAC, M4A — or choose files…")
         await user.should_see("No tracks yet")
+        await user.should_see(marker="empty-model-card")
+        await user.should_see(
+            "Separation model not installed yet · 84 MB — you can load and preview now; "
+            "Separation asks for the download the first time you use it."
+        )
         await user.should_not_see(marker="track-detail")
+
+
+async def test_the_empty_state_omits_the_model_card_once_installed(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    installed = replace(harness.service.model_status(), installed=True)
+    monkeypatch.setattr(harness.service, "model_status", lambda: installed)
+
+    async for user, _workspace_page in _open_page(harness):
+        await user.should_see("Bring in a track")
+        await user.should_not_see(marker="empty-model-card")
+        await user.should_not_see("Separation model not installed yet")
+
+
+async def test_a_multichannel_import_shows_the_downmix_note(
+    multichannel_harness: Harness,
+) -> None:
+    harness = multichannel_harness
+    source = harness.source_file("Surround.flac")
+    harness.dialog._selections = [(str(source),)]
+
+    async for user, workspace_page in _open_page(harness):
+        user.find(marker="add-audio").click()
+        await asyncio.sleep(0.1)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+
+        track = harness.service.snapshot().tracks[0]
+        assert track.source.downmixed is True
+        assert track.source.metadata.channels == 2
+        await user.should_see(marker="track-row")
+
+        user.find(marker="track-row").click()
+        await user.should_see(marker="track-detail")
+        with user.scope(marker="track-detail"):
+            await user.should_see(marker="downmix-note")
+            await user.should_see("Multichannel source downmixed to stereo.")
 
 
 async def test_a_selected_file_becomes_a_track_with_audio_facts(harness: Harness) -> None:
@@ -241,6 +294,8 @@ async def test_a_selected_file_becomes_a_track_with_audio_facts(harness: Harness
             await user.should_see("3:07")
             await user.should_see("44.1 kHz")
             await user.should_see("stereo")
+            await user.should_not_see(marker="downmix-note")
+            await user.should_not_see("Multichannel source downmixed to stereo.")
 
         assert source.read_bytes() == b"fake source bytes for My Song.WAV"
         assert [entry.title for entry in harness.service.recent_files()] == ["My Song"]

@@ -185,7 +185,7 @@ class YouTubeRow:
             self._dialog = None
 
     def _show_field_error(self, error: StemForgeError) -> None:
-        copy = formatting.copy_for(error.code, _reason(error.detail))
+        copy = formatting.copy_for(error.code, formatting.reason_from_detail(error.detail))
         if self._error is not None:
             self._error.set_text(copy.headline)
             self._error.set_visibility(True)
@@ -208,13 +208,3 @@ class YouTubeRow:
             self._error.set_visibility(False)
         if self._error_details is not None:
             self._error_details.set_visibility(False)
-
-
-def _reason(detail: str | None) -> str | None:
-    text = (detail or "").strip()
-    if not text:
-        return None
-    for part in text.replace("\n", " ").split():
-        if part.startswith("reason="):
-            return part.removeprefix("reason=")
-    return text if " " not in text else None
