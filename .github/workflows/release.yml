@@ -241,8 +241,22 @@ jobs:
         shell: pwsh
         run: |
           uv pip install --python .venv\Scripts\python.exe meson ninja
-          if (-not (Get-Command pkg-config -ErrorAction SilentlyContinue)) {
-            choco install pkgconfiglite -y --no-progress
+          # windows-2022 ships a broken Strawberry Perl pkg-config.bat; install
+          # pkgconfiglite and force Meson to use a tool that answers --version.
+          choco install pkgconfiglite -y --no-progress
+          $candidates = @(
+            'C:\ProgramData\chocolatey\bin\pkg-config.exe',
+            'C:\Program Files (x86)\pkgconfiglite\bin\pkg-config.exe',
+            'C:\Program Files\pkgconfiglite\bin\pkg-config.exe'
+          )
+          foreach ($candidate in $candidates) {
+            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            $version = (& $candidate '--version' 2>$null | Select-Object -First 1)
+            if ($LASTEXITCODE -eq 0 -and $version) {
+              Add-Content -Path $env:GITHUB_ENV -Value "PKG_CONFIG=$candidate"
+              Write-Host "pkg-config: $candidate ($version)"
+              break
+            }
           }
           $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) {
@@ -486,8 +500,22 @@ jobs:
         shell: pwsh
         run: |
           uv pip install --python .venv\Scripts\python.exe meson ninja
-          if (-not (Get-Command pkg-config -ErrorAction SilentlyContinue)) {
-            choco install pkgconfiglite -y --no-progress
+          # windows-2022 ships a broken Strawberry Perl pkg-config.bat; install
+          # pkgconfiglite and force Meson to use a tool that answers --version.
+          choco install pkgconfiglite -y --no-progress
+          $candidates = @(
+            'C:\ProgramData\chocolatey\bin\pkg-config.exe',
+            'C:\Program Files (x86)\pkgconfiglite\bin\pkg-config.exe',
+            'C:\Program Files\pkgconfiglite\bin\pkg-config.exe'
+          )
+          foreach ($candidate in $candidates) {
+            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            $version = (& $candidate '--version' 2>$null | Select-Object -First 1)
+            if ($LASTEXITCODE -eq 0 -and $version) {
+              Add-Content -Path $env:GITHUB_ENV -Value "PKG_CONFIG=$candidate"
+              Write-Host "pkg-config: $candidate ($version)"
+              break
+            }
           }
       - name: Cache the pinned vendor set
         uses: actions/cache@v4
