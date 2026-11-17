@@ -1,0 +1,108 @@
+# Curated metadata for Python packages the generator cannot resolve from a
+# local dist-info: Windows-only wheels, build-only tools, and packages whose
+# metadata carries no licence declaration.
+#
+# The generator uses the package's METADATA when it is installed, unless the
+# package has an entry here, in which case this entry wins. That keeps the
+# committed tree identical between the Linux reference host and a Windows
+# checkout: `cffi`, `pythonnet`, and friends resolve here on both.
+#
+# Schema:
+#   name         exact uv.lock package name.
+#   spdx         SPDX expression (required).
+#   source       upstream source URL (required).
+#   texts        canonical texts copied from packaging/licenses/texts/.
+#   platform     "all" (default), "windows", or "linux".
+#   note         optional sentence appended to the dependency table row.
+#   licence_files  optional list of {name, text} pairs written to
+#                  LICENSES/python/<name>/ for packages with no dist-info.
+
+schema = 1
+
+[[override]]
+name = "sphn"
+spdx = "Apache-2.0"
+source = "https://github.com/adefossez/sphn"
+
+[[override]]
+name = "altgraph"
+spdx = "MIT"
+source = "https://github.com/ronaldoussoren/altgraph"
+texts = ["MIT"]
+
+[[override]]
+name = "cffi"
+spdx = "MIT-0"
+source = "https://github.com/python-cffi/cffi"
+texts = ["MIT-0"]
+platform = "windows"
+
+[[override]]
+name = "clr-loader"
+spdx = "MIT"
+source = "https://github.com/pythonnet/clr-loader"
+texts = ["MIT"]
+platform = "windows"
+
+[[override]]
+name = "colorama"
+spdx = "BSD-3-Clause"
+source = "https://github.com/tartley/colorama"
+texts = ["BSD-3-Clause"]
+platform = "windows"
+
+[[override]]
+name = "pefile"
+spdx = "MIT"
+source = "https://github.com/erocarrera/pefile"
+texts = ["MIT"]
+platform = "windows"
+
+[[override]]
+name = "pycparser"
+spdx = "BSD-3-Clause"
+source = "https://github.com/eliben/pycparser"
+texts = ["BSD-3-Clause"]
+platform = "windows"
+
+[[override]]
+name = "pyinstaller"
+spdx = "GPL-2.0-or-later WITH Bootloader-exception"
+source = "https://github.com/pyinstaller/pyinstaller"
+texts = ["GPL-2.0-or-later", "Bootloader-exception"]
+note = "Build-only; only the bootloader is embedded in the shipped executable."
+
+[[override]]
+name = "pyinstaller-hooks-contrib"
+spdx = "GPL-2.0-or-later AND Apache-2.0"
+source = "https://github.com/pyinstaller/pyinstaller-hooks-contrib"
+texts = ["GPL-2.0-or-later", "Apache-2.0"]
+note = "Build-only; hooks run at build time and are not shipped."
+
+[[override]]
+name = "pythonnet"
+spdx = "MIT"
+source = "https://github.com/pythonnet/pythonnet"
+texts = ["MIT"]
+platform = "windows"
+
+[[override]]
+name = "pywin32-ctypes"
+spdx = "BSD-3-Clause"
+source = "https://github.com/enthought/pywin32-ctypes"
+texts = ["BSD-3-Clause"]
+platform = "windows"
+
+[[override]]
+name = "proxy-tools"
+spdx = "MIT"
+source = "https://pypi.org/project/proxy-tools/"
+texts = ["MIT"]
+note = "Ships no licence file; the MIT text is the distribution's declared licence."
+
+[[override]]
+name = "uvloop"
+spdx = "MIT"
+source = "https://github.com/MagicStack/uvloop"
+texts = ["MIT"]
+platform = "linux"

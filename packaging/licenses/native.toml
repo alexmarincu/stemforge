@@ -1,0 +1,354 @@
+# Curated notices for everything StemForge conveys that is not a Python wheel.
+#
+# `scripts/generate_notices.py` merges these entries with `uv.lock` and the
+# build virtualenv's dist-info. Versions for vendored executables come from
+# `packaging/vendor.lock.json`; versions for wheel-backed entries come from the
+# lock. Every entry is emitted into THIRD_PARTY_NOTICES.md and gets a directory
+# under LICENSES/<id>/ with a NOTICE.md and, when the entry is built, a
+# BUILDINFO.txt.
+#
+# Schema:
+#   id           stable lowercase directory name under LICENSES/.
+#   title        heading in THIRD_PARTY_NOTICES.md.
+#   kind         vendor | wheel | runtime | frontend | redistributable | build | note.
+#   spdx         SPDX expression of the shipped build.
+#   copyright    copyright line, if the component carries one.
+#   homepage     upstream project page.
+#   source       corresponding-source entry point.
+#   texts        canonical texts copied from packaging/licenses/texts/ into
+#                LICENSES/common/. Keys are filenames without ".txt".
+#   packages     uv.lock package names this entry summarises (version source).
+#   vendor       packaging/vendor.lock.json component names (version source).
+#   assets       frontend asset rows (name, version, spdx, copyright, url).
+#   notice       Markdown paragraph(s) shown in THIRD_PARTY_NOTICES.md.
+#   buildinfo    true to write LICENSES/<id>/BUILDINFO.txt from the vendor lock.
+
+schema = 1
+
+[[component]]
+id = "ffmpeg"
+title = "FFmpeg and ffprobe"
+kind = "vendor"
+spdx = "GPL-3.0-or-later"
+copyright = "Copyright (c) 2000-2026 the FFmpeg developers"
+homepage = "https://ffmpeg.org/"
+source = "https://github.com/FFmpeg/FFmpeg/tree/d838f9f9ae"
+texts = ["GPL-3.0-or-later"]
+vendor = ["ffmpeg", "ffprobe"]
+buildinfo = true
+notice = """
+FFmpeg and ffprobe are built by [BtbN FFmpeg Builds](https://github.com/BtbN/FFmpeg-Builds)
+as the GPL static variant, release `autobuild-2026-11-15-12-40`, version
+`n9.0.2-57-gd838f9f9ae`. The shipped `ffmpeg -buildconf` output is captured by
+the release build into `LICENSES/ffmpeg/BUILDINFO.txt`.
+
+The GPL build statically includes, among others, `libmp3lame` (LGPL-2.1),
+`librubberband` (GPL-2.0-or-later), `libx264` and `libx265` (GPL-2.0-or-later),
+`libsoxr` (LGPL-2.1), `libopus` and `libvorbis` (BSD-3-Clause), zlib, and
+OpenSSL (Apache-2.0). The exact list and commits are recorded in
+`LICENSES/ffmpeg/BUILDINFO.txt` and the release's third-party source bundle.
+`ffplay`, the documentation, and the presets are not shipped.
+"""
+
+[[component]]
+id = "rubberband"
+title = "Rubber Band Library"
+kind = "vendor"
+spdx = "GPL-2.0-or-later"
+copyright = "Copyright (c) 2007-2024 Particular Programs Ltd t/a Breakfast Quay"
+homepage = "https://breakfastquay.com/rubberband/"
+source = "https://github.com/breakfastquay/rubberband/tree/v4.0.0"
+texts = ["GPL-2.0-or-later"]
+vendor = ["rubberband"]
+buildinfo = true
+notice = """
+Rubber Band 4.0.0 is built from tag `v4.0.0` (commit
+`1d95888bec3ae0a17c0c4af791810d5a63f6bc35`) with builtin FFT and resampler.
+Only the command-line tool is shipped; it statically contains `librubberband`
+and dynamically links the co-located `libsndfile`. The Meson configure line is
+recorded in `LICENSES/rubberband/BUILDINFO.txt`. Used under the "or later"
+option of GPL-2.0, which is compatible with StemForge's GPL-3.0-only licence.
+"""
+
+[[component]]
+id = "libsndfile"
+title = "libsndfile"
+kind = "vendor"
+spdx = "LGPL-2.1-or-later"
+copyright = "Copyright (c) 1999-2024 Erik de Castro Lopo and contributors"
+homepage = "https://libsndfile.github.io/libsndfile/"
+source = "https://github.com/libsndfile/libsndfile/releases/tag/1.2.2"
+texts = ["LGPL-2.1-or-later"]
+vendor = ["libsndfile"]
+buildinfo = true
+notice = """
+libsndfile 1.2.2 is built from the pinned source tarball as a shared, WAV-only
+library (`ENABLE_EXTERNAL_LIBS=OFF`, `ENABLE_MPEG=OFF`). It ships as
+`libsndfile.so.1` or `sndfile.dll` beside the Rubber Band executable, as a
+separate and replaceable file, so the LGPL relink right is preserved. The CMake
+configure line is recorded in `LICENSES/libsndfile/BUILDINFO.txt`.
+"""
+
+[[component]]
+id = "deno"
+title = "Deno"
+kind = "vendor"
+spdx = "MIT"
+copyright = "Copyright (c) 2018-2026 the Deno authors"
+homepage = "https://deno.com/"
+source = "https://github.com/denoland/deno/releases/tag/v2.9.8"
+texts = ["MIT"]
+vendor = ["deno"]
+notice = """
+Deno 2.9.8 is the JavaScript runtime used by yt-dlp's EJS solver. It is shipped
+as the official release binary and has no runtime updater. The `yt-dlp` Python
+wheel is used, not yt-dlp's standalone PyInstaller binary.
+"""
+
+[[component]]
+id = "yt-dlp-ejs-role"
+title = "yt-dlp and yt-dlp-ejs"
+kind = "note"
+spdx = "Unlicense AND MIT AND ISC"
+homepage = "https://github.com/yt-dlp/yt-dlp"
+source = "https://github.com/yt-dlp/yt-dlp/releases/tag/2026.10.26"
+packages = ["yt-dlp", "yt-dlp-ejs"]
+notice = """
+`yt-dlp` (Unlicense) performs the YouTube download and `yt-dlp-ejs` (Unlicense
+AND MIT AND ISC) provides the JavaScript challenge solver, which runs on the
+bundled Deno. Both ship as Python wheels inside the frozen payload; neither
+contacts a StemForge server and neither is updated at runtime.
+"""
+
+[[component]]
+id = "pytorch"
+title = "PyTorch"
+kind = "wheel"
+spdx = "BSD-3-Clause"
+copyright = "Copyright (c) 2016-present Facebook, Inc. and contributors"
+homepage = "https://pytorch.org/"
+source = "https://github.com/pytorch/pytorch/tree/v2.15.0"
+packages = ["torch"]
+notice = """
+PyTorch 2.15.0+cpu is the CPU-only wheel. Its `dist-info/licenses/` tree
+(BSD-3-Clause for PyTorch plus oneDNN, fbgemm, LLVM OpenMP, sleef, protobuf and
+other third-party notices) is pooled verbatim under `LICENSES/texts/` and
+indexed in `LICENSES/python/DEPENDENCIES.md`. The Linux wheel also conveys GCC
+runtime libraries and the Windows wheel conveys `libiomp5md.dll`; both are
+noticed separately below.
+"""
+
+[[component]]
+id = "numpy"
+title = "NumPy"
+kind = "wheel"
+spdx = "BSD-3-Clause"
+copyright = "Copyright (c) 2005-2025 the NumPy developers"
+homepage = "https://numpy.org/"
+source = "https://github.com/numpy/numpy/tree/v2.5.4"
+packages = ["numpy"]
+notice = """
+NumPy 2.5.4 is the BSD-3-Clause wheel. On Linux it conveys the OpenBLAS
+runtime (`libscipy_openblas64_`) and GCC runtime libraries (`libgfortran`,
+`libquadmath`) that its own `LICENSE.txt` does not enumerate; those notices are
+in the native-runtime section below and in `LICENSES/gcc-runtime/` and
+`LICENSES/openblas/`.
+"""
+
+[[component]]
+id = "python-runtime"
+title = "Python runtime"
+kind = "runtime"
+spdx = "PSF-2.0"
+copyright = "Copyright (c) 2001-2026 the Python Software Foundation"
+homepage = "https://www.python.org/"
+source = "https://github.com/python/cpython/tree/3.13"
+texts = ["PSF-2.0"]
+notice = """
+StemForge's frozen payload embeds CPython 3.13 under the Python Software
+Foundation License 2.0. The Windows runtime also conveys OpenSSL
+(`libssl`/`libcrypto`, Apache-2.0) and the Microsoft Visual C++ runtime, which
+are noticed below.
+"""
+
+[[component]]
+id = "pyinstaller"
+title = "PyInstaller bootloader"
+kind = "build"
+spdx = "GPL-2.0-or-later WITH Bootloader-exception"
+copyright = "Copyright (c) 2010-2023 the PyInstaller Development Team"
+homepage = "https://pyinstaller.org/"
+source = "https://github.com/pyinstaller/pyinstaller/tree/v6.22.3"
+texts = ["GPL-2.0-or-later", "Bootloader-exception"]
+packages = ["pyinstaller"]
+notice = """
+PyInstaller 6.22.3 is a build-time tool; only its bootloader is embedded in the
+shipped executable. The bootloader is GPL-2.0-or-later with the PyInstaller
+Bootloader Exception, which permits unlimited linking and distribution of the
+resulting executable. PyInstaller's run-time hooks and fake modules are
+Apache-2.0.
+"""
+
+[[component]]
+id = "gcc-runtime"
+title = "GCC runtime libraries"
+kind = "runtime"
+spdx = "GPL-3.0-or-later WITH GCC-exception-3.1"
+copyright = "Copyright (C) 2009 Free Software Foundation, Inc."
+homepage = "https://gcc.gnu.org/"
+source = "https://gcc.gnu.org/git/?p=gcc.git"
+texts = ["GPL-3.0-or-later", "GCC-exception-3.1"]
+notice = """
+The Linux PyTorch and NumPy wheels convey `libgomp`, `libgfortran`, and
+`libquadmath` from the GCC runtime. They are covered by GPL-3.0-or-later with
+the GCC Runtime Library Exception 3.1 and are treated as System Libraries under
+GPLv3 section 1: they are noticed here and excluded from the Corresponding
+Source bundle. If you believe a stricter offer is required, contact us through
+the source offer.
+"""
+
+[[component]]
+id = "openblas"
+title = "OpenBLAS"
+kind = "runtime"
+spdx = "BSD-3-Clause"
+copyright = "Copyright (c) 2011-2026 the OpenBLAS contributors"
+homepage = "https://www.openblas.net/"
+source = "https://github.com/OpenMathLib/OpenBLAS"
+texts = ["BSD-3-Clause"]
+notice = """
+NumPy's wheel conveys OpenBLAS as `libscipy_openblas64_`. Its BSD-3-Clause
+notice is included in `LICENSES/common/BSD-3-Clause.txt` and is part of the
+third-party source bundle.
+"""
+
+[[component]]
+id = "llvm-openmp"
+title = "LLVM OpenMP runtime"
+kind = "runtime"
+spdx = "Apache-2.0 WITH LLVM-exception"
+copyright = "Copyright (c) 2003-2026 the LLVM Project"
+homepage = "https://openmp.llvm.org/"
+source = "https://github.com/llvm/llvm-project"
+texts = ["Apache-2.0", "LLVM-exception"]
+notice = """
+The Windows PyTorch wheel conveys `libiomp5md.dll`, the LLVM OpenMP runtime,
+under Apache-2.0 with the LLVM exception. Its licence text is included in
+`LICENSES/common/` and it is treated as a System Library.
+"""
+
+[[component]]
+id = "openssl"
+title = "OpenSSL"
+kind = "runtime"
+spdx = "Apache-2.0"
+copyright = "Copyright (c) 1998-2026 the OpenSSL Project"
+homepage = "https://www.openssl.org/"
+source = "https://github.com/openssl/openssl"
+texts = ["Apache-2.0"]
+notice = """
+The Windows CPython runtime conveys OpenSSL (`libssl`/`libcrypto`) under
+Apache-2.0. It is part of the platform runtime, not StemForge's own code.
+"""
+
+[[component]]
+id = "webview2"
+title = "Microsoft Edge WebView2"
+kind = "redistributable"
+spdx = "LicenseRef-Microsoft-WebView2-Redistributable"
+copyright = "Copyright (c) Microsoft Corporation"
+homepage = "https://developer.microsoft.com/microsoft-edge/webview2/"
+source = "https://developer.microsoft.com/microsoft-edge/webview2/"
+notice = """
+The Windows installer and portable ZIP may convey Microsoft's unmodified
+WebView2 Evergreen Bootstrapper (about 2 MB). It is a Microsoft redistributable
+governed by Microsoft's terms, **not** by StemForge's GPL-3.0 licence, and is
+never signed with a StemForge certificate. The WebView2 Runtime itself is a
+host dependency and is not bundled.
+"""
+
+[[component]]
+id = "nicegui"
+title = "NiceGUI frontend assets"
+kind = "frontend"
+spdx = "MIT AND Apache-2.0 AND (Apache-2.0 OR MPL-2.0)"
+homepage = "https://nicegui.io/"
+source = "https://github.com/zauberzeug/nicegui/tree/v4.0.0"
+notice = """
+NiceGUI 4.0.0 ships its own MIT licence, but its `nicegui/static/` directory
+also conveys the frontend assets listed in the table below. Each has a notice
+file under `LICENSES/nicegui/frontend/`; the canonical licence texts are in
+`LICENSES/common/`.
+"""
+
+[[component.assets]]
+slug = "quasar"
+name = "Quasar Framework"
+version = "2.35.2"
+spdx = "MIT"
+copyright = "Copyright (c) 2015-present PULSARIO, LLC"
+url = "https://github.com/quasarframework/quasar"
+texts = ["MIT"]
+
+[[component.assets]]
+slug = "vue"
+name = "Vue"
+version = "3.5.44"
+spdx = "MIT"
+copyright = "Copyright (c) 2013-present Yuxi (Evan) You"
+url = "https://github.com/vuejs/core"
+texts = ["MIT"]
+
+[[component.assets]]
+slug = "socket-io"
+name = "Socket.IO client"
+version = "4.8.4"
+spdx = "MIT"
+copyright = "Copyright (c) 2014-2026 Guillermo Rauch"
+url = "https://github.com/socketio/socket.io"
+texts = ["MIT"]
+
+[[component.assets]]
+slug = "tailwind"
+name = "Tailwind CSS"
+version = "4.3.4"
+spdx = "MIT"
+copyright = "Copyright (c) Tailwind Labs, Inc."
+url = "https://github.com/tailwindlabs/tailwindcss"
+texts = ["MIT"]
+
+[[component.assets]]
+slug = "dompurify"
+name = "DOMPurify"
+version = "3.4.17"
+spdx = "Apache-2.0 OR MPL-2.0"
+copyright = "Copyright (c) Cure53 and other contributors"
+url = "https://github.com/cure53/DOMPurify"
+texts = ["Apache-2.0", "MPL-2.0"]
+
+[[component.assets]]
+slug = "unocss"
+name = "UnoCSS"
+version = "bundled by NiceGUI 4.0.0"
+spdx = "MIT"
+copyright = "Copyright (c) 2021-present Anthony Fu"
+url = "https://github.com/unocss/unocss"
+texts = ["MIT"]
+
+[[component.assets]]
+slug = "roboto"
+name = "Roboto"
+version = "Google Fonts"
+spdx = "Apache-2.0"
+copyright = "Copyright (c) Google Inc."
+url = "https://fonts.google.com/specimen/Roboto"
+texts = ["Apache-2.0"]
+
+[[component.assets]]
+slug = "material-icons"
+name = "Material Icons"
+version = "Google Fonts"
+spdx = "Apache-2.0"
+copyright = "Copyright (c) Google Inc."
+url = "https://github.com/google/material-design-icons"
+texts = ["Apache-2.0"]
