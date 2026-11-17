@@ -2,8 +2,8 @@
 
 The row validates synchronously with the pure parser before the application seam
 is called, so a playlist, channel, search, or foreign host is only a field error.
-Ticket 15 submits no Job; the seam returns the validated video and the row shows
-an honest placeholder status until ticket 16 fills it in.
+Ticket 16 wires the seam to the ``import_youtube`` Job: a valid submit reports in
+the one Job bar, and the page refreshes the row when the Job ends.
 
 All prose lives in ``ui/formatting.py``. The only state this component owns is
 view state (the error line, the pending paste, and the declined flag); the
@@ -12,6 +12,7 @@ acknowledgment and the enable/disable setting are persisted by ``SettingsStore``
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from nicegui import ui
@@ -27,9 +28,16 @@ if TYPE_CHECKING:
 class YouTubeRow:
     """The URL field, Import action, field error, and consent gate."""
 
-    def __init__(self, service: WorkspaceService, *, busy: bool = False) -> None:
+    def __init__(
+        self,
+        service: WorkspaceService,
+        *,
+        busy: bool = False,
+        on_submitted: Callable[[str], None] | None = None,
+    ) -> None:
         self._service = service
         self._busy = busy
+        self._on_submitted = on_submitted
         self._declined = False
         self._pending_url: str | None = None
         self._dialog: ui.dialog | None = None
@@ -100,7 +108,7 @@ class YouTubeRow:
 
     def _submit(self, raw: str) -> None:
         try:
-            self._service.submit_youtube(raw)
+            job_id = self._service.submit_youtube(raw)
         except StemForgeError as error:
             self._show_field_error(error)
             return
@@ -110,8 +118,9 @@ class YouTubeRow:
             )
             return
         if self._status is not None:
-            self._status.set_text(formatting.YOUTUBE_PENDING)
-            self._status.set_visibility(True)
+            self._status.set_visibility(False)
+        if self._on_submitted is not None:
+            self._on_submitted(job_id)
 
     def _open_consent(self) -> None:
         if self._dialog is not None:

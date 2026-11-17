@@ -52,9 +52,7 @@ YOUTUBE_CONSENT_BODY: Final = (
 YOUTUBE_CONSENT_ACCEPT: Final = "I have the right to use this content"
 YOUTUBE_CONSENT_CANCEL: Final = "Cancel"
 YOUTUBE_IMPORT_LABEL: Final = "Import"
-YOUTUBE_PENDING: Final = "Valid YouTube link. Import isn't available in this build yet."
 YOUTUBE_DECLINED: Final = "YouTube import is off until you accept the notice."
-YOUTUBE_UNAVAILABLE: Final = "YouTube import isn't available in this build yet."
 YOUTUBE_OFF: Final = "YouTube import is off."
 YOUTUBE_SETTING_LABEL: Final = "YouTube import"
 YOUTUBE_SETTING_HINT: Final = (
@@ -62,7 +60,13 @@ YOUTUBE_SETTING_HINT: Final = (
 )
 SETTINGS_TITLE: Final = "Settings & About"
 SETTINGS_BEHAVIOUR: Final = "Behaviour"
+SETTINGS_STORAGE: Final = "Storage"
 SETTINGS_CLOSE: Final = "Close"
+YOUTUBE_CACHE_LABEL: Final = "YouTube cache"
+YOUTUBE_CACHE_HINT: Final = (
+    "yt-dlp's temporary download cache. Cached audio, the model, and recent files are not affected."
+)
+YOUTUBE_CACHE_CLEAR: Final = "Clear YouTube cache"
 EMPTY_LEDE: Final = "Drop a local file. Everything runs on this machine."
 EMPTY_LEDE_YOUTUBE: Final = (
     "Drop a local file or pull audio from YouTube. Everything runs on this machine."
