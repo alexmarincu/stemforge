@@ -1020,3 +1020,57 @@ def test_missing_preview_only_degrades_a_normal_launch(
     assert entry.main([]) == preflight.EXIT_OK
     assert run_ui == [report]
     assert run_ui[0].degraded is True
+
+
+@pytest.mark.unit
+def test_browser_mode_keeps_a_missing_native_window_from_blocking_the_launch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from stemforge import __main__ as entry
+
+    report = _report(
+        _check("platform"),
+        _check("window", status=preflight.STATUS_FAIL, message="gi is missing", fatal=True),
+        _check("preview", status=preflight.STATUS_DEGRADED, message="no GStreamer"),
+        system="linux",
+        fail_on_degraded=False,
+    )
+    run_ui: list[preflight.PreflightReport] = []
+    monkeypatch.setenv("STEMFORGE_BROWSER", "1")
+    monkeypatch.setattr(entry.preflight, "run_preflight", lambda *a, **k: report)
+    monkeypatch.setattr(entry, "_run_ui", lambda paths, report: run_ui.append(report) or 0)
+    monkeypatch.setattr("stemforge.platform.instance.InstanceLock.acquire", lambda self: True)
+    monkeypatch.setattr("stemforge.platform.instance.InstanceLock.release", lambda self: None)
+
+    assert entry.main([]) == preflight.EXIT_OK
+    assert len(run_ui) == 1
+    assert run_ui[0].fatal is False
+    window = next(check for check in run_ui[0].checks if check.name == preflight.CHECK_WINDOW)
+    assert window.status == preflight.STATUS_WARN
+    assert "browser mode" in window.message.lower()
+
+
+@pytest.mark.unit
+def test_browser_mode_never_hides_a_non_window_fatal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from stemforge import __main__ as entry
+
+    report = _report(
+        _check("bundle", status=preflight.STATUS_FAIL, message="vendor is missing", fatal=True),
+        system="linux",
+    )
+    shown: list[preflight.FatalMessage] = []
+    run_ui: list[object] = []
+    monkeypatch.setenv("STEMFORGE_BROWSER", "1")
+    monkeypatch.setattr(entry.preflight, "run_preflight", lambda *a, **k: report)
+    monkeypatch.setattr(
+        entry.preflight, "show_fatal_message", lambda message, **k: shown.append(message)
+    )
+    monkeypatch.setattr(entry, "_run_ui", lambda *a, **k: run_ui.append(object()) or 0)
+    monkeypatch.setattr("stemforge.platform.instance.InstanceLock.acquire", lambda self: True)
+    monkeypatch.setattr("stemforge.platform.instance.InstanceLock.release", lambda self: None)
+
+    assert entry.main([]) == preflight.EXIT_BUNDLE_DAMAGED
+    assert run_ui == []
+    assert len(shown) == 1
