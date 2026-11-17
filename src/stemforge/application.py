@@ -23,6 +23,7 @@ from uuid import uuid4
 from stemforge import errors
 from stemforge.artifacts import (
     ArtifactStore,
+    ClearReport,
     RemoveReport,
     RenderArtifact,
     SeparationArtifact,
@@ -80,6 +81,7 @@ from stemforge.pipeline.separation_job import (
     STEM_ROLES as SEPARATION_STEM_ROLES,
 )
 from stemforge.pipeline.youtube_job import run_youtube_import
+from stemforge.platform import resources
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
 
@@ -128,6 +130,35 @@ class ExportedFile:
     size_bytes: int
     duration_s: float
     gain_db: float
+
+
+@dataclass(frozen=True, slots=True)
+class LicenceFiles:
+    """The Bundle-root licence artifacts the About modal exposes (ticket 22).
+
+    Frozen builds resolve these beside ``_internal/`` (``Path(sys.executable)``
+    parent); a source checkout resolves them at the repository root. Nothing is
+    read from the current working directory.
+    """
+
+    root: Path
+    license: Path
+    notices: Path
+    source_offer: Path
+    licenses_dir: Path
+
+    @property
+    def missing(self) -> tuple[Path, ...]:
+        """Every required path that is absent, in display order."""
+        required = (self.license, self.notices, self.source_offer)
+        missing = [path for path in required if not path.is_file()]
+        if not self.licenses_dir.is_dir():
+            missing.append(self.licenses_dir)
+        return tuple(missing)
+
+    @property
+    def complete(self) -> bool:
+        return not self.missing
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,9 +228,13 @@ class WorkspaceService:
         model_transport: Transport | None = None,
         model_retry_delay_s: float = DEFAULT_RETRY_DELAY_S,
         youtube_delay: Callable[[float], None] = time.sleep,
+        bundle_root: Path | None = None,
     ) -> None:
         self._settings = settings
         self._paths = paths if paths is not None else settings.paths
+        self._bundle_root = (
+            Path(bundle_root) if bundle_root is not None else resources.bundle_root()
+        )
         self._artifacts = (
             artifacts
             if artifacts is not None
@@ -238,6 +273,21 @@ class WorkspaceService:
     @property
     def models(self) -> ModelStore:
         return self._models
+
+    @property
+    def bundle_root(self) -> Path:
+        """The directory holding ``LICENSES/`` and the licence documents."""
+        return self._bundle_root
+
+    def licence_files(self) -> LicenceFiles:
+        """Resolve the Bundle-root licence artifacts without touching the CWD."""
+        return LicenceFiles(
+            root=self._bundle_root,
+            license=self._bundle_root / resources.LICENSE_FILENAME,
+            notices=self._bundle_root / resources.NOTICES_FILENAME,
+            source_offer=self._bundle_root / resources.SOURCE_OFFER_FILENAME,
+            licenses_dir=self._bundle_root / resources.LICENSES_DIRNAME,
+        )
 
     def snapshot(self) -> WorkspaceSnapshot:
         """Return an immutable view of the Workspace for the UI."""
@@ -310,6 +360,14 @@ class WorkspaceService:
     def clear_youtube_cache(self) -> int:
         """Delete only ``<cache>/yt-dlp/`` and return the bytes freed."""
         return self._artifacts.clear_youtube_cache()
+
+    def clear_cache(self) -> ClearReport:
+        """Delete every non-live cached artifact plus the tool caches (ticket 07)."""
+        return self._artifacts.clear_cache()
+
+    def clear_recent(self) -> None:
+        """Clear the recent-files list; cached audio is untouched (ticket 07)."""
+        self._settings.clear_recent()
 
     # -- Preview -----------------------------------------------------------
 
