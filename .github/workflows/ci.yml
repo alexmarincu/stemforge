@@ -110,7 +110,7 @@ jobs:
   integration-linux:
     name: integration-linux
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 12
     env:
       COVERAGE_FILE: .coverage.integration-linux
       STEMFORGE_REQUIRE_VENDOR: "1"

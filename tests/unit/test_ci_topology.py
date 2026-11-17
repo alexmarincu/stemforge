@@ -36,12 +36,12 @@ LIGHTWEIGHT_SYNC = (
     "--no-install-package torchaudio --no-install-package demucs"
 )
 
-# Ticket 11 §5, and this review's table: job -> (runner, ceiling in minutes).
+# Ticket 11 §5, job -> (runner, ceiling in minutes).
 CI_JOBS: dict[str, tuple[str, int]] = {
     "lint": ("ubuntu-24.04", 5),
     "unit-linux": ("ubuntu-24.04", 5),
     "unit-windows": ("windows-2022", 5),
-    "integration-linux": ("ubuntu-22.04", 15),
+    "integration-linux": ("ubuntu-22.04", 12),
     "integration-windows": ("windows-2022", 25),
     "ui-linux": ("ubuntu-24.04", 5),
     "licensing": ("ubuntu-24.04", 5),
@@ -401,6 +401,7 @@ def test_nightly_builds_and_runs_the_real_separation(
     assert "--install-model" in linux_text
     assert "--accept-model-licence" in linux_text
     assert "--smoke-separation" in linux_text or "--with-separation" in linux_text
+    assert "--preflight --json" in linux_text
     assert "--appimage-extract-and-run" in linux_text
 
     windows_text = _flat(windows_bundle["jobs"]["windows-bundle"])
