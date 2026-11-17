@@ -158,7 +158,8 @@ function Expand-TarArchive(
     }
     Write-Note "extract $Archive -> $Destination (strip $Strip)"
     & $python (Join-Path $PSScriptRoot 'vendor_unpack.py') `
-        --archive $Archive --destination $Destination --strip $Strip
+        --archive $Archive --destination $Destination --strip $Strip |
+        ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) {
         throw "vendor_unpack.py failed to extract $Archive"
     }
