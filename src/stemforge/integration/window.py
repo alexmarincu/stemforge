@@ -8,6 +8,7 @@ All ``app.native.*`` writes live at module scope or in a function called before
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Final
 
@@ -18,10 +19,16 @@ from stemforge.platform.paths import AppPaths
 MIN_WINDOW_SIZE: Final = (1024, 700)
 DEFAULT_WINDOW_SIZE: Final = (1280, 820)
 WINDOWS_BACKEND: Final = "edgechromium"
+# WebKitGTK 2.52+ can fail to allocate a GBM buffer on NVIDIA/X11 and paint the
+# whole web view white while the GTK chrome renders. The shared-memory DMABUF
+# renderer avoids that path; `setdefault` keeps an explicit user override.
+WEBKIT_SHM_ENV: Final = "WEBKIT_DMABUF_RENDERER_FORCE_SHM"
 
 
 def configure_window(paths: AppPaths) -> None:
     """Apply the one v0.1.0 window shape before NiceGUI spawns the window process."""
+    if sys.platform.startswith("linux"):
+        os.environ.setdefault(WEBKIT_SHM_ENV, "1")
     app.native.window_args.update(
         {
             "resizable": True,
