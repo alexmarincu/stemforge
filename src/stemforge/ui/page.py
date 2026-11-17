@@ -298,7 +298,7 @@ class WorkspacePage:
         self._dialog_busy = False
         self._watched_jobs: set[str] = set()
         self._reported_jobs: set[str] = set()
-        self._job_signature: tuple[str, str, int, str] | None = None
+        self._job_signature: tuple[str, str, int, str, str] | None = None
         self._job_bar_visible = False
         self._notice: tuple[str, str, str, str | None] | None = None
         self._add_button: ui.button | None = None
@@ -1011,6 +1011,7 @@ class WorkspacePage:
                 snapshot.state.value,
                 round(snapshot.progress * 1000),
                 snapshot.stage,
+                snapshot.detail or "",
             )
             if signature != self._job_signature or not self._job_bar_visible:
                 self._job_signature = signature

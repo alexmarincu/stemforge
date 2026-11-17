@@ -11,7 +11,7 @@ import asyncio
 import logging
 import socket
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -177,6 +177,7 @@ class Harness:
     root: Path
     youtube: FakeYouTube = field(default_factory=FakeYouTube)
     dialog: FakeDialog = field(default_factory=FakeDialog)
+    delay: Callable[[float], None] | None = None
     paths: AppPaths = field(init=False)
     settings: SettingsStore = field(init=False)
     runner: JobRunner = field(init=False)
@@ -193,7 +194,7 @@ class Harness:
             artifacts=ArtifactStore(self.paths),
             runner=self.runner,
             engines=ServiceEngines(media=FakeMedia(), youtube=self.youtube),
-            youtube_delay=lambda _: None,
+            youtube_delay=self.delay if self.delay is not None else (lambda _: None),
         )
         self.context = page.UiContext(service=self.service, dialogs=self.dialog)
 
@@ -285,6 +286,40 @@ async def test_an_invalid_url_never_submits(
         await user.should_not_see(marker="job-bar")
         assert calls == []
         assert harness.runner.jobs() == []
+
+
+async def test_the_politeness_wait_is_injected_and_visible_in_the_job_bar(
+    tmp_path: Path,
+) -> None:
+    wait_started = threading.Event()
+    release = threading.Event()
+
+    def gated_delay(seconds: float) -> None:
+        assert seconds <= 0.5
+        wait_started.set()
+        release.wait(timeout=10)
+
+    harness = Harness(root=tmp_path, delay=gated_delay)
+    harness.service.accept_youtube_notice()
+    harness.runner.start()
+    try:
+        async for user, workspace_page in _open_page(harness):
+            user.find(marker="youtube-url").type(VALID_URL)
+            user.find(marker="youtube-import").click()
+            assert await asyncio.to_thread(wait_started.wait, 5) is True
+
+            with user:
+                workspace_page.poll()
+            await user.should_see(marker="job-bar")
+            await user.should_see("Checking video")
+            await user.should_see("Waiting for YouTube · 5 s")
+
+            release.set()
+            await _finish_jobs(harness, user, workspace_page)
+            await user.should_not_see(marker="job-bar")
+            await user.should_see(marker="track-detail")
+    finally:
+        harness.runner.stop(timeout=10)
 
 
 async def test_a_failed_import_shows_the_coded_copy(harness: Harness) -> None:
