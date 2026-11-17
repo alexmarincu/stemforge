@@ -66,7 +66,6 @@ YOUTUBE_CACHE_LABEL: Final = "YouTube cache"
 YOUTUBE_CACHE_HINT: Final = (
     "yt-dlp's temporary download cache. Cached audio, the model, and recent files are not affected."
 )
-YOUTUBE_CACHE_SIZE_FALLBACK: Final = "0.0 MB"
 YOUTUBE_CACHE_CLEAR: Final = "Clear YouTube cache"
 EMPTY_LEDE: Final = "Drop a local file. Everything runs on this machine."
 EMPTY_LEDE_YOUTUBE: Final = (
