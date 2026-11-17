@@ -200,6 +200,8 @@ def test_build_script_fails_closed_on_vendor_and_licence_gates() -> None:
     assert "THIRD_PARTY_NOTICES.md" in text
     assert "SOURCE_OFFER.md" in text
     assert "LICENSES" in text
+    assert "BUILDINFO.txt" in text
+    assert "-buildconf" in text
     assert "LICENCE-GATE-PENDING.txt" in text
     assert "AllowLicencePending" in text
     assert "version_info.py" in text
