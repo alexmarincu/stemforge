@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -108,13 +108,15 @@ def test_shared_library_name_is_the_co_located_sndfile() -> None:
 
 
 def test_frozen_resolves_all_four_tools(frozen_root: Path) -> None:
+    library = binaries.shared_library_name("rubberband")
+    assert library is not None
     installed = _install(
         frozen_root,
-        "ffmpeg/ffmpeg",
-        "ffmpeg/ffprobe",
-        "rubberband/rubberband",
-        "rubberband/libsndfile.so.1",
-        "deno/deno",
+        str(binaries.vendor_path("ffmpeg")),
+        str(binaries.vendor_path("ffprobe")),
+        str(binaries.vendor_path("rubberband")),
+        str(Path("rubberband") / library),
+        str(binaries.vendor_path("deno")),
     )
 
     assert binaries.ffmpeg() == installed[0]
@@ -133,17 +135,21 @@ def test_frozen_missing_tools_raise_bundle_damaged(frozen_root: Path) -> None:
 
 
 def test_frozen_rubberband_requires_its_shared_library(frozen_root: Path) -> None:
-    _install(frozen_root, "rubberband/rubberband")
+    _install(frozen_root, str(binaries.vendor_path("rubberband")))
 
     with pytest.raises(binaries.BundleDamagedError) as raised:
         binaries.rubberband()
 
-    assert "libsndfile.so.1" in str(raised.value)
+    library = binaries.shared_library_name("rubberband")
+    assert library is not None
+    assert library in str(raised.value)
     assert raised.value.code == "preflight.bundle_damaged"
 
 
 def test_frozen_shared_libraries_are_resolved(frozen_root: Path) -> None:
-    installed = _install(frozen_root, "rubberband/libsndfile.so.1")
+    library = binaries.shared_library_name("rubberband")
+    assert library is not None
+    installed = _install(frozen_root, str(Path("rubberband") / library))
 
     assert binaries.shared_libraries("rubberband") == (installed[0],)
     assert binaries.shared_libraries("ffmpeg") == ()
@@ -151,13 +157,15 @@ def test_frozen_shared_libraries_are_resolved(frozen_root: Path) -> None:
 
 def test_development_shared_libraries_are_optional(root: Path) -> None:
     assert binaries.shared_libraries("rubberband") == ()
-    library = _install(root, "rubberband/libsndfile.so.1")[0]
+    library = binaries.shared_library_name("rubberband")
+    assert library is not None
+    installed = _install(root, str(Path("rubberband") / library))[0]
 
-    assert binaries.shared_libraries("rubberband") == (library,)
+    assert binaries.shared_libraries("rubberband") == (installed,)
 
 
 def test_tool_environment_puts_the_vendor_directory_first_on_linux() -> None:
-    executable = Path("/bundle/vendor/rubberband/rubberband")
+    executable = PurePosixPath("/bundle/vendor/rubberband/rubberband")
     base = {"LD_LIBRARY_PATH": "/usr/lib", "PATH": "/usr/bin"}
 
     environment = binaries.tool_environment(executable, base=base, system="linux")
@@ -176,7 +184,7 @@ def test_tool_environment_does_not_touch_windows_loader_search() -> None:
 
 
 def test_tool_environment_leaves_an_empty_ld_library_path_absent() -> None:
-    executable = Path("/bundle/vendor/rubberband/rubberband")
+    executable = PurePosixPath("/bundle/vendor/rubberband/rubberband")
 
     environment = binaries.tool_environment(executable, base={}, system="linux")
 
