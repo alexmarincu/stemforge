@@ -24,16 +24,6 @@ name = "sphn"
 spdx = "Apache-2.0"
 source = "https://github.com/adefossez/sphn"
 
-# The lightweight CI environment deliberately omits torch/demucs (ticket 11
-# §5), so the generator cannot read demucs's METADATA there. The text is the
-# upstream MIT licence with Meta's copyright notice, kept byte-for-byte so the
-# committed tree is identical in both environments.
-[[override]]
-name = "demucs"
-spdx = "MIT"
-source = "https://github.com/adefossez/demucs"
-texts = ["MIT-demucs"]
-
 [[override]]
 name = "altgraph"
 spdx = "MIT"
