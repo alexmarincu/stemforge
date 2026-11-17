@@ -428,7 +428,10 @@ def test_nightly_uploads_evidence_with_seven_day_retention(
 
 
 def test_release_workflow_is_untouched() -> None:
-    digest = hashlib.sha256(RELEASE.read_bytes()).hexdigest()
+    # Git checks out CRLF on the Windows runner; pin the LF bytes so the same
+    # workflow has one digest on every OS.
+    payload = RELEASE.read_bytes().replace(b"\r\n", b"\n")
+    digest = hashlib.sha256(payload).hexdigest()
     assert digest == RELEASE_WORKFLOW_SHA256, (
         "release.yml changed: ticket 10/23 owns that file. If the change is intentional, "
         "update the pin here in the same commit and re-run the release-pipeline tests."
