@@ -13,7 +13,7 @@ are recorded in §6–§7; they feed ticket 23's release checklist.
 | `packaging/pyinstaller/stemforge_windows.spec` | Windowed onedir spec; `console=False`, icon, generated version resource, Edge Chromium hidden import, legacy engine excluded, torch trim. |
 | `packaging/windows/version_info.py` | Generates the `VSVersionInfo` text from `stemforge.__version__`; build.ps1 passes it through `STEMFORGE_VERSION_FILE`. |
 | `packaging/windows/build.ps1` | Vendor gate, CPU torch assert, PyInstaller, Bundle-root assembly (vendor, licence tree, README, exe), `verify_bundle.py`. |
-| `packaging/windows/verify_bundle.py` | Pure-stdlib bundle verifier: budgets, weights, torch trims, vendor lock, licence tree, native rows, PE subsystem/version resource, WebView2 pin. |
+| `packaging/windows/verify_bundle.py` | Pure-stdlib bundle verifier: budgets, weights, torch trims, vendor lock, licence tree (curated notices + Python dependency rows), PE subsystem/version resource, WebView2 pin. |
 | `packaging/windows/package.ps1` | Portable ZIP from the same tree, Inno setup, `SHA256SUMS`, `UNSIGNED.txt`, artifact budgets. |
 | `packaging/windows/stemforge.iss` | Per-user, no-UAC, Windows 10 22H2 floor, x64, WebView2 bootstrapper, data-preserving uninstall. |
 | `packaging/windows/smoke-test.ps1` | Frozen `--self-test`, `--smoke-test`, `--preflight`, optional `--smoke-separation` with temporary `STEMFORGE_HOME`, wall/RSS reporting. |
@@ -22,7 +22,7 @@ are recorded in §6–§7; they feed ticket 23's release checklist.
 | `packaging/windows/sha256sums.py` | GNU-format `SHA256SUMS` writer/checker used by package.ps1 and tests. |
 | `scripts/vendor-fetch.ps1` | Windows vendor fetch now builds libsndfile 1.2.2 (CMake/MSVC) and Rubber Band 4.0.0 (Meson/MSVC) from the pinned source archives; `-RubberBandPrebuilt` remains the fallback. |
 | `.github/workflows/windows-bundle.yml` | Manual `workflow_dispatch` Windows 2022 job: vendor build, bundle, smoke, package, evidence upload; 35-minute timeout; no PR trigger. |
-| `tests/unit/test_windows_packaging.py` | 40 Linux-runnable assertions for the installer, spec, PowerShell scripts, verifier, version resource, and SHA-256 manifest. |
+| `tests/unit/test_windows_packaging.py` | 42 Linux-runnable assertions for the installer, spec, PowerShell scripts, verifier, version resource, and SHA-256 manifest. |
 | `src/stemforge/integration/window.py` | Windows `app.native.start_args["gui"] = "edgechromium"` assertion, matching the startup preflight that exits 5 when WebView2 is absent. |
 
 ## 2. Inno Setup directives
@@ -113,7 +113,7 @@ Commands and results from this worktree:
 | `uv run ruff check .` | All checks passed. |
 | `uv run mypy src/stemforge` | Success: no issues in 58 source files. |
 | `uv run lint-imports` | 2 contracts kept, 0 broken. |
-| `uv run pytest -m "unit or ui"` | 762 passed, 1 skipped, 137 deselected. |
+| `uv run pytest -m "unit or ui"` | 764 passed, 1 skipped, 137 deselected. |
 | `uv run pytest -m "integration and not slow"` | 128 passed, 772 deselected. |
 | `STEMFORGE_HOME=<tmp> uv run stemforge --self-test` | exit 0, 17 ok / 2 skipped (development checkout). |
 | `STEMFORGE_HOME=<tmp> uv run stemforge --smoke-test` | exit 0, HTTP 200 in 0.519 s. |
@@ -121,7 +121,8 @@ Commands and results from this worktree:
 | `Invoke-ScriptAnalyzer` (Warning/Error) over the four scripts | 0 errors; 26 `Write-Host` style warnings, zero other warnings. |
 | WebView2 pin | Download re-hashed to the recorded size and SHA-256. |
 | `version_info.py` | Rendered text deserialised with PyInstaller's `VSVersionInfo` loader (with `pefile`/`win32api` stubbed on Linux) to `FileVersion`/`ProductVersion` `1.0.0`, `OriginalFilename` `StemForge.exe`. |
-| `tests/unit/test_windows_packaging.py` | 40 passed (installer, spec, scripts, budgets, weights, vendor, licence, PE, SHA-256). |
+| `tests/unit/test_windows_packaging.py` | 42 passed (installer, spec, scripts, budgets, weights, vendor, licence, PE, SHA-256). |
+| Real #22 tree cross-check | `verify_bundle.py` passed 15 curated components and 14 native files using the unmerged `ticket/22-licensing` worktree's `LICENSE`, `THIRD_PARTY_NOTICES.md`, `SOURCE_OFFER.md`, `LICENSES/`, and `packaging/licenses/native.toml` with a synthetic Windows bundle. |
 
 The PowerShell parse and analyzer results are Linux-side static checks, not
 evidence that the scripts execute on Windows. The Windows runner job in §6 is
@@ -250,11 +251,17 @@ report, and no writes outside `STEMFORGE_HOME`.
   `LICENCE-GATE-PENDING.txt`, which `package.ps1` refuses. The workflow skips
   packaging when that input is true. After #22 merges, rebuild without the switch;
   no other change is needed.
-- **Native manifest schema.** `verify_bundle.py` accepts `path`/`paths`/`file`/
-  `files`/`glob`/`patterns` string rows in `packaging/licenses/native.toml` and
-  matches bundle-relative globs. If #22's final schema differs, the tolerant
-  reader needs aligning; the rule (every shipped `.exe`/`.dll`/`.pyd` has a row)
-  does not change.
+- **Native manifest schema.** `verify_bundle.py` reads ticket 22's
+  `packaging/licenses/native.toml` `[[component]]` rows (`id`, `title`,
+  `texts`, `buildinfo`), requires `LICENSES/<id>/NOTICE.md` for every curated
+  component and `LICENSES/common/<SPDX>.txt` for every declared text, and maps
+  each shipped native file to either a curated notice (vendor tools,
+  `StemForge.exe`, PyTorch/NumPy/Python/LLVM/GCC/OpenSSL/OpenBLAS) or a row in
+  `LICENSES/python/DEPENDENCIES.md` (wheel extension modules). An unclassified
+  native file fails. The verifier was cross-checked against the unmerged
+  `ticket/22-licensing` worktree's generated tree with a synthetic Windows
+  bundle: 15 curated components and 14 native files passed. Do not hand-edit
+  either manifest; the generator owns them.
 - **Budget mode.** `verify_bundle.py` treats crossing the target (ZIP 450 MiB,
   setup 380 MiB) as an error and names the higher hard-fail threshold (600/500
   MiB) in the message. The decision record's table calls only the higher number a
