@@ -16,7 +16,7 @@ jobs:
   lint:
     name: lint (ubuntu-24.04)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
@@ -60,30 +60,38 @@ jobs:
   unit-linux:
     name: unit-linux
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
+    env:
+      COVERAGE_FILE: .coverage.unit-linux
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.13"
           enable-cache: true
-      - name: Install uv dependencies
-        run: uv sync --frozen
-      - name: Unit and UI tests
-        run: uv run pytest -m "unit or ui"
+      - name: Install the lightweight environment (no torch, torchaudio, or demucs)
+        run: uv sync --frozen --no-install-package torch --no-install-package torchaudio --no-install-package demucs
+      - name: Unit tests with coverage data
+        run: uv run --frozen --no-sync coverage run -m pytest -m unit
+      - name: Upload unit coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit-linux
+          path: .coverage.unit-linux
+          retention-days: 7
 
   unit-windows:
     name: unit-windows
     runs-on: windows-2022
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.13"
           enable-cache: true
-      - name: Install uv dependencies
-        run: uv sync --frozen
+      - name: Install the lightweight environment (no torch, torchaudio, or demucs)
+        run: uv sync --frozen --no-install-package torch --no-install-package torchaudio --no-install-package demucs
       - name: Parse the vendor fetch script
         shell: pwsh
         run: |
@@ -96,13 +104,196 @@ jobs:
             $errors | ForEach-Object { Write-Error $_.Message }
             exit 1
           }
-      - name: Unit and UI tests
-        run: uv run pytest -m "unit or ui"
+      - name: Unit tests
+        run: uv run --frozen --no-sync pytest -m unit
+
+  integration-linux:
+    name: integration-linux
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    env:
+      COVERAGE_FILE: .coverage.integration-linux
+      STEMFORGE_REQUIRE_VENDOR: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install the vendor build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            meson \
+            ninja-build \
+            cmake \
+            pkg-config \
+            xz-utils \
+            unzip
+      - name: Install uv dependencies
+        run: uv sync --frozen
+      - name: Cache the pinned vendor set
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ffmpeg
+            vendor/deno
+            vendor/rubberband
+            vendor/PROVENANCE.txt
+          key: vendor-${{ runner.os }}-${{ hashFiles('packaging/vendor.lock.json') }}
+      - name: Fetch the pinned vendor set
+        run: bash scripts/vendor-fetch.sh
+      - name: Verify the vendor set against the lock
+        run: bash scripts/vendor-fetch.sh --verify-only
+      - name: Integration tests including the slow torch layer
+        run: uv run --frozen coverage run -m pytest -m integration
+      - name: Upload integration coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-integration-linux
+          path: .coverage.integration-linux
+          retention-days: 7
+
+  integration-windows:
+    name: integration-windows
+    runs-on: windows-2022
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: "1"
+      STEMFORGE_REQUIRE_VENDOR: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install the lightweight environment (no torch, torchaudio, or demucs)
+        run: uv sync --frozen --no-install-package torch --no-install-package torchaudio --no-install-package demucs
+      - name: Analyse the packaging scripts
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $findings = @(Invoke-ScriptAnalyzer -Path 'packaging/windows/*.ps1' -Severity Error)
+          if ($findings.Count -gt 0) {
+            $findings | Format-Table -AutoSize
+            Write-Error "$($findings.Count) PSScriptAnalyzer error(s)"
+            exit 1
+          }
+      - name: Install the Windows vendor build tools
+        shell: pwsh
+        run: |
+          uv pip install --python .venv\Scripts\python.exe meson ninja
+          if (-not (Get-Command pkg-config -ErrorAction SilentlyContinue)) {
+            choco install pkgconfiglite -y --no-progress
+          }
+      - name: Cache the pinned vendor set
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ffmpeg
+            vendor/deno
+            vendor/rubberband
+            vendor/PROVENANCE.txt
+          key: vendor-windows-${{ hashFiles('packaging/vendor.lock.json', 'scripts/vendor-fetch.ps1') }}
+      - name: Fetch and build the pinned vendor set
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/vendor-fetch.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify the vendor set against the lock
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/vendor-fetch.ps1 -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Integration tests without the slow torch layer
+        run: uv run --frozen --no-sync pytest -m "integration and not slow"
+      - name: Check the preflight JSON schema
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $report = Join-Path $env:GITHUB_WORKSPACE 'build\reports\preflight.json'
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $report) | Out-Null
+          # Ticket 11 §3: WebView2 presence is a runner property. Exit 5 records
+          # it; every other fatal result still fails the job.
+          $lines = & uv run --frozen --no-sync stemforge --preflight --json --quiet --report $report
+          $code = $LASTEXITCODE
+          if ($code -notin @(0, 5)) {
+            Write-Error "preflight exited $code"
+            exit 1
+          }
+          $json = ($lines -join "`n") | ConvertFrom-Json
+          foreach ($key in @('version', 'ok', 'exit_code', 'degraded', 'checks', 'warnings')) {
+            if ($null -eq $json.PSObject.Properties[$key]) {
+              Write-Error "preflight JSON is missing '$key'"
+              exit 1
+            }
+          }
+          $names = @($json.checks | ForEach-Object { $_.name })
+          foreach ($name in @('platform', 'window', 'bundle', 'storage', 'preview', 'resources')) {
+            if ($name -notin $names) {
+              Write-Error "preflight JSON is missing the '$name' check"
+              exit 1
+            }
+          }
+          $window = $json.checks | Where-Object { $_.name -eq 'window' } | Select-Object -First 1
+          Write-Host ("preflight: exit={0} window={1}: {2}" -f $code, $window.status, $window.message)
+
+  ui-linux:
+    name: ui-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      COVERAGE_FILE: .coverage.ui-linux
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install the lightweight environment (no torch, torchaudio, or demucs)
+        run: uv sync --frozen --no-install-package torch --no-install-package torchaudio --no-install-package demucs
+      - name: UI tests with coverage data
+        run: uv run --frozen --no-sync coverage run -m pytest -m ui
+      - name: Upload UI coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-ui-linux
+          path: .coverage.ui-linux
+          retention-days: 7
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    needs: [unit-linux, integration-linux, ui-linux]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install the coverage tool
+        run: uv sync --frozen --no-install-package torch --no-install-package torchaudio --no-install-package demucs
+      - name: Download the three coverage data files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: .
+          merge-multiple: true
+      - name: Combine the three coverage data files
+        run: uv run --frozen --no-sync coverage combine
+      - name: Core coverage gate (ticket 11 §6, at least 85%)
+        run: |
+          uv run --frozen --no-sync coverage report \
+            --fail-under=85 \
+            --include="src/stemforge/domain/*,src/stemforge/jobs/*,src/stemforge/artifacts.py,src/stemforge/pipeline/*,src/stemforge/engines/*,src/stemforge/settings.py,src/stemforge/application.py,src/stemforge/worker_protocol.py,src/stemforge/errors.py"
+      - name: Overall coverage gate (ticket 11 §6, at least 70%)
+        run: uv run --frozen --no-sync coverage report --fail-under=70
 
   frozen-linux:
     name: frozen-linux
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3

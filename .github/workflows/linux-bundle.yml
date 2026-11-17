@@ -5,6 +5,17 @@ name: Linux bundle
 # runs on demand and on a packaging change merged to integration/v0.1.0. The tag
 # path lands in release.yml (ticket 23).
 on:
+  # Ticket 11 §5: the nightly reuses this job instead of duplicating the build.
+  workflow_call:
+    inputs:
+      separation:
+        description: Run the real one-second separation (downloads the pinned weights)
+        type: boolean
+        default: true
+      timeout-minutes:
+        description: Job ceiling; the nightly passes 35, a dispatch keeps 45
+        type: number
+        default: 45
   workflow_dispatch:
     inputs:
       separation:
@@ -31,7 +42,7 @@ jobs:
   bundle:
     name: linux bundle (ubuntu-22.04)
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.timeout-minutes || 45 }}
     env:
       STEMFORGE_HOME: ${{ github.workspace }}/build/smoke-home
     steps:
@@ -90,6 +101,19 @@ jobs:
           echo "packaging wall time: $((SECONDS - started))s"
       - name: Smoke-test the frozen bundle
         run: bash packaging/linux/smoke-test.sh --bundle "$BUNDLE"
+      - name: Record the frozen preflight contract
+        run: |
+          # Ticket 11 §5: the nightly records `--preflight --json`. A missing
+          # GTK/WebKitGTK (3) or GStreamer (4) stack is the documented browser
+          # fallback in packaging/linux/run.sh; anything else fails the run.
+          set +e
+          "$BUNDLE/StemForge" --preflight --json --report build/reports/preflight.json
+          code=$?
+          set -e
+          case "$code" in
+            0 | 3 | 4) echo "preflight exit $code recorded" ;;
+            *) echo "preflight exited $code" >&2; exit "$code" ;;
+          esac
       - name: Install the pinned model for the separation gate
         if: github.event_name != 'push' && inputs.separation
         run: |
@@ -111,7 +135,7 @@ jobs:
           ls -lh "$BUNDLE".tar.gz "$BUNDLE".tar.zst "$APPIMAGE" || true
           python3 packaging/linux/verify_bundle.py --bundle "$BUNDLE" --json || true
       - name: Upload reports and build logs
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: linux-bundle-reports
@@ -119,3 +143,4 @@ jobs:
             build/reports/
             build/pyinstaller/**/warn-*.txt
           if-no-files-found: warn
+          retention-days: 7
