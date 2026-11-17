@@ -149,15 +149,19 @@ function Expand-TarArchive(
     [int]$Strip = 0
 ) {
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-    # bsdtar auto-detects the compression; -xf works for the pinned .tar.xz and
-    # .tar.gz archives on windows-2022 and avoids relying on a format flag.
-    $tarArgs = @('-xf', $Archive, '-C', $Destination)
-    if ($Strip -gt 0) {
-        $tarArgs += "--strip-components=$Strip"
+    # windows-2022 and windows-2025 ship different bsdtar builds; the 2022 one
+    # stalled on libsndfile's .tar.xz in the first release run. Python's stdlib
+    # tarfile (with lzma) is the same everywhere and rejects path escapes.
+    $python = Join-Path $RepoRoot '.venv\Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+        $python = 'python'
     }
-    & tar.exe @tarArgs
+    Write-Note "extract $Archive -> $Destination (strip $Strip)"
+    & $python (Join-Path $PSScriptRoot 'vendor_unpack.py') `
+        --archive $Archive --destination $Destination --strip $Strip |
+        ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) {
-        throw "tar.exe failed to extract $Archive"
+        throw "vendor_unpack.py failed to extract $Archive"
     }
 }
 
@@ -178,10 +182,33 @@ function Find-Child([string]$Root, [string]$Leaf) {
     return $found.FullName
 }
 
+function Invoke-CaptureProcess([string]$Tool, [string[]]$Arguments) {
+    # Capture stdout and stderr at the OS level. PowerShell turns a native
+    # process's stderr into ErrorRecords, and rubberband.exe --version writes
+    # the version to stderr; Start-Process avoids that translation entirely.
+    $stdout = [System.IO.Path]::GetTempFileName()
+    $stderr = [System.IO.Path]::GetTempFileName()
+    try {
+        $process = Start-Process -FilePath $Tool -ArgumentList $Arguments `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $out = Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue
+        $err = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
+        return [pscustomobject]@{
+            Code = $process.ExitCode
+            Output = (("$out$err").Trim())
+        }
+    }
+    finally {
+        Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $stdout, $stderr
+    }
+}
+
 function Test-Version([string]$Tool, [string]$Path, [string]$Flag, [string]$Expected) {
     Assert-File $Path $Path
-    $output = (& $Path $Flag 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
+    $result = Invoke-CaptureProcess $Path @($Flag)
+    $output = [string]$result.Output
+    if ($result.Code -ne 0) {
         throw "--version failed: $Tool ($output)"
     }
     $first = ($output -split "`r?`n")[0].Trim()
@@ -202,8 +229,15 @@ function Test-Version([string]$Tool, [string]$Path, [string]$Flag, [string]$Expe
             }
         }
         'rubberband' {
-            if ($first -ne $Expected -and $first -ne "Rubber Band $Expected") {
-                throw "$Tool version mismatch: expected $Expected, got '$first'"
+            # On Windows the MSVC build writes to stderr, which PowerShell
+            # prefixes with the executable name; the version is on its own line.
+            $lines = @(
+                $output -split "`r?`n" |
+                    ForEach-Object { $_.Trim() } |
+                    Where-Object { $_ }
+            )
+            if ($lines -notcontains $Expected -and $lines -notcontains "Rubber Band $Expected") {
+                throw "$Tool version mismatch: expected $Expected, got '$output'"
             }
         }
         default {
@@ -266,6 +300,30 @@ function Install-Stage([string]$Relative) {
     Move-Item -Force -LiteralPath $temporary -Destination $destination
 }
 
+function Invoke-Logged([string]$Tool, [string[]]$Arguments) {
+    # Stream each native line. Out-Host buffers a native process's output until
+    # it exits on the Windows runner; ForEach-Object/Write-Host keeps the log
+    # live so a hang is visible in the canceled-step evidence.
+    #
+    # Native stderr becomes an ErrorRecord when merged with 2>&1. With
+    # $ErrorActionPreference='Stop' that turned CMake's deprecation warning into
+    # a fatal PowerShell error before CMake could even finish configuring, so
+    # relax the preference only around the child process.
+    Write-Note "run  $Tool $($Arguments -join ' ')"
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Tool @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($code -ne 0) {
+        throw "$Tool failed with exit code $code"
+    }
+}
+
 function Invoke-LockBuildConfigure($Entry, [string]$SourceRoot, [string]$WorkingDirectory) {
     $argv = @($Entry.build.configure | ForEach-Object { $_ -replace '<source>', $SourceRoot })
     if ($argv.Count -lt 2) {
@@ -275,10 +333,7 @@ function Invoke-LockBuildConfigure($Entry, [string]$SourceRoot, [string]$Working
     $arguments = @($argv[1..($argv.Count - 1)])
     Push-Location -LiteralPath $WorkingDirectory
     try {
-        & $tool @arguments | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            throw "$tool failed with exit code $LASTEXITCODE; see the lock's build.configure line"
-        }
+        Invoke-Logged $tool $arguments
     }
     finally {
         Pop-Location
@@ -331,6 +386,11 @@ function Build-Libsndfile($Lock, [int]$Parallel) {
 
     Write-Note 'build   libsndfile 1.2.2 (CMake, shared, WAV-only)'
     $cmake = Find-Tool 'cmake' 'CMake is preinstalled on windows-2022; install it or pass -RubberBandPrebuilt.'
+    Write-Note "cmake   $((& $cmake --version | Select-Object -First 1))"
+    # Have MSVC on PATH before CMake probes for a toolchain. The VS generator
+    # still drives MSBuild, but this removes the runner-image difference that
+    # made the first windows-2022 configure look idle for the whole job.
+    Enter-MsvcEnvironment
     switch ($format) {
         'tar.xz' { Expand-TarXz $archive $sourceRoot 1 }
         'tar.gz' { Expand-TarGz $archive $sourceRoot 1 }
@@ -342,10 +402,7 @@ function Build-Libsndfile($Lock, [int]$Parallel) {
 
     Invoke-LockBuildConfigure $entry $sourceRoot $workDir
     $buildDir = Join-Path $workDir 'build'
-    & $cmake --build $buildDir --config Release --parallel $Parallel | Out-Host
-    if ($LASTEXITCODE -ne 0) {
-        throw "cmake --build failed for libsndfile"
-    }
+    Invoke-Logged $cmake @('--build', $buildDir, '--config', 'Release', '--parallel', "$Parallel")
 
     $dll = Find-Child $workDir 'sndfile.dll'
     $importLibrary = Find-Child $workDir 'sndfile.lib'
@@ -382,48 +439,78 @@ function Build-RubberBandFromSource($Lock, $Sndfile) {
     Enter-MsvcEnvironment
     $meson = Find-Tool 'meson' "Install it with 'uv pip install --python .venv\Scripts\python.exe meson ninja'."
     $ninja = Find-Tool 'ninja' "Install it with 'uv pip install --python .venv\Scripts\python.exe meson ninja'."
-    $pkgConfig = Get-Command 'pkg-config' -ErrorAction SilentlyContinue
-    if ($null -eq $pkgConfig) {
-        $pkgConfig = Get-Command 'pkgconf' -ErrorAction SilentlyContinue
+    # Meson refuses to fall back to find_library when the pkg-config *tool* is
+    # missing; it only reaches the fallback when the tool runs but the package
+    # is not found. The runner image ships a broken Strawberry Perl
+    # pkg-config.bat and pkgconfiglite may be shadowed by it, so validate a
+    # candidate by running --version and force Meson to use the working one.
+    $pkgConfigCandidates = @()
+    if ($env:PKG_CONFIG) { $pkgConfigCandidates += $env:PKG_CONFIG }
+    $pkgConfigCandidates += @(
+        'C:\ProgramData\chocolatey\bin\pkg-config.exe',
+        'C:\Program Files (x86)\pkgconfiglite\bin\pkg-config.exe',
+        'C:\Program Files\pkgconfiglite\bin\pkg-config.exe'
+    )
+    foreach ($name in @('pkgconf', 'pkg-config')) {
+        $pkgConfigCandidates += @(
+            (Get-Command $name -All -ErrorAction SilentlyContinue |
+                ForEach-Object { $_.Source })
+        )
     }
-    if ($null -eq $pkgConfig) {
-        throw "missing pkg-config. Install pkgconfiglite (choco install pkgconfiglite -y) or pass -RubberBandPrebuilt."
+    $pkgConfigPath = $null
+    foreach ($candidate in $pkgConfigCandidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+        Write-Note "pkg-config candidate $candidate"
+        # Do not pipe a .bat through Select-Object: PowerShell treats it as a
+        # document in the middle of a pipeline. Flattening the output is enough.
+        $version = (& $candidate '--version' 2>$null) -join ' '
+        if ($LASTEXITCODE -eq 0 -and $version.Trim()) {
+            $pkgConfigPath = $candidate
+            break
+        }
     }
+    if ($null -eq $pkgConfigPath) {
+        throw 'no working pkg-config. Install pkgconfiglite (choco install pkgconfiglite -y) or pass -RubberBandPrebuilt.'
+    }
+    Write-Note "pkg-config $pkgConfigPath"
 
-    # Meson's dependency('sndfile') is required when the command line is
-    # enabled. A tiny .pc file points at the CMake import library by absolute
-    # path, which works with MSVC; the generic '-lsndfile' form does not.
+    # Meson tries dependency('sndfile') first and falls back to
+    # cpp.find_library('sndfile', dirs: extra_lib_dirs) when the feature is
+    # `auto`. The .pc file is a best-effort shortcut; on the Windows runner the
+    # only pkg-config was Strawberry Perl's broken shim, so a failure here is a
+    # note, not a build failure.
     $libPath = ([string]$Sndfile.Lib).Replace('\', '/')
     $includePath = ([string]$Sndfile.Include).Replace('\', '/')
     $libDir = (Split-Path -Parent ([string]$Sndfile.Lib)).Replace('\', '/')
-    $pcLines = @(
-        "prefix=$(([string]$Sndfile.BuildDir).Replace('\', '/'))",
-        'exec_prefix=${prefix}',
-        'libdir=${prefix}',
-        "includedir=$includePath",
-        'Name: sndfile',
-        'Description: libsndfile 1.2.2 built for StemForge',
-        'Version: 1.2.2',
-        'Requires:',
-        'Libs: ' + $libPath,
-        'Cflags: -I' + $includePath
-    )
-    $pcPath = Join-Path $pkgConfigDir 'sndfile.pc'
-    Set-Content -LiteralPath $pcPath -Value $pcLines -Encoding ASCII
-
     $oldPkgConfigPath = $env:PKG_CONFIG_PATH
     $oldPkgConfig = $env:PKG_CONFIG
     try {
+        $env:PKG_CONFIG = $pkgConfigPath
+        $pcLines = @(
+            "prefix=$(([string]$Sndfile.BuildDir).Replace('\', '/'))",
+            'exec_prefix=${prefix}',
+            'libdir=${prefix}',
+            "includedir=$includePath",
+            'Name: sndfile',
+            'Description: libsndfile 1.2.2 built for StemForge',
+            'Version: 1.2.2',
+            'Requires:',
+            'Libs: ' + $libPath,
+            'Cflags: -I' + $includePath
+        )
+        $pcPath = Join-Path $pkgConfigDir 'sndfile.pc'
+        Set-Content -LiteralPath $pcPath -Value $pcLines -Encoding ASCII
         if ($oldPkgConfigPath) {
             $env:PKG_CONFIG_PATH = "$pkgConfigDir;$oldPkgConfigPath"
         }
         else {
             $env:PKG_CONFIG_PATH = $pkgConfigDir
         }
-        $env:PKG_CONFIG = $pkgConfig.Source
-        $libs = (& $pkgConfig.Source '--libs' 'sndfile' 2>&1 | Out-String).Trim()
+        $libs = (& $pkgConfigPath '--libs' 'sndfile' 2>&1 | Out-String).Trim()
         if ($LASTEXITCODE -ne 0 -or $libs -notlike "*$libPath*") {
-            throw "pkg-config did not resolve the absolute sndfile import library (got: $libs)"
+            Write-Note "pkg-config did not resolve the sndfile import library (got: '$libs'); Meson will use find_library"
+            $env:PKG_CONFIG_PATH = $oldPkgConfigPath
         }
 
         Write-Note 'build   Rubber Band 4.0.0 (Meson/MSVC, static library, CLI)'
@@ -437,20 +524,14 @@ function Build-RubberBandFromSource($Lock, $Sndfile) {
             '-Dlv2=disabled',
             '-Dladspa=disabled',
             '-Djni=disabled',
-            '-Dcmdline=enabled',
+            '-Dcmdline=auto',
             '-Dtests=disabled',
             '--vsenv',
             "-Dextra_lib_dirs=$libDir",
             "-Dextra_include_dirs=$includePath"
         )
-        & $meson @mesonArguments
-        if ($LASTEXITCODE -ne 0) {
-            throw "meson setup failed for Rubber Band"
-        }
-        & $ninja '-C' $buildDir
-        if ($LASTEXITCODE -ne 0) {
-            throw "ninja failed for Rubber Band"
-        }
+        Invoke-Logged $meson $mesonArguments
+        Invoke-Logged $ninja @('-C', $buildDir)
     }
     finally {
         $env:PKG_CONFIG_PATH = $oldPkgConfigPath

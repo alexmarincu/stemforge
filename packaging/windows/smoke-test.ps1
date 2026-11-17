@@ -12,7 +12,8 @@
 param(
     [string]$Bundle,
     [switch]$WithSeparation,
-    [switch]$KeepHome
+    [switch]$KeepHome,
+    [string]$HomePath
 )
 
 Set-StrictMode -Version Latest
@@ -30,7 +31,14 @@ if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) {
 }
 New-Item -ItemType Directory -Force -Path $Reports | Out-Null
 
-$HomeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("stemforge-smoke-" + [guid]::NewGuid().ToString('N'))
+if ($HomePath) {
+    # The release workflow restores and saves the pinned weights cache here.
+    # It is a scratch directory inside the checkout, never a real profile.
+    $HomeRoot = [System.IO.Path]::GetFullPath($HomePath)
+}
+else {
+    $HomeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("stemforge-smoke-" + [guid]::NewGuid().ToString('N'))
+}
 New-Item -ItemType Directory -Force -Path $HomeRoot | Out-Null
 $env:STEMFORGE_HOME = $HomeRoot
 $status = 0
@@ -62,6 +70,23 @@ function Write-ReportSummary([string]$Name, [string]$Path) {
     }
 }
 
+function Quote-Argument([string]$Value) {
+    if ($Value -match '\s') {
+        return '"' + $Value + '"'
+    }
+    return $Value
+}
+
+function Invoke-FrozenProcess([string[]]$Arguments) {
+    # StemForge.exe is built with console=False. PowerShell does not wait for a
+    # GUI-subsystem process and does not set $LASTEXITCODE, so start it
+    # explicitly and read the process exit code.
+    $quoted = @($Arguments | ForEach-Object { Quote-Argument $_ })
+    $process = Start-Process -FilePath $Exe -ArgumentList ($quoted -join ' ') `
+        -NoNewWindow -Wait -PassThru
+    return $process.ExitCode
+}
+
 function Invoke-FrozenCheck(
     [string]$Name,
     [string[]]$Arguments,
@@ -70,8 +95,7 @@ function Invoke-FrozenCheck(
 ) {
     $report = Join-Path $Reports "$Name.json"
     Write-Host "smoke-test: $Exe $($Arguments -join ' ')"
-    & $Exe @Arguments --report $report
-    $code = $LASTEXITCODE
+    $code = Invoke-FrozenProcess (@($Arguments) + @('--report', $report))
     Write-ReportSummary $Name $report
     if ($code -notin $AllowedExitCodes) {
         Write-Host "smoke-test: $Name FAILED (exit $code); report: $report"
@@ -97,9 +121,9 @@ try {
 
     if ($WithSeparation) {
         Write-Host "smoke-test: installing the pinned model into $HomeRoot"
-        & $Exe '--install-model' '--accept-model-licence'
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host 'smoke-test: --install-model FAILED; --smoke-separation cannot run'
+        $installCode = Invoke-FrozenProcess @('--install-model', '--accept-model-licence')
+        if ($installCode -ne 0) {
+            Write-Host "smoke-test: --install-model FAILED (exit $installCode); --smoke-separation cannot run"
             Write-Host 'smoke-test: this needs network access to Hugging Face; the weights stay in the temporary STEMFORGE_HOME'
             $status = 1
         }

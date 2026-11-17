@@ -728,6 +728,15 @@ def test_unlisted_vendor_file_fails_the_bundle(tmp_path: Path) -> None:
     assert any(item.check == "vendor.extra" for item in _errors(report))
 
 
+def test_vendor_provenance_record_is_allowed(tmp_path: Path) -> None:
+    bundle = _bundle(tmp_path)
+    _write(bundle / "vendor" / "PROVENANCE.txt", b"installed: vendor/rubberband/rubberband.exe\n")
+
+    report = _verify(tmp_path, bundle)
+
+    assert not any(item.check == "vendor.extra" for item in _errors(report))
+
+
 def test_missing_licence_tree_fails_the_bundle(tmp_path: Path) -> None:
     bundle = _bundle(tmp_path, licence=False)
 

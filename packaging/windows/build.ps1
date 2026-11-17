@@ -47,22 +47,9 @@ function Get-StemForgeVersion {
 }
 
 function Assert-CpuTorch {
-    $check = @'
-import importlib.util
-import sys
-
-if importlib.util.find_spec("torch") is not None:
-    import torch
-
-    if not torch.__version__.endswith("+cpu"):
-        print(
-            f"build.ps1: torch {torch.__version__} is not a +cpu build; "
-            "a PyPI fallback would ship CUDA wheels",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-'@
-    & $Python -c $check
+    # A file, not a here-string: Windows PowerShell mangles multi-line native
+    # arguments, which turned the old -c assertion into a SyntaxError.
+    & $Python (Join-Path $PSScriptRoot 'assert_cpu_torch.py')
     if ($LASTEXITCODE -ne 0) {
         throw 'the build environment does not have the CPU-only torch wheel'
     }
@@ -74,6 +61,27 @@ function Assert-File([string]$Path, [string]$Label) {
     }
 }
 
+function Invoke-Captured([string]$Tool, [string[]]$Arguments, [string]$Label) {
+    # Rubber Band writes --version to stderr; capture both streams at the OS
+    # level so PowerShell does not turn that into a NativeCommandError.
+    $stdout = [System.IO.Path]::GetTempFileName()
+    $stderr = [System.IO.Path]::GetTempFileName()
+    try {
+        $process = Start-Process -FilePath $Tool -ArgumentList $Arguments `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $out = Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue
+        $err = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
+        if ($process.ExitCode -ne 0) {
+            throw "$Label failed; the vendor tree is damaged"
+        }
+        return (("$out$err").Trim())
+    }
+    finally {
+        Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $stdout, $stderr
+    }
+}
+
 function Add-RuntimeBuildInfo([string]$BundleRoot) {
     $licences = Join-Path $BundleRoot 'LICENSES'
     if (-not (Test-Path -LiteralPath $licences -PathType Container)) {
@@ -82,14 +90,8 @@ function Add-RuntimeBuildInfo([string]$BundleRoot) {
     $ffmpeg = Join-Path $BundleRoot 'vendor\ffmpeg\ffmpeg.exe'
     $ffmpegInfo = Join-Path $licences 'ffmpeg\BUILDINFO.txt'
     if ((Test-Path -LiteralPath $ffmpeg -PathType Leaf) -and (Test-Path -LiteralPath $ffmpegInfo -PathType Leaf)) {
-        $version = (& $ffmpeg -version 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0) {
-            throw 'shipped ffmpeg.exe -version failed; the vendor tree is damaged'
-        }
-        $configure = (& $ffmpeg -buildconf 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0) {
-            throw 'shipped ffmpeg.exe -buildconf failed; the vendor tree is damaged'
-        }
+        $version = Invoke-Captured $ffmpeg @('-version') 'shipped ffmpeg.exe -version'
+        $configure = Invoke-Captured $ffmpeg @('-buildconf') 'shipped ffmpeg.exe -buildconf'
         Add-Content -LiteralPath $ffmpegInfo -Encoding UTF8 -Value @(
             '',
             '## Shipped runtime output',
@@ -107,10 +109,7 @@ function Add-RuntimeBuildInfo([string]$BundleRoot) {
     $rubberband = Join-Path $BundleRoot 'vendor\rubberband\rubberband.exe'
     $rubberbandInfo = Join-Path $licences 'rubberband\BUILDINFO.txt'
     if ((Test-Path -LiteralPath $rubberband -PathType Leaf) -and (Test-Path -LiteralPath $rubberbandInfo -PathType Leaf)) {
-        $version = (& $rubberband --version 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0) {
-            throw 'shipped rubberband.exe --version failed; the vendor tree is damaged'
-        }
+        $version = Invoke-Captured $rubberband @('--version') 'shipped rubberband.exe --version'
         Add-Content -LiteralPath $rubberbandInfo -Encoding UTF8 -Value @(
             '',
             '## Shipped runtime output',
@@ -184,13 +183,13 @@ if (-not $SkipVendorFetch) {
         throw 'scripts/vendor-fetch.ps1 failed; the Windows runner needs MSVC, CMake, Meson, Ninja, and pkg-config (or -RubberBandPrebuilt)'
     }
 }
-$missingVendor = Get-MissingVendor
+$missingVendor = @(Get-MissingVendor)
 if ($missingVendor.Count -gt 0) {
     throw "vendor/ is incomplete: $($missingVendor -join ', '); run scripts/vendor-fetch.ps1"
 }
 
 $licencePending = $false
-$missingLicence = Get-MissingLicence
+$missingLicence = @(Get-MissingLicence)
 if ($missingLicence.Count -gt 0) {
     if (-not $AllowLicencePending) {
         throw @"
@@ -239,6 +238,9 @@ foreach ($name in @('ffmpeg', 'deno', 'rubberband')) {
 
 $provenance = Join-Path $RepoRoot 'vendor\PROVENANCE.txt'
 if (Test-Path -LiteralPath $provenance -PathType Leaf) {
+    # The built vendor files (rubberband.exe, sndfile.dll) have no pinned hash;
+    # this build record is how verify-release.sh checks them inside the ZIP.
+    Copy-Item -LiteralPath $provenance -Destination (Join-Path $bundleVendor 'PROVENANCE.txt') -Force
     Copy-Item -LiteralPath $provenance -Destination (Join-Path $Reports 'vendor-PROVENANCE.txt') -Force
 }
 
