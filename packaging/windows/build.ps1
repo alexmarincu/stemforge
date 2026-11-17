@@ -238,6 +238,9 @@ foreach ($name in @('ffmpeg', 'deno', 'rubberband')) {
 
 $provenance = Join-Path $RepoRoot 'vendor\PROVENANCE.txt'
 if (Test-Path -LiteralPath $provenance -PathType Leaf) {
+    # The built vendor files (rubberband.exe, sndfile.dll) have no pinned hash;
+    # this build record is how verify-release.sh checks them inside the ZIP.
+    Copy-Item -LiteralPath $provenance -Destination (Join-Path $bundleVendor 'PROVENANCE.txt') -Force
     Copy-Item -LiteralPath $provenance -Destination (Join-Path $Reports 'vendor-PROVENANCE.txt') -Force
 }
 
