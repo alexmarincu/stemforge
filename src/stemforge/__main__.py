@@ -201,7 +201,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     from stemforge.application import ServiceEngines, WorkspaceService
     from stemforge.engines.media import FfmpegTool
     from stemforge.engines.pitch import RubberBandEngine
-    from stemforge.integration.dialogs import NativeOpenDialog
+    from stemforge.integration.dialogs import NativeOpenDialog, NativeSaveDialog
     from stemforge.integration.media import register_media_route
     from stemforge.integration.window import DEFAULT_WINDOW_SIZE, configure_window
     from stemforge.logging_setup import configure_logging
@@ -224,6 +224,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
         page.UiContext(
             service=service,
             dialogs=NativeOpenDialog(),
+            save_dialog=NativeSaveDialog(),
             show_recovery=sweep.deleted_anything,
             preflight=report,
         )
