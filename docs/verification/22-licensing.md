@@ -106,11 +106,11 @@ source checkout. No path is relative to CWD.
 
 | Gate | Result |
 |---|---|
-| `ruff format --check .` | 175 files already formatted |
+| `ruff format --check .` | 176 files already formatted |
 | `ruff check .` | All checks passed |
 | `mypy src/stemforge` (strict) | Success, 59 files |
 | `lint-imports` | 2 contracts kept |
-| `pytest -m "unit or ui"` | 753 passed, 1 skipped |
+| `pytest -m "unit or ui"` | 754 passed, 1 skipped |
 | `pytest -m "integration and not slow"` | 128 passed |
 | `generate_notices.py --check` | 201 files match |
 | `generate_notices.py --check-release` | ok |
