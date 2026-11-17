@@ -249,6 +249,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     from stemforge.application import ServiceEngines, WorkspaceService
     from stemforge.engines.media import FfmpegTool
     from stemforge.engines.pitch import RubberBandEngine
+    from stemforge.engines.separation import WorkerSeparationEngine
     from stemforge.integration import diagnostics
     from stemforge.integration.dialogs import NativeOpenDialog, NativeSaveDialog
     from stemforge.integration.media import register_media_route
@@ -266,7 +267,11 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     service = WorkspaceService(
         settings,
         paths=paths,
-        engines=ServiceEngines(media=media, pitch=RubberBandEngine(media=media)),
+        engines=ServiceEngines(
+            media=media,
+            pitch=RubberBandEngine(media=media),
+            separation=WorkerSeparationEngine(),
+        ),
     )
     # Ticket 07 §7: the sweep runs once behind the single-instance lock, before
     # the Workspace is built; its residue alone triggers the recovery banner.

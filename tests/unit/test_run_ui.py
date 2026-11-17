@@ -117,6 +117,48 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     assert len(shutdown) == 1
 
 
+def test_run_ui_connects_the_separation_engine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The production service must not report ``internal.unexpected``."""
+    from nicegui import app, ui
+
+    from stemforge import errors
+    from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
+    from stemforge.engines.separation import WorkerSeparationEngine
+    from stemforge.errors import StemForgeError
+    from stemforge.ui import page
+
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(ui, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(app, "on_startup", lambda callback: None)
+    monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
+    monkeypatch.setattr(page, "configure", lambda context: captured.setdefault("context", context))
+
+    assert __main__._run_ui(paths, PreflightReport(checks=())) == 0
+
+    context = captured["context"]
+    assert isinstance(context, page.UiContext)
+    assert isinstance(context.service.engines.separation, WorkerSeparationEngine)
+
+    track = Track(
+        track_id="track",
+        source=Source(
+            source_id="source",
+            origin="/music/song.wav",
+            origin_kind=OriginKind.FILE,
+            metadata=SourceMetadata(title="Song"),
+        ),
+        title="Song",
+    )
+    with pytest.raises(StemForgeError) as caught:
+        context.service.separate(track)
+    # Without the engine this is internal.unexpected; the model gate is the
+    # first legitimate refusal once separation is wired.
+    assert caught.value.code == errors.SEPARATION_MODEL_MISSING
+
+
 def test_run_ui_enforces_the_cache_cap_after_the_sweep(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
