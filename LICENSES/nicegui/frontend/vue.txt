@@ -1,0 +1,9 @@
+Vue 3.5.44
+
+Copyright (c) 2013-present Yuxi (Evan) You
+Licence: MIT
+Upstream: https://github.com/vuejs/core
+
+Full licence text:
+
+- ../../common/MIT.txt

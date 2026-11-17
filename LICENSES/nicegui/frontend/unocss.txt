@@ -1,0 +1,9 @@
+UnoCSS bundled by NiceGUI 4.0.0
+
+Copyright (c) 2021-present Anthony Fu
+Licence: MIT
+Upstream: https://github.com/unocss/unocss
+
+Full licence text:
+
+- ../../common/MIT.txt

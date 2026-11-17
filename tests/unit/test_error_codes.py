@@ -49,6 +49,8 @@ TICKET_14_CODES = frozenset(
         "preflight.storage_unwritable",
         "preflight.preview_unavailable",
         "playback.unavailable",
+        "licensing.files_missing",
+        "licensing.open_failed",
         "cancelled",
     }
 )
