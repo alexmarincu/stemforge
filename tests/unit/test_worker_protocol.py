@@ -1,0 +1,468 @@
+"""The worker protocol: JSONL schema, exit-code mapping, cancel, and timeout.
+
+The parent is exercised against a real subprocess running
+``tests/fixtures/stub_worker.py``, so the parser, reader threads, process tree
+termination, and error mapping all cross a process boundary. No torch or Demucs
+is involved and no external binary is needed, so this is a unit-layer test.
+"""
+
+from __future__ import annotations
+
+import logging
+import struct
+import sys
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+from stemforge import errors
+from stemforge.domain.cancellation import CancelToken
+from stemforge.engines.separation import SeparationOutputs, WorkerSeparationEngine
+from stemforge.errors import JobCancelled, StemForgeError
+from stemforge.worker_protocol import (
+    EVENT_BLOCK,
+    EVENT_DONE,
+    EVENT_ERROR,
+    EVENT_PROGRESS,
+    EVENT_READY,
+    EVENT_STEM,
+    EXIT_INVALID_INPUT,
+    EXIT_OK,
+    PROTOCOL_VERSION,
+    ProtocolError,
+    format_event,
+    is_safe_relative_output,
+    parse_event,
+)
+
+pytestmark = pytest.mark.unit
+
+STUB_WORKER = Path(__file__).resolve().parents[1] / "fixtures" / "stub_worker.py"
+LOG = logging.getLogger("test.worker-protocol")
+
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
+
+
+def test_format_event_adds_the_protocol_version_and_round_trips() -> None:
+    line = format_event({"event": EVENT_PROGRESS, "fraction": 0.25, "stage": "Separate"})
+
+    assert line.endswith("\n")
+    event = parse_event(line)
+    assert event is not None
+    assert event.event == EVENT_PROGRESS
+    assert event.fraction == 0.25
+    assert event.stage == "Separate"
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ('{"v":1,"event":"ready","engine":"demucs","engine_version":"4.1.0"}', EVENT_READY),
+        ('{"v":1,"event":"block","index":1,"total":3,"fraction":0.0}', EVENT_BLOCK),
+        ('{"v":1,"event":"progress","fraction":0.5,"stage":"Separate"}', EVENT_PROGRESS),
+        ('{"v":1,"event":"stem","stem":"vocals","path":"vocals.wav"}', EVENT_STEM),
+        ('{"v":1,"event":"done","outputs":["vocals"]}', EVENT_DONE),
+        ('{"v":1,"event":"error","code":"separation.engine_error"}', EVENT_ERROR),
+    ],
+)
+def test_known_events_parse(line: str, expected: str) -> None:
+    event = parse_event(line)
+    assert event is not None
+    assert event.event == expected
+
+
+def test_unknown_events_are_ignored_for_forward_compatibility() -> None:
+    assert parse_event('{"v":1,"event":"future","payload":{}}') is None
+
+
+@pytest.mark.parametrize(
+    ("line", "match"),
+    [
+        ("", "empty"),
+        ("not json", "non-JSON"),
+        ("[]", "not a JSON object"),
+        ('{"event":"ready"}', "integer v"),
+        ('{"v":2,"event":"ready"}', "unsupported protocol version"),
+        ('{"v":1}', "no event name"),
+        ('{"v":1,"event":"progress"}', "fraction"),
+        ('{"v":1,"event":"progress","fraction":1.5}', "0..1"),
+        ('{"v":1,"event":"progress","fraction":0.5,"block":2,"blocks":1}', "exceeds"),
+        ('{"v":1,"event":"block","index":1}', "index and total"),
+        ('{"v":1,"event":"stem","stem":"vocals","path":"/tmp/vocals.wav"}', "unsafe"),
+        ('{"v":1,"event":"stem","stem":"vocals","path":"../vocals.wav"}', "unsafe"),
+        ('{"v":1,"event":"stem","stem":"guitar","path":"guitar.wav"}', "unknown stem"),
+        ('{"v":1,"event":"done","outputs":["guitar"]}', "unknown names"),
+        ('{"v":1,"event":"error"}', "no code"),
+        ('{"v":1,"event":"error","code":"x","retryable":"yes"}', "boolean"),
+    ],
+)
+def test_malformed_events_raise_protocol_error(line: str, match: str) -> None:
+    with pytest.raises(ProtocolError, match=match):
+        parse_event(line)
+
+
+def test_protocol_version_is_one() -> None:
+    assert PROTOCOL_VERSION == 1
+
+
+@pytest.mark.parametrize(
+    ("path", "safe"),
+    [
+        ("vocals.wav", True),
+        ("instrumental.wav", True),
+        ("sub/vocals.wav", False),
+        ("../vocals.wav", False),
+        ("/vocals.wav", False),
+        ("C:/vocals.wav", False),
+        ("vocals.mp3", False),
+        ("", False),
+    ],
+)
+def test_only_bare_wav_names_are_safe_outputs(path: str, safe: bool) -> None:
+    assert is_safe_relative_output(path) is safe
+
+
+# ---------------------------------------------------------------------------
+# Parent against the stub worker
+# ---------------------------------------------------------------------------
+
+
+def write_input(path: Path, *, frames: int = 4410, sample_rate: int = 44_100) -> Path:
+    data = struct.pack(f"<{frames * 2}f", *([0.1] * (frames * 2)))
+    header = bytearray(56)
+    header[0:4] = b"RIFF"
+    struct.pack_into("<I", header, 4, 48 + len(data))
+    header[8:12] = b"WAVE"
+    header[12:16] = b"fmt "
+    struct.pack_into("<I", header, 16, 16)
+    struct.pack_into("<HHIIHH", header, 20, 3, 2, sample_rate, sample_rate * 8, 8, 32)
+    header[36:40] = b"fact"
+    struct.pack_into("<I", header, 40, 4)
+    struct.pack_into("<I", header, 44, frames)
+    header[48:52] = b"data"
+    struct.pack_into("<I", header, 52, len(data))
+    path.write_bytes(header + data)
+    return path
+
+
+@pytest.fixture
+def harness(tmp_path: Path) -> tuple[WorkerSeparationEngine, Path, Path, Path]:
+    weights = tmp_path / "weights.safetensors"
+    weights.write_bytes(b"not really weights")
+    canonical = write_input(tmp_path / "canonical.wav")
+    out = tmp_path / "out"
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "ok"],
+        poll_interval_s=0.01,
+        cancel_grace_s=1.0,
+    )
+    return engine, canonical, out, weights
+
+
+def run_engine(
+    engine: WorkerSeparationEngine,
+    canonical: Path,
+    out: Path,
+    weights: Path,
+    *,
+    cancel: CancelToken | None = None,
+    timeout_s: float | None = None,
+    progress: list[tuple[float, str, str]] | None = None,
+) -> SeparationOutputs:
+    sink = progress if progress is not None else []
+    return engine.separate(
+        canonical,
+        out,
+        model_path=weights,
+        expected_duration_s=0.1,
+        progress=lambda fraction, stage, detail: sink.append((fraction, stage, detail)),
+        cancel=cancel if cancel is not None else CancelToken(),
+        log=LOG,
+        timeout_s=timeout_s,
+    )
+
+
+def test_ok_returns_four_stems_and_monotonic_progress(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    events: list[tuple[float, str, str]] = []
+
+    outputs = run_engine(engine, canonical, out, weights, progress=events)
+
+    assert sorted(outputs.stems) == ["bass", "drums", "other", "vocals"]
+    assert all(path.is_file() for path in outputs.stems.values())
+    fractions = [fraction for fraction, _stage, _detail in events]
+    assert fractions == sorted(fractions)
+    assert fractions[-1] == 1.0
+    assert all(0.0 <= fraction <= 1.0 for fraction in fractions)
+    assert "Separate" in {stage for _fraction, stage, _detail in events}
+
+
+def test_unknown_events_are_skipped_without_failing(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "unknown-event"],
+        poll_interval_s=0.01,
+    )
+
+    outputs = run_engine(engine, canonical, out, weights)
+
+    assert len(outputs.stems) == 4
+
+
+def test_a_non_json_line_is_a_protocol_mismatch(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "malformed"],
+    )
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights)
+
+    assert raised.value.code == errors.SEPARATION_PROTOCOL_MISMATCH
+    assert "non-JSON" in (raised.value.detail or "")
+
+
+def test_a_different_protocol_version_is_a_protocol_mismatch(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "version"],
+    )
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights)
+
+    assert raised.value.code == errors.SEPARATION_PROTOCOL_MISMATCH
+    assert "version" in (raised.value.detail or "")
+
+
+def test_a_crash_maps_to_worker_crashed_with_the_stderr_tail(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "crash"],
+    )
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights)
+
+    assert raised.value.code == errors.SEPARATION_WORKER_CRASHED
+    assert "synthetic crash" in (raised.value.detail or "")
+    assert raised.value.context["returncode"] == 7
+
+
+def test_a_handled_error_keeps_its_code(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "error"],
+    )
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights)
+
+    assert raised.value.code == errors.SEPARATION_ENGINE_ERROR
+    assert raised.value.detail == "reason=stub"
+
+
+def test_an_unknown_worker_code_falls_back_to_engine_error(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "error-unknown"],
+    )
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights)
+
+    assert raised.value.code == errors.SEPARATION_ENGINE_ERROR
+    assert raised.value.context["worker_code"] == "separation.mystery"
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("exit2-no-error", errors.SEPARATION_PROTOCOL_MISMATCH),
+        ("exit3", errors.SEPARATION_MODEL_MISSING),
+        ("exit4", errors.SEPARATION_ENGINE_ERROR),
+        ("silent", errors.SEPARATION_PROTOCOL_MISMATCH),
+        ("missing-stem", errors.SEPARATION_OUTPUT_INVALID),
+        ("bad-path", errors.SEPARATION_PROTOCOL_MISMATCH),
+    ],
+)
+def test_exit_and_output_failures_map_to_coded_errors(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+    mode: str,
+    expected: str,
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(argv=[sys.executable, str(STUB_WORKER), "--mode", mode])
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights)
+
+    assert raised.value.code == expected
+
+
+def test_a_missing_weights_file_is_refused_before_spawn(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, _weights = harness
+    missing = out.parent / "absent.safetensors"
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, missing)
+
+    assert raised.value.code == errors.SEPARATION_MODEL_MISSING
+    assert not out.exists()
+
+
+def test_cancel_closes_stdin_and_raises_job_cancelled(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "hang"],
+        poll_interval_s=0.01,
+        cancel_grace_s=2.0,
+    )
+    cancel = CancelToken()
+    timer = threading.Timer(0.2, cancel.cancel)
+    timer.start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(JobCancelled):
+            run_engine(engine, canonical, out, weights, cancel=cancel)
+    finally:
+        timer.cancel()
+
+    assert time.monotonic() - started < 10.0
+    assert not (out / "vocals.wav").exists()
+
+
+def test_a_timeout_terminates_the_worker(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "slow"],
+        poll_interval_s=0.01,
+    )
+    started = time.monotonic()
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights, timeout_s=0.4)
+
+    assert raised.value.code == errors.SEPARATION_ENGINE_ERROR
+    assert "timeout" in (raised.value.detail or "")
+    assert time.monotonic() - started < 10.0
+
+
+def test_the_default_development_command_is_the_worker_module() -> None:
+    engine = WorkerSeparationEngine()
+    argv = engine.command(
+        Path("in.wav"),
+        Path("out"),
+        model_path=Path("weights.safetensors"),
+        expected_duration_s=1.0,
+        threads=2,
+    )
+
+    assert "stemforge.workers.separation" in argv
+    assert "--input" in argv
+    assert "--model-path" in argv
+    assert argv[argv.index("--threads") + 1] == "2"
+    assert EXIT_OK == 0
+
+
+@pytest.mark.unit
+def test_the_entry_point_dispatches_worker_flags_without_touching_the_app(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from stemforge.__main__ import main
+
+    assert main(["--worker", "separation", "--input", "in.wav", "--out", "out"]) == (
+        EXIT_INVALID_INPUT
+    )
+    output = capsys.readouterr().out.strip()
+    event = parse_event(output.splitlines()[0])
+    assert event is not None
+    assert event.event == EVENT_ERROR
+    assert "model-path" in (event.detail or "")
+
+
+@pytest.mark.unit
+def test_an_unknown_worker_is_rejected(capsys: pytest.CaptureFixture[str]) -> None:
+    from stemforge.__main__ import main
+
+    assert main(["--worker", "nope"]) == 4
+    assert "unknown worker" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Block math and the float WAV writer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_the_block_plan_covers_every_frame_exactly_once_with_one_second_overlap() -> None:
+    from stemforge.workers.separation import _plan_blocks
+
+    sample_rate = 44_100
+    block = 480 * sample_rate
+    fade = 1 * sample_rate
+    total = 1800 * sample_rate
+
+    blocks = _plan_blocks(total, block, fade)
+
+    assert len(blocks) == 4
+    assert blocks[0].start == 0
+    assert [item.start for item in blocks] == [index * (block - fade) for index in range(4)]
+    assert all(item.length == block for item in blocks[:-1])
+    written = sum(item.length for item in blocks) - fade * (len(blocks) - 1)
+    assert written == total
+
+
+@pytest.mark.unit
+def test_a_short_track_is_a_single_block() -> None:
+    from stemforge.workers.separation import _plan_blocks
+
+    blocks = _plan_blocks(44_100, 480 * 44_100, 44_100)
+
+    assert len(blocks) == 1
+    assert blocks[0].length == 44_100
+
+
+@pytest.mark.unit
+def test_the_float_wav_writer_round_trips_without_clamping(tmp_path: Path) -> None:
+    from stemforge.workers.separation import _FloatWavWriter, _read_wav_info
+
+    path = tmp_path / "out.wav"
+    writer = _FloatWavWriter(path, sample_rate=44_100)
+    samples = [[1.5, -1.5], [0.25, -0.25], [0.0, 0.0]]
+    import numpy
+
+    writer.write(numpy.array(samples, dtype="float32"))
+    writer.close()
+
+    info = _read_wav_info(path)
+    assert info.sample_rate == 44_100
+    assert info.channels == 2
+    assert info.frames == 3
+    values = numpy.frombuffer(path.read_bytes()[info.data_offset :], dtype="<f4")
+    assert values.tolist() == [1.5, -1.5, 0.25, -0.25, 0.0, 0.0]
