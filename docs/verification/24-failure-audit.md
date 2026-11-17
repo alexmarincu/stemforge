@@ -3,9 +3,10 @@
 Audited in the `ticket/24-failure-audit` worktree on 2026-11-17, based on
 `integration/v1` (`f9d0beb`; tickets #1–#23 closed, merged again after the audit
 with no incoming changes). The branch commits are `03e62bf` (WAV comment),
-`ac95b26` (no automatic model retries plus Remove cancellation), and `65c7a1b`
-(diagnostics, Details, catalogue, drills, docs). The coordinator merges this
-branch after the report; nothing here changes `.github/workflows/release.yml`.
+`ac95b26` (no automatic model retries plus Remove cancellation), `65c7a1b`
+(diagnostics, Details, catalogue, drills, docs), and `61c56e3` (retry flags).
+The coordinator merges this branch after the report; nothing here changes
+`.github/workflows/release.yml`.
 
 The audit treats ticket 14 as the contract: one stable code, one headline of at
 most 90 characters, one recovery action, and one owning surface per failure.
