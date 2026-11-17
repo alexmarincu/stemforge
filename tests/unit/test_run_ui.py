@@ -29,6 +29,22 @@ def test_window_configuration_sets_the_minimum_and_no_downloads(tmp_path: Path) 
     assert app.native.settings["ALLOW_DOWNLOADS"] is False
 
 
+def test_windows_window_asserts_the_edge_chromium_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    from nicegui import app
+
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setitem(app.native.start_args, "gui", "unset")
+
+    configure_window(paths)
+
+    assert app.native.start_args["gui"] == "edgechromium"
+
+
 def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
