@@ -365,7 +365,7 @@ class WorkspaceService:
     def _youtube_tool(self) -> YouTubeTool:
         if self._engines.youtube is not None:
             return self._engines.youtube
-        return YtDlpImporter(cache_dir=self._paths.cache / "yt-dlp")
+        return YtDlpImporter(cache_root=self._paths.cache)
 
     def _youtube_run(self, video: YouTubeVideo, youtube: YouTubeTool) -> JobRun:
         def run(ctx: JobContext) -> Mapping[str, str]:

@@ -253,24 +253,25 @@ def _invalid(detail: str) -> StemForgeError:
 
 def build_youtube_dl_options(
     *,
-    staging: Path,
-    cache_dir: Path,
+    home: Path,
+    cache_root: Path,
     ffmpeg: Path,
     deno: Path,
     log: logging.Logger,
     progress_hooks: Sequence[ProgressHook],
 ) -> dict[str, object]:
-    """The exact ticket 09 §4 option table; no cookies, accounts, or proxy.
+    """The ticket 09 §4 option table; no cookies, accounts, or proxy.
 
-    ``postprocessors`` is empty: the native audio file is kept and decoded by
-    StemForge's FFmpeg pipeline, not by yt-dlp.
+    ``home`` is the yt-dlp output directory; the YouTube Job passes its
+    per-Job scratch under ``<cache>/yt-dlp/``. ``postprocessors`` is empty: the
+    native audio file is kept and decoded by StemForge's FFmpeg pipeline.
     """
     return {
         "format": "bestaudio/best",
         "noplaylist": True,
         "outtmpl": {"default": "%(id)s.%(ext)s"},
-        "paths": {"home": str(staging)},
-        "cachedir": str(cache_dir / "yt-dlp"),
+        "paths": {"home": str(home)},
+        "cachedir": str(cache_root / "yt-dlp"),
         "windowsfilenames": True,
         "trim_file_name": 120,
         "quiet": True,
@@ -297,13 +298,13 @@ class YtDlpImporter:
     def __init__(
         self,
         *,
-        cache_dir: Path,
+        cache_root: Path,
         ffmpeg: Path | None = None,
         deno: Path | None = None,
         youtube_dl_factory: YoutubeDLFactory | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self._cache_dir = Path(cache_dir)
+        self._cache_root = Path(cache_root)
         self._ffmpeg = ffmpeg
         self._deno = deno
         self._factory = youtube_dl_factory
@@ -320,7 +321,7 @@ class YtDlpImporter:
         cancel.check()
         self._ensure_cache_dir()
         options = self._options(
-            staging=self._cache_dir / "resolve",
+            home=self._cache_root / "yt-dlp" / "resolve",
             log=log,
             progress_hooks=[],
         )
@@ -352,7 +353,7 @@ class YtDlpImporter:
         log: logging.Logger,
         progress: ProgressCallback,
     ) -> DownloadedAudio:
-        """Download the native audio into ``staging`` with progress hooks."""
+        """Download the native audio into the yt-dlp scratch with progress hooks."""
         cancel.check()
         self._ensure_cache_dir()
         staging = Path(staging)
@@ -378,7 +379,7 @@ class YtDlpImporter:
             progress(fraction, _download_detail(data))
 
         options = self._options(
-            staging=staging,
+            home=staging,
             log=log,
             progress_hooks=[hook],
         )
@@ -431,13 +432,13 @@ class YtDlpImporter:
     def _options(
         self,
         *,
-        staging: Path,
+        home: Path,
         log: logging.Logger,
         progress_hooks: Sequence[ProgressHook],
     ) -> dict[str, object]:
         return build_youtube_dl_options(
-            staging=staging,
-            cache_dir=self._cache_dir,
+            home=home,
+            cache_root=self._cache_root,
             ffmpeg=self._ffmpeg_path(),
             deno=self._deno_path(),
             log=log,
@@ -465,7 +466,7 @@ class YtDlpImporter:
 
     def _ensure_cache_dir(self) -> None:
         try:
-            self._cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            self._cache_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         except OSError as exc:
             code = (
                 errors.STORAGE_DISK_FULL
@@ -476,7 +477,7 @@ class YtDlpImporter:
                 code,
                 f"could not create the yt-dlp cache directory: {exc}",
                 detail=str(exc),
-                context={"path": str(self._cache_dir), "errno": exc.errno},
+                context={"path": str(self._cache_root), "errno": exc.errno},
             ) from exc
 
     def _deno_version(self) -> str:

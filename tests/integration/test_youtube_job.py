@@ -206,7 +206,7 @@ class Harness:
         self.store = ArtifactStore(self.paths)
         self.runner = JobRunner(paths=self.paths)
         adapter = YtDlpImporter(
-            cache_dir=self.paths.cache / "yt-dlp",
+            cache_root=self.paths.cache,
             ffmpeg=self.ffmpeg,
             deno=self.root / "deno",
             youtube_dl_factory=self.factory,
@@ -327,6 +327,7 @@ def test_a_youtube_import_commits_a_source_track_and_recent_file(
     assert sum(harness.delays) == pytest.approx(10.0)
     assert not list(harness.paths.cache.rglob("*.part"))
     assert list((harness.paths.cache / "staging").iterdir()) == []
+    assert not (harness.paths.cache / "yt-dlp" / job_id).exists()
     assert len(StubYoutubeDL.constructed) == 2
 
 
@@ -405,6 +406,7 @@ def test_cancelling_mid_download_leaves_no_staging_or_partial(
         assert snapshot.error_code is None
         assert not (harness.paths.cache / "sources" / f"yt-{VIDEO_ID}").exists()
         assert list((harness.paths.cache / "staging").iterdir()) == []
+        assert not (harness.paths.cache / "yt-dlp" / job_id).exists()
         assert not list(harness.paths.cache.rglob("*.part"))
         assert harness.service.snapshot().tracks == ()
         assert harness.service.recent_files() == ()

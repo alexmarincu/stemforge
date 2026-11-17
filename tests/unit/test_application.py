@@ -208,6 +208,32 @@ def test_a_second_youtube_submit_reuses_the_active_job(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_opening_a_youtube_recent_entry_resubmits_its_import(tmp_path: Path) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    settings = SettingsStore(paths)
+    runner = JobRunner(paths=paths)
+    service = WorkspaceService(
+        settings,
+        paths=paths,
+        runner=runner,
+        engines=ServiceEngines(media=object(), youtube=object()),  # type: ignore[arg-type]
+    )
+    settings.record_recent(
+        source_id="yt-dQw4w9WgXcQ",
+        title="YouTube Song",
+        origin="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        origin_kind=OriginKind.YOUTUBE,
+    )
+
+    job_id = service.open_recent("yt-dQw4w9WgXcQ")
+
+    assert job_id is not None
+    snapshot = runner.snapshot(job_id)
+    assert snapshot.kind.value == "import_youtube"
+    assert snapshot.state.value == "queued"
+
+
+@pytest.mark.unit
 def test_submit_youtube_refuses_a_playlist_before_any_job(tmp_path: Path) -> None:
     service, _, _ = _service(tmp_path)
 

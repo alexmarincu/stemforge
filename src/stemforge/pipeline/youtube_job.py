@@ -116,9 +116,10 @@ def run_youtube_import(
         _polite_wait(ctx, 0.05, STAGE_CHECKING, sleep)
 
         ctx.progress(0.05, stage=STAGE_DOWNLOADING)
+        download_dir = artifacts.create_youtube_scratch(ctx.job_id)
         downloaded = youtube.download(
             video,
-            staging,
+            download_dir,
             cancel=ctx.cancel,
             log=ctx.log,
             progress=lambda fraction, detail: ctx.progress(
@@ -133,6 +134,12 @@ def run_youtube_import(
 
         ctx.progress(0.75, stage=STAGE_DECODING)
         native_path = _move_native(downloaded.path, staging)
+        try:
+            artifacts.discard_youtube_scratch(ctx.job_id)
+        except Exception:
+            ctx.log.warning(
+                "could not discard the YouTube scratch for %s", ctx.job_id, exc_info=True
+            )
         native_info = media.probe(native_path)
         _require_duration_cap(native_info.duration_s)
         ctx.cancel.check()
@@ -194,6 +201,12 @@ def run_youtube_import(
                 artifacts.discard_staging(ctx.job_id)
             except Exception:
                 ctx.log.warning("could not discard staging for %s", ctx.job_id, exc_info=True)
+        try:
+            artifacts.discard_youtube_scratch(ctx.job_id)
+        except Exception:
+            ctx.log.warning(
+                "could not discard the YouTube scratch for %s", ctx.job_id, exc_info=True
+            )
         raise
 
 
