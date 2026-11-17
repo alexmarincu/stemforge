@@ -20,7 +20,7 @@ from stemforge.engines.pitch import (
     shifted_frequency,
     validate_semitones,
 )
-from stemforge.pipeline.gain import PEAK_TARGET_DBFS, presentation_gain
+from stemforge.pipeline.gain import PEAK_TARGET_DBFS, max_peak_dbfs, presentation_gain
 
 # --- Range validation ------------------------------------------------------
 
@@ -186,3 +186,16 @@ def test_gain_never_leaves_a_peak_above_full_scale() -> None:
 def test_gain_rejects_a_nan_peak() -> None:
     with pytest.raises(ValueError, match="NaN"):
         presentation_gain([math.nan])
+
+
+@pytest.mark.unit
+def test_max_peak_returns_none_for_missing_or_silent_sets() -> None:
+    assert max_peak_dbfs([]) is None
+    assert max_peak_dbfs([float("-inf")]) is None
+    assert max_peak_dbfs([float("-inf"), -12.0, -0.5]) == -0.5
+
+
+@pytest.mark.unit
+def test_max_peak_rejects_a_nan_instead_of_skipping_it() -> None:
+    with pytest.raises(ValueError, match="NaN"):
+        max_peak_dbfs([-3.0, math.nan])

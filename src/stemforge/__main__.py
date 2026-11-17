@@ -271,6 +271,14 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     # Ticket 07 §7: the sweep runs once behind the single-instance lock, before
     # the Workspace is built; its residue alone triggers the recovery banner.
     sweep = service.sweep_stale()
+    # Ticket 07 §2: startup enforces the cap after the sweep. Nothing is live
+    # yet, so this normally succeeds; a failure must not keep the window shut.
+    try:
+        service.enforce_cache_cap()
+    except Exception:
+        logging.getLogger("stemforge").warning(
+            "could not enforce the cache cap at startup", exc_info=True
+        )
 
     def diagnostics_text(job_id: str | None) -> str:
         return diagnostics.collect_diagnostics(
@@ -433,12 +441,9 @@ def _run_install_model(args: argparse.Namespace, paths: AppPaths) -> int:
     service = WorkspaceService(settings, paths=paths)
     spec = service.model_spec()
 
+    accepted = bool(args.accept_model_licence)
     status = service.models.verify()
-    if (
-        not status.verified
-        and not service.model_consent_is_current()
-        and not args.accept_model_licence
-    ):
+    if not status.verified and not service.model_consent_is_current() and not accepted:
         _print_model_notice(service)
         if not sys.stdin.isatty():
             print(
@@ -453,11 +458,12 @@ def _run_install_model(args: argparse.Namespace, paths: AppPaths) -> int:
         if answer.strip().lower() not in {"yes", "y"}:
             print(f"error {errors.SEPARATION_MODEL_MISSING}: consent declined")
             return 1
+        accepted = True
 
     runner = service.runner
     runner.start()
     try:
-        job_id = service.install_model(accept_licence=args.accept_model_licence)
+        job_id = service.install_model(accept_licence=accepted)
         runner.wait_idle()
         snapshot = runner.snapshot(job_id)
     except StemForgeError as error:

@@ -56,7 +56,7 @@ from stemforge.errors import StemForgeError
 from stemforge.jobs.job import JobContext
 from stemforge.models import ModelStore
 from stemforge.models.store import sha256_file
-from stemforge.pipeline.gain import presentation_gain
+from stemforge.pipeline.gain import max_peak_dbfs, presentation_gain
 
 __all__ = [
     "INSTRUMENTAL_ROLE",
@@ -171,9 +171,10 @@ def run_separation_job(
             detail="reason=duration",
             context={"path": str(canonical)},
         )
-    require_free_space(
-        artifacts.root, free_space_requirement(estimate_separation_bytes(expected_duration))
-    )
+    estimate = estimate_separation_bytes(expected_duration)
+    require_free_space(artifacts.root, free_space_requirement(estimate))
+    # Ticket 07 §2: reserve the set's cache footprint before it is written.
+    artifacts.enforce_cap(estimate)
     plan = block_plan(
         duration_s=expected_duration,
         block_seconds=engine_block_seconds(engine),
@@ -410,7 +411,7 @@ def _manifest(
         "block_plan_fingerprint": plan["fingerprint"],
         "instrumental": "float32 sum of drums + bass + other (amix normalize=0)",
         "gain_db": gain_db,
-        "peak_dbfs": _finite_peak(peaks),
+        "peak_dbfs": max_peak_dbfs(peaks.values()),
         "validation": {
             "ok": True,
             "codec": CANONICAL_CODEC,
@@ -537,11 +538,3 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _finite_peak(peaks: Mapping[str, float]) -> float | None:
-    loudest = float("-inf")
-    for peak in peaks.values():
-        if math.isfinite(peak) and peak > loudest:
-            loudest = peak
-    return loudest if math.isfinite(loudest) else None
