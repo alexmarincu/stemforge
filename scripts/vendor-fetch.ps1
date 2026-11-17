@@ -4,17 +4,19 @@
 # Output:  vendor\{ffmpeg,deno,rubberband}\...
 #
 # FFmpeg and Deno are downloaded from the pinned archives and SHA-256-verified.
-# Rubber Band 4.0.0 and libsndfile 1.2.2 are MSVC/Meson builds on windows-2022
-# (ticket 10 section 8); the decision record names no public prebuilt archive, so this
-# script accepts a pinned pair produced by that build and verifies it:
+# Rubber Band 4.0.0 and libsndfile 1.2.2 are built from their pinned source
+# archives with MSVC, CMake, and Meson on windows-2022 (ticket 10 section 8 and
+# ticket 21). The configure/build lines are read from packaging/vendor.lock.json.
+#
+# A pinned prebuilt pair is still accepted for environments without the MSVC
+# toolchain (the decision record names no public prebuilt archive):
 #
 #   powershell -File scripts/vendor-fetch.ps1 `
 #       -RubberBandPrebuilt C:\path\to\prebuilt-or.zip `
 #       -RubberBandPrebuiltSha256 <sha256 of the zip>
 #
 # The expected directory contains rubberband.exe (which must report 4.0.0) and
-# sndfile.dll. A zip is verified against -RubberBandPrebuiltSha256. The recorded
-# Meson/CMake lines live in packaging/vendor.lock.json for the release job.
+# sndfile.dll. A zip is verified against -RubberBandPrebuiltSha256.
 #
 # vendor/ is git-ignored. A failure never replaces an existing vendor file.
 [CmdletBinding()]
@@ -37,6 +39,11 @@ $Vendor = Join-Path $RepoRoot 'vendor'
 $Cache = Join-Path $Vendor '.cache'
 $TargetName = 'windows-x64'
 $Components = @('ffmpeg', 'ffprobe', 'deno', 'libsndfile', 'rubberband')
+
+$VenvScripts = Join-Path $RepoRoot '.venv\Scripts'
+if (Test-Path -LiteralPath $VenvScripts -PathType Container) {
+    $env:PATH = "$VenvScripts;$env:PATH"
+}
 
 function Write-Note([string]$Message) {
     Write-Host "vendor-fetch: $Message"
@@ -136,12 +143,30 @@ function Expand-ZipArchive([string]$Archive, [string]$Destination) {
     Expand-Archive -LiteralPath $Archive -DestinationPath $Destination -Force
 }
 
-function Expand-TarXz([string]$Archive, [string]$Destination) {
+function Expand-TarArchive(
+    [string]$Archive,
+    [string]$Destination,
+    [int]$Strip = 0
+) {
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-    & tar.exe -xf $Archive -C $Destination
+    # bsdtar auto-detects the compression; -xf works for the pinned .tar.xz and
+    # .tar.gz archives on windows-2022 and avoids relying on a format flag.
+    $tarArgs = @('-xf', $Archive, '-C', $Destination)
+    if ($Strip -gt 0) {
+        $tarArgs += "--strip-components=$Strip"
+    }
+    & tar.exe @tarArgs
     if ($LASTEXITCODE -ne 0) {
         throw "tar.exe failed to extract $Archive"
     }
+}
+
+function Expand-TarXz([string]$Archive, [string]$Destination, [int]$Strip = 0) {
+    Expand-TarArchive $Archive $Destination $Strip
+}
+
+function Expand-TarGz([string]$Archive, [string]$Destination, [int]$Strip = 0) {
+    Expand-TarArchive $Archive $Destination $Strip
 }
 
 function Find-Child([string]$Root, [string]$Leaf) {
@@ -241,6 +266,209 @@ function Install-Stage([string]$Relative) {
     Move-Item -Force -LiteralPath $temporary -Destination $destination
 }
 
+function Invoke-LockBuildConfigure($Entry, [string]$SourceRoot, [string]$WorkingDirectory) {
+    $argv = @($Entry.build.configure | ForEach-Object { $_ -replace '<source>', $SourceRoot })
+    if ($argv.Count -lt 2) {
+        throw "the lock has no usable build.configure line"
+    }
+    $tool = [string]$argv[0]
+    $arguments = @($argv[1..($argv.Count - 1)])
+    Push-Location -LiteralPath $WorkingDirectory
+    try {
+        & $tool @arguments | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "$tool failed with exit code $LASTEXITCODE; see the lock's build.configure line"
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Find-Tool([string]$Name, [string]$Hint) {
+    $command = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        throw "missing build tool '$Name'. $Hint"
+    }
+    return $command.Source
+}
+
+function Enter-MsvcEnvironment {
+    if ($null -ne (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+        return
+    }
+    $programFilesX86 = ${env:ProgramFiles(x86)}
+    if (-not $programFilesX86) {
+        $programFilesX86 = $env:ProgramFiles
+    }
+    $vswhere = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+        throw "MSVC x64 tools are not on PATH and vswhere.exe is missing. Run this script from a Developer PowerShell for Visual Studio 2022, or pass -RubberBandPrebuilt."
+    }
+    $installation = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
+    if (-not $installation) {
+        throw "Visual Studio with the MSVC x64 toolchain was not found. Install the Desktop development with C++ workload, or pass -RubberBandPrebuilt."
+    }
+    $devShell = Join-Path $installation 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll'
+    if (-not (Test-Path -LiteralPath $devShell -PathType Leaf)) {
+        throw "Microsoft.VisualStudio.DevShell.dll was not found under $installation; run from a Developer PowerShell or pass -RubberBandPrebuilt."
+    }
+    Import-Module $devShell -Force
+    Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
+    if ($null -eq (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+        throw "MSVC x64 tools are still unavailable after Enter-VsDevShell; pass -RubberBandPrebuilt."
+    }
+}
+
+function Build-Libsndfile($Lock, [int]$Parallel) {
+    $record = Get-Component $Lock 'libsndfile'
+    $entry = Get-Target $record $TargetName
+    $format = [string]$entry.build.archive_format
+    $archive = Get-Archive $Lock 'libsndfile'
+    $sourceRoot = Join-Path $Work 'libsndfile-src'
+    $workDir = Join-Path $Work 'libsndfile-work'
+    New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+
+    Write-Note 'build   libsndfile 1.2.2 (CMake, shared, WAV-only)'
+    $cmake = Find-Tool 'cmake' 'CMake is preinstalled on windows-2022; install it or pass -RubberBandPrebuilt.'
+    switch ($format) {
+        'tar.xz' { Expand-TarXz $archive $sourceRoot 1 }
+        'tar.gz' { Expand-TarGz $archive $sourceRoot 1 }
+        default { throw "unsupported libsndfile archive format: $format" }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot 'CMakeLists.txt') -PathType Leaf)) {
+        throw "libsndfile source extraction did not produce CMakeLists.txt"
+    }
+
+    Invoke-LockBuildConfigure $entry $sourceRoot $workDir
+    $buildDir = Join-Path $workDir 'build'
+    & $cmake --build $buildDir --config Release --parallel $Parallel | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "cmake --build failed for libsndfile"
+    }
+
+    $dll = Find-Child $workDir 'sndfile.dll'
+    $importLibrary = Find-Child $workDir 'sndfile.lib'
+    $include = Join-Path $sourceRoot 'include'
+    Assert-File (Join-Path $include 'sndfile.h') 'libsndfile sndfile.h'
+    Write-Note "built   $dll"
+    return [pscustomobject]@{
+        Dll = $dll
+        Lib = $importLibrary
+        Include = $include
+        BuildDir = $buildDir
+    }
+}
+
+function Build-RubberBandFromSource($Lock, $Sndfile) {
+    $record = Get-Component $Lock 'rubberband'
+    $entry = Get-Target $record $TargetName
+    $format = [string]$entry.build.archive_format
+    $archive = Get-Archive $Lock 'rubberband'
+    $sourceRoot = Join-Path $Work 'rubberband-src'
+    $buildDir = Join-Path $Work 'rubberband-build'
+    $pkgConfigDir = Join-Path $Work 'sndfile-pkgconfig'
+    New-Item -ItemType Directory -Force -Path $pkgConfigDir | Out-Null
+
+    switch ($format) {
+        'tar.gz' { Expand-TarGz $archive $sourceRoot 1 }
+        'tar.xz' { Expand-TarXz $archive $sourceRoot 1 }
+        default { throw "unsupported Rubber Band archive format: $format" }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot 'meson.build') -PathType Leaf)) {
+        throw "Rubber Band source extraction did not produce meson.build"
+    }
+
+    Enter-MsvcEnvironment
+    $meson = Find-Tool 'meson' "Install it with 'uv pip install --python .venv\Scripts\python.exe meson ninja'."
+    $ninja = Find-Tool 'ninja' "Install it with 'uv pip install --python .venv\Scripts\python.exe meson ninja'."
+    $pkgConfig = Get-Command 'pkg-config' -ErrorAction SilentlyContinue
+    if ($null -eq $pkgConfig) {
+        $pkgConfig = Get-Command 'pkgconf' -ErrorAction SilentlyContinue
+    }
+    if ($null -eq $pkgConfig) {
+        throw "missing pkg-config. Install pkgconfiglite (choco install pkgconfiglite -y) or pass -RubberBandPrebuilt."
+    }
+
+    # Meson's dependency('sndfile') is required when the command line is
+    # enabled. A tiny .pc file points at the CMake import library by absolute
+    # path, which works with MSVC; the generic '-lsndfile' form does not.
+    $libPath = ([string]$Sndfile.Lib).Replace('\', '/')
+    $includePath = ([string]$Sndfile.Include).Replace('\', '/')
+    $libDir = (Split-Path -Parent ([string]$Sndfile.Lib)).Replace('\', '/')
+    $pcLines = @(
+        "prefix=$(([string]$Sndfile.BuildDir).Replace('\', '/'))",
+        'exec_prefix=${prefix}',
+        'libdir=${prefix}',
+        "includedir=$includePath",
+        'Name: sndfile',
+        'Description: libsndfile 1.2.2 built for StemForge',
+        'Version: 1.2.2',
+        'Requires:',
+        'Libs: ' + $libPath,
+        'Cflags: -I' + $includePath
+    )
+    $pcPath = Join-Path $pkgConfigDir 'sndfile.pc'
+    Set-Content -LiteralPath $pcPath -Value $pcLines -Encoding ASCII
+
+    $oldPkgConfigPath = $env:PKG_CONFIG_PATH
+    $oldPkgConfig = $env:PKG_CONFIG
+    try {
+        if ($oldPkgConfigPath) {
+            $env:PKG_CONFIG_PATH = "$pkgConfigDir;$oldPkgConfigPath"
+        }
+        else {
+            $env:PKG_CONFIG_PATH = $pkgConfigDir
+        }
+        $env:PKG_CONFIG = $pkgConfig.Source
+        $libs = (& $pkgConfig.Source '--libs' 'sndfile' 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or $libs -notlike "*$libPath*") {
+            throw "pkg-config did not resolve the absolute sndfile import library (got: $libs)"
+        }
+
+        Write-Note 'build   Rubber Band 4.0.0 (Meson/MSVC, static library, CLI)'
+        $mesonArguments = @(
+            'setup', $buildDir, $sourceRoot,
+            '--buildtype=release',
+            '--default-library=static',
+            '-Dfft=builtin',
+            '-Dresampler=builtin',
+            '-Dvamp=disabled',
+            '-Dlv2=disabled',
+            '-Dladspa=disabled',
+            '-Djni=disabled',
+            '-Dcmdline=enabled',
+            '-Dtests=disabled',
+            '--vsenv',
+            "-Dextra_lib_dirs=$libDir",
+            "-Dextra_include_dirs=$includePath"
+        )
+        & $meson @mesonArguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "meson setup failed for Rubber Band"
+        }
+        & $ninja '-C' $buildDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "ninja failed for Rubber Band"
+        }
+    }
+    finally {
+        $env:PKG_CONFIG_PATH = $oldPkgConfigPath
+        $env:PKG_CONFIG = $oldPkgConfig
+    }
+
+    $executable = Get-ChildItem -LiteralPath $buildDir -Recurse -File |
+        Where-Object { $_.Name -in @('rubberband.exe', 'rubberband-program.exe') } |
+        Select-Object -First 1
+    if ($null -eq $executable) {
+        throw "the Rubber Band build produced no rubberband.exe or rubberband-program.exe"
+    }
+    Copy-Staged $executable.FullName 'rubberband/rubberband.exe'
+    Copy-Staged $Sndfile.Dll 'rubberband/sndfile.dll'
+    Test-Version 'rubberband' (Join-Path $Stage 'rubberband\rubberband.exe') '--version' $record.version
+    Write-Note "built   $($executable.FullName)"
+}
+
 function Import-RubberBandPrebuilt([string]$InputPath, [string]$ExpectedSha) {
     if (-not $InputPath) {
         throw @"
@@ -322,6 +550,12 @@ function Write-Provenance($Lock) {
         $lines.Add("$($record.provenance.project) $($record.version) ($($record.license))")
         $lines.Add("  obtained: $($source.filename) $($source.url)")
         $lines.Add("  archive sha256: $($source.sha256)")
+        $buildProperty = $entry.PSObject.Properties['build']
+        if ($null -ne $buildProperty) {
+            $build = $buildProperty.Value
+            $lines.Add("  build system: $($build.system)")
+            $lines.Add("  configure: $($build.configure -join ' ')")
+        }
         foreach ($item in @($entry.install)) {
             $relative = [string]$item.to
             $lines.Add("  installed: vendor/$relative sha256=$(Get-Sha256 (Join-Path $Vendor $relative))")
@@ -392,7 +626,13 @@ try {
             }
         }
 
-        Import-RubberBandPrebuilt $RubberBandPrebuilt $RubberBandPrebuiltSha256
+        if ($RubberBandPrebuilt) {
+            Import-RubberBandPrebuilt $RubberBandPrebuilt $RubberBandPrebuiltSha256
+        }
+        else {
+            $sndfile = Build-Libsndfile $Lock $Jobs
+            Build-RubberBandFromSource $Lock $sndfile
+        }
 
         Test-Tree $Stage $Lock
         foreach ($name in $Components) {

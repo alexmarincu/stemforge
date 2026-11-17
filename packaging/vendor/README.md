@@ -56,7 +56,9 @@ generator consume it; `scripts/vendor-fetch.sh` and
 1. Update the pin and its target entries here.
 2. Update `SOURCES.md` with the new archive, size, SHA-256, and licence.
 3. Run `scripts/vendor-fetch.sh --force` (Linux) and
-   `scripts/vendor-fetch.ps1 -Force -RubberBandPrebuilt ...` (Windows).
+   `scripts/vendor-fetch.ps1 -Force` (Windows; it builds Rubber Band and
+   libsndfile from these sources with MSVC/CMake/Meson, or accepts a pinned pair
+   via `-RubberBandPrebuilt`).
 4. Run `uv run pytest tests/unit/test_vendor_lock.py
    tests/integration/test_vendor_binaries.py -m "unit or (integration and slow)"`.
 5. Ticket 22's `generate_notices.py --check` must stay green.
