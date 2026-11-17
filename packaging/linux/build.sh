@@ -56,6 +56,7 @@ test -x "$dist/StemForge"
 test -d "$dist/_internal"
 test -f "$dist/_internal/assets/stemforge.ico"
 test -f "$dist/_internal/models/models.lock.json"
+test -f "$dist/_internal/vendor.lock.json"
 test -d "$dist/vendor"
 test -x "$dist/run.sh"
 

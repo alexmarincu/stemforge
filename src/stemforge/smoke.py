@@ -55,6 +55,14 @@ VENDOR_BINARIES: Final = (
     ("vendor.rubberband", binaries.rubberband),
     ("vendor.deno", binaries.deno),
 )
+# FFmpeg's long form is ``-version``; the other two tools accept ``--version``.
+# Preflight and the vendor lock use the same flags (ticket 19).
+VENDOR_VERSION_FLAGS: Final = {
+    "ffmpeg": "-version",
+    "ffprobe": "-version",
+    "rubberband": "--version",
+    "deno": "--version",
+}
 
 Check = dict[str, Any]
 Report = dict[str, Any]
@@ -194,13 +202,16 @@ def _check_bundle_root(checks: list[Check], *, require_vendor: bool) -> None:
         # not run is reported as missing, not as a broken Bundle. A frozen build
         # (or REQUIRE_VENDOR) treats it as fatal, as ticket 14's preflight does.
         strict = resources.is_frozen() or require_vendor
+        tool = name.removeprefix("vendor.")
+        flag = VENDOR_VERSION_FLAGS.get(tool, "--version")
         try:
             completed = subprocess.run(
-                [str(path), "--version"],
+                [str(path), flag],
                 capture_output=True,
                 text=True,
                 timeout=30,
                 check=False,
+                env=binaries.tool_environment(path),
             )
         except (OSError, subprocess.SubprocessError) as exc:
             _check(
@@ -212,7 +223,8 @@ def _check_bundle_root(checks: list[Check], *, require_vendor: bool) -> None:
             )
             continue
         if completed.returncode == 0:
-            _check(checks, name, "ok", f"{path}: {_first_line(completed.stdout)}")
+            first = _first_line(completed.stdout or completed.stderr)
+            _check(checks, name, "ok", f"{path}: {first}")
         else:
             _check(
                 checks,
