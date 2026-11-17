@@ -313,6 +313,8 @@ def test_coverage_producers_write_a_per_job_data_file(ci: dict[str, Any]) -> Non
         assert upload["with"]["name"] == f"coverage-{name}"
         assert upload["with"]["path"] == data_file
         assert upload["with"]["retention-days"] == 7
+        # upload-artifact v4 skips dotfiles unless this is explicit.
+        assert upload["with"]["include-hidden-files"] is True
         assert "coverage run -m pytest" in _flat(job), name
 
 
