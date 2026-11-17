@@ -143,6 +143,8 @@ SHELL_CSS: Final = """
 .sf-jobbar { flex: none; min-height: 44px; display: flex; align-items: center; gap: 12px;
   padding: 6px 16px; background: #11141a; border-top: 1px solid #232833; }
 .sf-job-text { font-size: 11.5px; color: #b9c4d3; white-space: nowrap; }
+.sf-job-detail { font-size: 10.5px; color: #7c8798; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 34%; flex: 0 1 auto; }
 .sf-job-progress { flex: 1; min-width: 80px; }
 .sf-job-pct { font-size: 10.5px; color: #7c8798; font-family: ui-monospace, monospace;
   width: 38px; }
@@ -261,6 +263,9 @@ class JobView(Protocol):
     def stage(self) -> str: ...
 
     @property
+    def detail(self) -> str | None: ...
+
+    @property
     def active(self) -> bool: ...
 
     @property
@@ -321,7 +326,7 @@ class WorkspacePage:
         self._dialog_busy = False
         self._watched_jobs: set[str] = set()
         self._reported_jobs: set[str] = set()
-        self._job_signature: tuple[str, str, int, str] | None = None
+        self._job_signature: tuple[str, str, int, str, str] | None = None
         self._job_bar_visible = False
         self._notice: tuple[str, str, str, str | None] | None = None
         self._add_button: ui.button | None = None
@@ -604,7 +609,11 @@ class WorkspacePage:
                 ui.label("WAV, MP3, FLAC, M4A — or choose files…").classes("sf-drop-sub")
             if youtube_on:
                 ui.label("or").classes("sf-or")
-                self._youtube_row = YouTubeRow(self.service, busy=busy)
+                self._youtube_row = YouTubeRow(
+                    self.service,
+                    busy=busy,
+                    on_submitted=self._on_youtube_submitted,
+                )
                 self._youtube_row.build()
             else:
                 self._youtube_row = None
@@ -964,6 +973,10 @@ class WorkspacePage:
             ui.label(
                 f"{self._job_label(snapshot.kind.value)} · {snapshot.stage or 'Starting'}"
             ).classes("sf-job-text").mark("job-stage")
+            # Local imports keep their filename out of the bar until the Track
+            # exists; YouTube's wait countdown and byte progress are user-facing.
+            if snapshot.kind.value == "import_youtube" and snapshot.detail:
+                ui.label(snapshot.detail).classes("sf-job-detail").mark("job-detail")
             ui.linear_progress(value=float(snapshot.progress), show_value=False).classes(
                 "sf-job-progress"
             )
@@ -1020,6 +1033,16 @@ class WorkspacePage:
         self._watched_jobs.add(job_id)
         self._reported_jobs.discard(job_id)
 
+    def _on_youtube_submitted(self, job_id: str) -> None:
+        """Mirror the local-import submit: watch the Job and show the bar."""
+        self._watch_job(job_id)
+        self._notice = None
+        self._notice_block.refresh()
+        self._job_signature = None
+        self._job_bar_visible = True
+        self._job_bar.refresh()
+        self._sync_actions()
+
     def _pitch_job_started(
         self,
         job_id: str,
@@ -1043,13 +1066,8 @@ class WorkspacePage:
     def _open_recent(self, entry: RecentEntry) -> None:
         if self._busy():
             return
-        if entry.origin_kind is OriginKind.YOUTUBE:
-            message = (
-                formatting.YOUTUBE_UNAVAILABLE
-                if self.service.youtube_enabled()
-                else formatting.YOUTUBE_OFF
-            )
-            ui.notify(message, type="info")
+        if entry.origin_kind is OriginKind.YOUTUBE and not self.service.youtube_enabled():
+            ui.notify(formatting.YOUTUBE_OFF, type="info")
             return
         try:
             job_id = self.service.open_recent(entry.source_id)
@@ -1083,6 +1101,7 @@ class WorkspacePage:
                 snapshot.state.value,
                 round(snapshot.progress * 1000),
                 snapshot.stage,
+                snapshot.detail or "",
             )
             if signature != self._job_signature or not self._job_bar_visible:
                 self._job_signature = signature
