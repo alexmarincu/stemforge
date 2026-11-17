@@ -54,7 +54,11 @@ def _weight_files() -> tuple[Path, ...]:
     for path in REPO_ROOT.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in WEIGHT_SUFFIXES:
             continue
-        if {".git", ".venv", "node_modules", "__pycache__"} & set(path.parts):
+        if {".git", "node_modules", "__pycache__"} & set(path.parts):
+            continue
+        # Local virtualenvs (``.venv``, ``.venv-light``, ``.venv-ci``, ...) are
+        # checkouts' tooling, never repository content.
+        if any(part.startswith(".venv") for part in path.parts):
             continue
         found.append(path)
     return tuple(sorted(found))

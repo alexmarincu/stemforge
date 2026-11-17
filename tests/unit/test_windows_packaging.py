@@ -284,7 +284,11 @@ def test_windows_workflow_is_manual_35_minutes_and_off_pull_requests() -> None:
     assert "workflow_dispatch:" in text
     assert "pull_request" not in text
     assert "runs-on: windows-2022" in text
-    assert "timeout-minutes: 35" in text
+    # A manual dispatch keeps the ticket 21 ceiling; the nightly calls the same
+    # job through workflow_call with its 50-minute ceiling (ticket 11 §5).
+    assert "timeout-minutes: ${{ inputs.timeout-minutes || 35 }}" in text
+    assert "default: 35" in text
+    assert "workflow_call:" in text
     assert "packaging/windows/build.ps1" in text
     assert "packaging/windows/smoke-test.ps1" in text
     assert "packaging/windows/package.ps1" in text
