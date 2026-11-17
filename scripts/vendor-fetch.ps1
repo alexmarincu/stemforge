@@ -431,8 +431,11 @@ function Build-RubberBandFromSource($Lock, $Sndfile) {
     foreach ($candidate in $pkgConfigCandidates) {
         if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
         if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
-        $version = (& $candidate '--version' 2>$null | Select-Object -First 1)
-        if ($LASTEXITCODE -eq 0 -and $version) {
+        Write-Note "pkg-config candidate $candidate"
+        # Do not pipe a .bat through Select-Object: PowerShell treats it as a
+        # document in the middle of a pipeline. Flattening the output is enough.
+        $version = (& $candidate '--version' 2>$null) -join ' '
+        if ($LASTEXITCODE -eq 0 -and $version.Trim()) {
             $pkgConfigPath = $candidate
             break
         }
