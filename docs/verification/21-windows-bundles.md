@@ -3,8 +3,10 @@
 **Status: implemented and statically verified on Linux; Windows runner evidence pending.**
 There is no Windows host, MSVC toolchain, Inno Setup compiler, or installable
 desktop in this environment. Nothing below claims a Windows build, install, or
-launch ran here. The exact runner and manual commands that produce that evidence
-are recorded in §6–§7; they feed ticket 23's release checklist.
+launch ran here. The licence tree from ticket 22 is now on `integration/v0.1.0`, so
+the build no longer needs its non-release escape hatch. The exact runner and
+manual commands that produce Windows evidence are recorded in §6–§7; they feed
+ticket 23's release checklist.
 
 ## 1. What was built
 
@@ -109,12 +111,12 @@ Commands and results from this worktree:
 
 | Gate | Result |
 |---|---|
-| `uv run ruff format --check .` | 155 files already formatted. |
+| `uv run ruff format --check .` | 181 files already formatted. |
 | `uv run ruff check .` | All checks passed. |
-| `uv run mypy src/stemforge` | Success: no issues in 58 source files. |
+| `uv run mypy src/stemforge` | Success: no issues in 59 source files. |
 | `uv run lint-imports` | 2 contracts kept, 0 broken. |
-| `uv run pytest -m "unit or ui"` | 764 passed, 1 skipped, 137 deselected. |
-| `uv run pytest -m "integration and not slow"` | 128 passed, 774 deselected. |
+| `uv run pytest -m "unit or ui"` | 797 passed, 1 skipped, 137 deselected. |
+| `uv run pytest -m "integration and not slow"` | 128 passed, 807 deselected. |
 | `STEMFORGE_HOME=<tmp> uv run stemforge --self-test` | exit 0, 17 ok / 2 skipped (development checkout). |
 | `STEMFORGE_HOME=<tmp> uv run stemforge --smoke-test` | exit 0, HTTP 200 in 0.519 s. |
 | `pwsh` 7.5.4 parser over `scripts/vendor-fetch.ps1`, `build.ps1`, `package.ps1`, `smoke-test.ps1` | 0 syntax errors. Installed locally for this check only; not a Windows run. |
@@ -122,7 +124,7 @@ Commands and results from this worktree:
 | WebView2 pin | Download re-hashed to the recorded size and SHA-256. |
 | `version_info.py` | Rendered text deserialised with PyInstaller's `VSVersionInfo` loader (with `pefile`/`win32api` stubbed on Linux) to `FileVersion`/`ProductVersion` `0.1.0`, `OriginalFilename` `StemForge.exe`. |
 | `tests/unit/test_windows_packaging.py` | 42 passed (installer, spec, scripts, budgets, weights, vendor, licence, PE, SHA-256). |
-| Real #22 tree cross-check | `verify_bundle.py` passed 15 curated components and 14 native files using the unmerged `ticket/22-licensing` worktree's `LICENSE`, `THIRD_PARTY_NOTICES.md`, `SOURCE_OFFER.md`, `LICENSES/`, and `packaging/licenses/native.toml` with a synthetic Windows bundle. |
+| Merged #22 tree cross-check | `verify_bundle.py` passed 15 curated components and 14 native files using the merged `integration/v0.1.0` `LICENSE`, `THIRD_PARTY_NOTICES.md`, `SOURCE_OFFER.md`, `LICENSES/`, and `packaging/licenses/native.toml` with a synthetic Windows bundle. |
 
 The PowerShell parse and analyzer results are Linux-side static checks, not
 evidence that the scripts execute on Windows. The Windows runner job in §6 is
@@ -251,13 +253,14 @@ report, and no writes outside `STEMFORGE_HOME`.
 
 ## 8. Deviations and follow-ups
 
-- **Licence tree content gate pending ticket 22.** `LICENSES/`,
+- **Licence tree content gate.** Ticket 22's `LICENSES/`,
   `THIRD_PARTY_NOTICES.md`, `SOURCE_OFFER.md`, and `packaging/licenses/native.toml`
-  are not on this branch yet. `build.ps1` fails closed by default; the explicit
-  `-AllowLicencePending` switch exists only for non-release CI evidence and writes
-  `LICENCE-GATE-PENDING.txt`, which `package.ps1` refuses. The workflow skips
-  packaging when that input is true. After #22 merges, rebuild without the switch;
-  no other change is needed.
+  are merged on `integration/v0.1.0`; the verifier passes against them (15 curated
+  components, 14 native files in the synthetic check). `build.ps1` still fails
+  closed by default. The explicit `-AllowLicencePending` switch remains only for
+  a branch without that tree: it writes `LICENCE-GATE-PENDING.txt`, which
+  `package.ps1` refuses, and the workflow skips packaging when the input is true.
+  Release builds use the default path and package normally.
 - **Native manifest schema.** `verify_bundle.py` reads ticket 22's
   `packaging/licenses/native.toml` `[[component]]` rows (`id`, `title`,
   `texts`, `buildinfo`), requires `LICENSES/<id>/NOTICE.md` for every curated
@@ -265,10 +268,10 @@ report, and no writes outside `STEMFORGE_HOME`.
   each shipped native file to either a curated notice (vendor tools,
   `StemForge.exe`, PyTorch/NumPy/Python/LLVM/GCC/OpenSSL/OpenBLAS) or a row in
   `LICENSES/python/DEPENDENCIES.md` (wheel extension modules). An unclassified
-  native file fails. The verifier was cross-checked against the unmerged
-  `ticket/22-licensing` worktree's generated tree with a synthetic Windows
-  bundle: 15 curated components and 14 native files passed. Do not hand-edit
-  either manifest; the generator owns them.
+  native file fails. The verifier was cross-checked against the merged
+  `integration/v0.1.0` tree with a synthetic Windows bundle: 15 curated components
+  and 14 native files passed. Do not hand-edit either manifest; the generator
+  owns them.
 - **Budget mode.** `verify_bundle.py` treats crossing the target (ZIP 450 MiB,
   setup 380 MiB) as an error and names the higher hard-fail threshold (600/500
   MiB) in the message. The decision record's table calls only the higher number a
