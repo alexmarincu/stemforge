@@ -1,0 +1,131 @@
+{
+  "component": "ffmpeg",
+  "licence": "GPL-3.0-or-later",
+  "note": "The shipped runtime `-buildconf`/`--version` output is captured by the release build into this directory; the values above are the committed provenance record from packaging/vendor.lock.json.",
+  "source": "https://github.com/FFmpeg/FFmpeg/tree/d838f9f9ae",
+  "vendor_lock": "packaging/vendor.lock.json",
+  "vendor_records": [
+    {
+      "ffmpeg": {
+        "license": "GPL-3.0-or-later",
+        "license_texts": [
+          "LICENSE.txt"
+        ],
+        "provenance": {
+          "build": "GPL static, --enable-gpl --enable-version3 --disable-debug",
+          "build_project": "BtbN/FFmpeg-Builds",
+          "build_repository": "https://github.com/BtbN/FFmpeg-Builds",
+          "build_scripts_url": "https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-11-15-12-40",
+          "buildinfo": "The shipped `ffmpeg -buildconf` is recorded in LICENSES/ffmpeg/BUILDINFO.txt.",
+          "homepage": "https://ffmpeg.org/",
+          "project": "FFmpeg",
+          "release_tag": "autobuild-2026-11-15-12-40",
+          "version_commit": "d838f9f9ae"
+        },
+        "targets": {
+          "linux-x86_64": {
+            "archive_format": "tar.xz",
+            "filename": "ffmpeg-n9.0.2-57-gd838f9f9ae-linux64-gpl-9.0.tar.xz",
+            "install": [
+              {
+                "executable": true,
+                "from": "bin/ffmpeg",
+                "sha256": "3bfd3efb3208bcd1d7600bdd3f2bdc8b3ee0964265364414204a50b8bad9be25",
+                "to": "ffmpeg/ffmpeg"
+              },
+              {
+                "executable": true,
+                "from": "bin/ffprobe",
+                "sha256": "d9717831fbc178cc64232c944aa372cc726a5c1077f8b31e1e234a89ca534c9d",
+                "to": "ffmpeg/ffprobe"
+              }
+            ],
+            "kind": "archive",
+            "sha256": "72836132863e0d40e2af74a8ef59c32b10771aed0c8540b634fb77db2e6e3ae2",
+            "size": 152700372,
+            "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/ffmpeg-n9.0.2-57-gd838f9f9ae-linux64-gpl-9.0.tar.xz"
+          },
+          "windows-x64": {
+            "archive_format": "zip",
+            "filename": "ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip",
+            "install": [
+              {
+                "executable": true,
+                "from": "bin/ffmpeg.exe",
+                "sha256": "9886c618fcbb33d42df41f3cc102d495a90473e66b7180a63e02b0c3015d93d6",
+                "to": "ffmpeg/ffmpeg.exe"
+              },
+              {
+                "executable": true,
+                "from": "bin/ffprobe.exe",
+                "sha256": "482155f54c6a578e28ad173e9cebc973de63b32eaf4403e0abc9a4779405c4d9",
+                "to": "ffmpeg/ffprobe.exe"
+              }
+            ],
+            "kind": "archive",
+            "sha256": "11b387a88ad24ee6d78bae7d24a2417834737e6ac00f0a36ca67fead1e924eff",
+            "size": 194990151,
+            "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip"
+          }
+        },
+        "version": "n9.0.2-57-gd838f9f9ae",
+        "version_flag": "-version"
+      }
+    },
+    {
+      "ffprobe": {
+        "license": "GPL-3.0-or-later",
+        "license_texts": [
+          "LICENSE.txt"
+        ],
+        "provenance": {
+          "build": "GPL static, --enable-gpl --enable-version3 --disable-debug",
+          "build_project": "BtbN/FFmpeg-Builds",
+          "build_repository": "https://github.com/BtbN/FFmpeg-Builds",
+          "build_scripts_url": "https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-11-15-12-40",
+          "buildinfo": "The shipped `ffprobe -buildconf` is recorded in LICENSES/ffmpeg/BUILDINFO.txt.",
+          "homepage": "https://ffmpeg.org/",
+          "project": "FFmpeg",
+          "release_tag": "autobuild-2026-11-15-12-40",
+          "version_commit": "d838f9f9ae"
+        },
+        "targets": {
+          "linux-x86_64": {
+            "archive_format": "tar.xz",
+            "filename": "ffmpeg-n9.0.2-57-gd838f9f9ae-linux64-gpl-9.0.tar.xz",
+            "install": [
+              {
+                "executable": true,
+                "from": "bin/ffprobe",
+                "sha256": "d9717831fbc178cc64232c944aa372cc726a5c1077f8b31e1e234a89ca534c9d",
+                "to": "ffmpeg/ffprobe"
+              }
+            ],
+            "kind": "archive",
+            "sha256": "72836132863e0d40e2af74a8ef59c32b10771aed0c8540b634fb77db2e6e3ae2",
+            "size": 152700372,
+            "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/ffmpeg-n9.0.2-57-gd838f9f9ae-linux64-gpl-9.0.tar.xz"
+          },
+          "windows-x64": {
+            "archive_format": "zip",
+            "filename": "ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip",
+            "install": [
+              {
+                "executable": true,
+                "from": "bin/ffprobe.exe",
+                "sha256": "482155f54c6a578e28ad173e9cebc973de63b32eaf4403e0abc9a4779405c4d9",
+                "to": "ffmpeg/ffprobe.exe"
+              }
+            ],
+            "kind": "archive",
+            "sha256": "11b387a88ad24ee6d78bae7d24a2417834737e6ac00f0a36ca67fead1e924eff",
+            "size": 194990151,
+            "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip"
+          }
+        },
+        "version": "n9.0.2-57-gd838f9f9ae",
+        "version_flag": "-version"
+      }
+    }
+  ]
+}
