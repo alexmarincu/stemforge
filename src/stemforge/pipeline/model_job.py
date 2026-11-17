@@ -15,14 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import http.client
-import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Final, Protocol, cast
+from typing import Final, Protocol, cast
 
 from stemforge import errors
 from stemforge.artifacts import (
@@ -60,8 +59,6 @@ INSTALL_START: Final = 0.98
 FALLBACK_WINDOW_BYTES: Final = 16 * 1024 * 1024
 DOWNLOAD_TIMEOUT_S: Final = 60.0
 READ_CHUNK_BYTES: Final = 1024 * 1024
-DEFAULT_RETRY_DELAY_S: Final = 0.5
-TRANSIENT_HTTP_STATUS: Final = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
 class DownloadResponse(Protocol):
@@ -78,12 +75,11 @@ Transport = Callable[[str], DownloadResponse]
 
 
 class _NetworkFailure(Exception):
-    """A classified transport failure; ``transient`` decides whether to retry."""
+    """A classified transport failure; ticket 14 §8 forbids automatic retries."""
 
-    def __init__(self, reason: str, *, transient: bool, detail: str, cause: BaseException) -> None:
+    def __init__(self, reason: str, *, detail: str, cause: BaseException) -> None:
         super().__init__(detail)
         self.reason = reason
-        self.transient = transient
         self.detail = detail
         self.cause = cause
 
@@ -107,10 +103,6 @@ class ModelInstallJob:
     store: ModelStore
     consent: ModelConsent | None = None
     transport: Transport | None = None
-    sleep: Callable[[float], None] = time.sleep
-    retry_delay_s: float = DEFAULT_RETRY_DELAY_S
-
-    MAX_ATTEMPTS: ClassVar[int] = 3
 
     def run(self, ctx: JobContext) -> ModelInstallResult:
         """Run the whole install, publishing ``Consent`` → ``Download`` → … stages."""
@@ -146,21 +138,11 @@ class ModelInstallJob:
     # -- download -----------------------------------------------------------
 
     def _download(self, ctx: JobContext, partial: Path) -> tuple[int, str]:
-        for attempt in range(1, self.MAX_ATTEMPTS + 1):
-            try:
-                return self._download_once(ctx, partial)
-            except _NetworkFailure as failure:
-                self.store.discard_partial()
-                if not failure.transient or attempt >= self.MAX_ATTEMPTS:
-                    raise self._download_error(failure) from failure.cause
-                ctx.log.warning(
-                    "model download attempt %d/%d failed (%s); retrying",
-                    attempt,
-                    self.MAX_ATTEMPTS,
-                    failure.detail,
-                )
-                self.sleep(self.retry_delay_s * attempt)
-        raise AssertionError("the download loop always returns or raises")
+        try:
+            return self._download_once(ctx, partial)
+        except _NetworkFailure as failure:
+            self.store.discard_partial()
+            raise self._download_error(failure) from failure.cause
 
     def _download_once(self, ctx: JobContext, partial: Path) -> tuple[int, str]:
         spec = self.store.spec
@@ -172,21 +154,18 @@ class ModelInstallJob:
             except urllib.error.HTTPError as exc:
                 raise _NetworkFailure(
                     "http",
-                    transient=exc.code in TRANSIENT_HTTP_STATUS,
                     detail=f"HTTP {exc.code}",
                     cause=exc,
                 ) from exc
             except urllib.error.URLError as exc:
                 raise _NetworkFailure(
                     "offline",
-                    transient=True,
                     detail=f"{type(exc.reason).__name__}: {exc.reason}",
                     cause=exc,
                 ) from exc
             except (TimeoutError, ConnectionError, http.client.HTTPException, OSError) as exc:
                 raise _NetworkFailure(
                     "offline",
-                    transient=True,
                     detail=f"{type(exc).__name__}: {exc}",
                     cause=exc,
                 ) from exc
@@ -213,7 +192,6 @@ class ModelInstallJob:
                     ) as exc:
                         raise _NetworkFailure(
                             "offline",
-                            transient=True,
                             detail=f"{type(exc).__name__}: {exc}",
                             cause=exc,
                         ) from exc
@@ -257,7 +235,7 @@ class ModelInstallJob:
         return StemForgeError(
             code,
             "could not write the model download",
-            retryable=code == errors.SEPARATION_ENGINE_ERROR,
+            retryable=True,
             detail=f"{type(exc).__name__}: {exc}",
             context={"path": str(path), "errno": exc.errno},
         )
