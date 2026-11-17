@@ -114,7 +114,7 @@ Commands and results from this worktree:
 | `uv run mypy src/stemforge` | Success: no issues in 58 source files. |
 | `uv run lint-imports` | 2 contracts kept, 0 broken. |
 | `uv run pytest -m "unit or ui"` | 764 passed, 1 skipped, 137 deselected. |
-| `uv run pytest -m "integration and not slow"` | 128 passed, 772 deselected. |
+| `uv run pytest -m "integration and not slow"` | 128 passed, 774 deselected. |
 | `STEMFORGE_HOME=<tmp> uv run stemforge --self-test` | exit 0, 17 ok / 2 skipped (development checkout). |
 | `STEMFORGE_HOME=<tmp> uv run stemforge --smoke-test` | exit 0, HTTP 200 in 0.519 s. |
 | `pwsh` 7.5.4 parser over `scripts/vendor-fetch.ps1`, `build.ps1`, `package.ps1`, `smoke-test.ps1` | 0 syntax errors. Installed locally for this check only; not a Windows run. |
