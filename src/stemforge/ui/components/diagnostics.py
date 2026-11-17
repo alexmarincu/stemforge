@@ -148,6 +148,10 @@ def error_details(
 
 
 def _open_log(open_path: PathOpener, log_path: Path) -> None:
+    if not log_path.is_file():
+        copy = formatting.copy_for(errors.LICENSING_OPEN_FAILED, "log")
+        ui.notify(copy.headline, type="negative")
+        return
     try:
         open_path.open_path(log_path)
     except StemForgeError as error:
