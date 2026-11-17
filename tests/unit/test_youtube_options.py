@@ -128,6 +128,65 @@ def test_progress_hooks_are_passed_through_for_the_download(tmp_path: Path) -> N
     assert options["progress_hooks"] == [hook]
 
 
+def test_the_download_hook_raises_download_cancelled_when_the_token_is_set(
+    tmp_path: Path,
+) -> None:
+    from yt_dlp.utils import DownloadCancelled
+
+    from stemforge.domain.cancellation import CancelToken
+    from stemforge.engines.youtube import YouTubeVideo, YtDlpImporter
+    from stemforge.errors import JobCancelled
+
+    token = CancelToken()
+    seen: dict[str, object] = {}
+
+    class Stub:
+        def __init__(self, options: dict[str, object]) -> None:
+            seen["options"] = options
+
+        def __enter__(self) -> Stub:
+            return self
+
+        def __exit__(self, *exc_info: object) -> bool:
+            return False
+
+        def extract_info(self, url: str, download: bool = False) -> dict[str, object]:
+            del url, download
+            token.cancel()
+            hooks = seen["options"]["progress_hooks"]  # type: ignore[index]
+            assert isinstance(hooks, list)
+            try:
+                hooks[0](
+                    {
+                        "status": "downloading",
+                        "downloaded_bytes": 10,
+                        "total_bytes": 100,
+                    }
+                )
+            except DownloadCancelled:
+                seen["hook_cancelled"] = True
+                raise
+            raise AssertionError("the hook ignored the cancel token")
+
+    adapter = YtDlpImporter(
+        cache_root=tmp_path / "cache",
+        ffmpeg=Path("/bin/true"),
+        deno=Path("/bin/true"),
+        youtube_dl_factory=Stub,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(JobCancelled):
+        adapter.download(
+            YouTubeVideo(video_id="dQw4w9WgXcQ", canonical_url="https://youtu.be/dQw4w9WgXcQ"),
+            tmp_path / "download",
+            cancel=token,
+            log=logging.getLogger("test.youtube"),
+            progress=lambda fraction, detail: None,
+        )
+
+    assert seen["hook_cancelled"] is True
+
+
 def test_the_adapter_source_has_no_cookie_or_login_path() -> None:
     source = Path("src/stemforge/engines/youtube.py").read_text(encoding="utf-8")
 

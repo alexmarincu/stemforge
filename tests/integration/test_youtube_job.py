@@ -331,6 +331,65 @@ def test_a_youtube_import_commits_a_source_track_and_recent_file(
     assert len(StubYoutubeDL.constructed) == 2
 
 
+def test_a_valid_native_file_repairs_missing_derived_files_locally(
+    tmp_path: Path, ffmpeg: Path, ffprobe: Path, source_wav: Path
+) -> None:
+    StubYoutubeDL.source_wav = source_wav
+    StubYoutubeDL.stop = None
+    StubYoutubeDL.started = None
+    StubYoutubeDL.constructed = []
+
+    with Harness(
+        root=tmp_path,
+        ffmpeg=ffmpeg,
+        ffprobe=ffprobe,
+        source_wav=source_wav,
+        factory=StubYoutubeDL,
+    ) as first:
+        job_id = first.service.submit_youtube(URL)
+        assert first.runner.wait_idle(timeout=120)
+        assert first.runner.snapshot(job_id).state is JobState.SUCCEEDED
+
+    source_dir = first.paths.cache / "sources" / f"yt-{VIDEO_ID}"
+    manifest = json.loads((source_dir / "source.json").read_text(encoding="utf-8"))
+    roles = {entry["role"]: entry["path"] for entry in manifest["files"]}
+    canonical = source_dir / roles["canonical"]
+    preview = source_dir / roles["preview"]
+    canonical.unlink()
+    preview.unlink()
+    assert first.store.find_source(f"yt-{VIDEO_ID}") is None
+
+    ExplodingYoutubeDL.constructed = 0
+
+    def exploding_delay(seconds: float) -> None:
+        raise AssertionError(f"a local repair must not wait ({seconds}s)")
+
+    second = Harness(
+        root=tmp_path,
+        ffmpeg=ffmpeg,
+        ffprobe=ffprobe,
+        source_wav=source_wav,
+        factory=ExplodingYoutubeDL,
+        delay=exploding_delay,
+    )
+    with second:
+        job_id = second.service.submit_youtube(URL)
+        assert second.runner.wait_idle(timeout=120)
+        snapshot = second.runner.snapshot(job_id)
+
+        assert snapshot.state is JobState.SUCCEEDED, snapshot
+        assert snapshot.stage == "Finishing"
+        assert ExplodingYoutubeDL.constructed == 0
+        assert second.delays == []
+        repaired = second.store.find_source(f"yt-{VIDEO_ID}")
+        assert repaired is not None
+        assert repaired.path_for("canonical") is not None
+        assert repaired.path_for("canonical").is_file()
+        assert repaired.path_for("preview") is not None
+        assert repaired.path_for("preview").is_file()
+        assert second.service.snapshot().tracks[0].title == TITLE
+
+
 def test_a_second_import_of_the_same_link_constructs_no_youtube_dl(
     tmp_path: Path, ffmpeg: Path, ffprobe: Path, source_wav: Path
 ) -> None:
