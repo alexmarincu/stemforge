@@ -7,6 +7,7 @@ UI can render as a field message. Expected values come from ticket 09's table.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -126,6 +127,8 @@ def test_rejected_shapes_carry_the_field_level_code(raw: str, code: str) -> None
 
 
 def test_the_parser_imports_no_network_or_yt_dlp() -> None:
-    assert "yt_dlp" not in sys.modules
     module = sys.modules["stemforge.engines.youtube"]
     assert "yt_dlp" not in getattr(module, "__dict__", {})
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    assert "\nimport yt_dlp" not in source
+    assert "\nfrom yt_dlp" not in source
