@@ -9,8 +9,8 @@ run while implementing this ticket.
 
 - `tests/unit/test_youtube_options.py` — the exact `YoutubeDL` option table from
   ticket 09 §4 (audio-only, no playlist, no postprocessors, no cookies/accounts/
-  proxy, `cachedir` under `<cache>/yt-dlp/`, quiet/no-progress), plus the
-  exception → code mapping.
+  proxy, `outtmpl`/`paths.home` and `cachedir` under `<cache>/yt-dlp/`,
+  quiet/no-progress), plus the exception → code mapping.
 - `tests/integration/test_youtube_job.py` — a stubbed `YoutubeDL` writes a
   generated WAV; the real FFmpeg decodes it, builds the preview, records the
   native hash, and commits `sources/yt-<id>/`. A second import over the same

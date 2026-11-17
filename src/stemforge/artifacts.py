@@ -973,6 +973,31 @@ class ArtifactStore:
         with self._lock:
             return _directory_size(self.youtube_cache_dir)
 
+    def youtube_scratch(self, job_id: str) -> Path:
+        """The per-Job yt-dlp download scratch under ``<cache>/yt-dlp/``."""
+        _validate_identity(job_id, "job id")
+        return self.youtube_cache_dir / job_id
+
+    def create_youtube_scratch(self, job_id: str) -> Path:
+        """Create one Job's yt-dlp scratch and return it."""
+        scratch = self.youtube_scratch(job_id)
+        try:
+            scratch.mkdir(mode=0o700, parents=True, exist_ok=True)
+        except OSError as exc:
+            _raise_wrapped(exc, f"create the YouTube scratch for {job_id}")
+        return scratch
+
+    def discard_youtube_scratch(self, job_id: str) -> bool:
+        """Delete one Job's yt-dlp scratch after a cancel or failure."""
+        scratch = self.youtube_scratch(job_id)
+        with self._lock:
+            existed = scratch.exists() or scratch.is_symlink()
+            try:
+                _remove_tree(scratch)
+            except OSError as exc:
+                _raise_wrapped(exc, f"discard the YouTube scratch for {job_id}")
+            return existed
+
     def clear_youtube_cache(self) -> int:
         """Delete ``<cache>/yt-dlp/`` only; return the bytes freed.
 

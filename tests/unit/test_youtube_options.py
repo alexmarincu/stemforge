@@ -43,19 +43,12 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("stemforge.engines.youtube._default_youtube_dl", refuse_youtube_dl)
 
 
-@pytest.fixture
-def staging(tmp_path: Path) -> Path:
-    path = tmp_path / "staging" / "job-1"
-    path.mkdir(parents=True)
-    return path
-
-
 def _options(tmp_path: Path, *, hooks: list[object] | None = None) -> dict[str, object]:
-    staging = tmp_path / "staging" / "job-1"
-    staging.mkdir(parents=True)
+    home = tmp_path / "cache" / "yt-dlp" / "job-1"
+    home.mkdir(parents=True)
     return build_youtube_dl_options(
-        staging=staging,
-        cache_dir=tmp_path / "cache",
+        home=home,
+        cache_root=tmp_path / "cache",
         ffmpeg=FFMPEG,
         deno=DENO,
         log=logging.getLogger("test.youtube"),
@@ -65,13 +58,13 @@ def _options(tmp_path: Path, *, hooks: list[object] | None = None) -> dict[str, 
 
 def test_the_option_table_matches_ticket_09(tmp_path: Path) -> None:
     logger = logging.getLogger("test.youtube")
-    staging = tmp_path / "staging" / "job-1"
-    staging.mkdir(parents=True)
     cache = tmp_path / "cache"
+    home = cache / "yt-dlp" / "job-1"
+    home.mkdir(parents=True)
 
     options = build_youtube_dl_options(
-        staging=staging,
-        cache_dir=cache,
+        home=home,
+        cache_root=cache,
         ffmpeg=FFMPEG,
         deno=DENO,
         log=logger,
@@ -81,7 +74,8 @@ def test_the_option_table_matches_ticket_09(tmp_path: Path) -> None:
     assert options["format"] == "bestaudio/best"
     assert options["noplaylist"] is True
     assert options["outtmpl"] == {"default": "%(id)s.%(ext)s"}
-    assert options["paths"] == {"home": str(staging)}
+    assert options["paths"] == {"home": str(home)}
+    assert home.is_relative_to(cache / "yt-dlp")
     assert options["cachedir"] == str(cache / "yt-dlp")
     assert options["windowsfilenames"] is True
     assert options["trim_file_name"] == 120
@@ -132,6 +126,17 @@ def test_progress_hooks_are_passed_through_for_the_download(tmp_path: Path) -> N
     options = _options(tmp_path, hooks=[hook])
 
     assert options["progress_hooks"] == [hook]
+
+
+def test_the_adapter_source_has_no_cookie_or_login_path() -> None:
+    source = Path("src/stemforge/engines/youtube.py").read_text(encoding="utf-8")
+
+    for forbidden in (
+        "cookiefile",
+        "cookiesfrombrowser",
+        "cookies-from-browser",
+    ):
+        assert forbidden not in source, forbidden
 
 
 def test_the_adapter_lives_with_the_parser_and_imports_yt_dlp_lazily() -> None:
