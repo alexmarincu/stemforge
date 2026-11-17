@@ -72,6 +72,25 @@ EMPTY_LEDE_YOUTUBE: Final = (
     "Drop a local file or pull audio from YouTube. Everything runs on this machine."
 )
 
+# Ticket 08 §5 and ticket 11: the Pitch card's exact working copy.
+PITCH_TITLE: Final = "Pitch"
+PITCH_VERSIONS: Final = "Versions"
+PITCH_ORIGINAL: Final = "Original"
+PITCH_SEMITONES_UNIT: Final = "semitones"
+PITCH_RENDER: Final = "Render"
+PITCH_OPEN: Final = "Open"
+PITCH_STEMS_SCOPE: Final = "stems"
+PITCH_NEUTRAL_HINT: Final = "Set semitones to render a shifted set."
+PITCH_VIEWING: Final = "Viewing this render. Step semitones to render another set."
+PITCH_VIEWING_STATUS: Final = "{label} rendered · A/B compares it with Original."
+PITCH_CACHED_HINT: Final = "{label} already cached — open it instead of re-rendering."
+PITCH_NOT_RENDERED: Final = "Not rendered at {label} yet."
+PITCH_TEMPO_NOTE: Final = (
+    "Tempo preserved (Rubber Band R3 + formant). Renders never modify the original."
+)
+PITCH_EARLIER_SEPARATION: Final = "based on an earlier separation"
+PITCH_RETRY: Final = "Retry"
+
 
 @dataclass(frozen=True, slots=True)
 class ErrorCopy:
@@ -363,6 +382,13 @@ def format_duration(seconds: float | None) -> str:
     if hours:
         return f"{hours}:{minutes:02d}:{secs:02d}"
     return f"{minutes}:{secs:02d}"
+
+
+def format_semitones(semitones: int) -> str:
+    """Format a signed shift the way version tabs and the stepper do."""
+    if semitones == 0:
+        return "0"
+    return f"+{semitones}" if semitones > 0 else f"\u2212{abs(semitones)}"
 
 
 def format_sample_rate(rate: int | None) -> str | None:
