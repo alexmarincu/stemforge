@@ -30,6 +30,8 @@ dependencies = [
   "nicegui==4.0.0",
   "platformdirs>=4.14.5,<5",
   "pywebview==6.2.1",
+  "yt-dlp==2026.10.26",
+  "yt-dlp-ejs==0.8.0",
   # CPU-only torch, from the explicit index below. It must be a direct
   # dependency for `[tool.uv.sources]` to apply; transitive resolution would
   # pull the default CUDA wheel set.
@@ -103,6 +105,12 @@ pretty = true
 module = ["stemforge.ui.*"]
 disallow_untyped_defs = false
 check_untyped_defs = true
+
+# yt-dlp ships no type information; the adapter narrows its objects at the
+# boundary (ticket 09 §4). Keep the rest of the package strict.
+[[tool.mypy.overrides]]
+module = ["yt_dlp", "yt_dlp.*"]
+ignore_missing_imports = true
 
 # --- pytest -----------------------------------------------------------------
 

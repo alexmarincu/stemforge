@@ -356,6 +356,11 @@ class ArtifactStore:
         return self.root / "tmp"
 
     @property
+    def youtube_cache_dir(self) -> Path:
+        """The yt-dlp tool cache; "Clear YouTube cache" deletes only this."""
+        return self.root / "yt-dlp"
+
+    @property
     def cap_bytes(self) -> int:
         return self._cap_bytes
 
@@ -962,6 +967,51 @@ class ArtifactStore:
                 except OSError as exc:
                     _raise_wrapped(exc, f"remove source {source_id}")
             return RemoveReport(source_removed=existed, renders_removed=tuple(removed_renders))
+
+    def youtube_cache_bytes(self) -> int:
+        """The size of ``<cache>/yt-dlp/`` for the Settings & About row."""
+        with self._lock:
+            return _directory_size(self.youtube_cache_dir)
+
+    def youtube_scratch(self, job_id: str) -> Path:
+        """The per-Job yt-dlp download scratch under ``<cache>/yt-dlp/``."""
+        _validate_identity(job_id, "job id")
+        return self.youtube_cache_dir / job_id
+
+    def create_youtube_scratch(self, job_id: str) -> Path:
+        """Create one Job's yt-dlp scratch and return it."""
+        scratch = self.youtube_scratch(job_id)
+        try:
+            scratch.mkdir(mode=0o700, parents=True, exist_ok=True)
+        except OSError as exc:
+            _raise_wrapped(exc, f"create the YouTube scratch for {job_id}")
+        return scratch
+
+    def discard_youtube_scratch(self, job_id: str) -> bool:
+        """Delete one Job's yt-dlp scratch after a cancel or failure."""
+        scratch = self.youtube_scratch(job_id)
+        with self._lock:
+            existed = scratch.exists() or scratch.is_symlink()
+            try:
+                _remove_tree(scratch)
+            except OSError as exc:
+                _raise_wrapped(exc, f"discard the YouTube scratch for {job_id}")
+            return existed
+
+    def clear_youtube_cache(self) -> int:
+        """Delete ``<cache>/yt-dlp/`` only; return the bytes freed.
+
+        Ticket 09 §7: never ``sources/``, ``renders/``, recent files, the model
+        store, or the Deno cache.
+        """
+        with self._lock:
+            directory = self.youtube_cache_dir
+            freed = _directory_size(directory)
+            try:
+                _remove_tree(directory)
+            except OSError as exc:
+                _raise_wrapped(exc, "clear the YouTube cache")
+            return freed
 
     def clear_cache(self) -> ClearReport:
         """Delete every non-live source/render set plus tool caches."""
