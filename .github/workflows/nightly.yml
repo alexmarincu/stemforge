@@ -1,0 +1,42 @@
+name: Nightly frozen separation
+
+# Ticket 11 §5. The nightly proves what PR CI deliberately leaves out: a real
+# one-second separation through the frozen Bundle on both release images, plus
+# the AppImage extraction check on Linux. It runs at 03:00 UTC and on demand,
+# never on pull requests or pushes.
+#
+# Both jobs call the existing bundle workflows. A job that calls a reusable
+# workflow cannot set ``timeout-minutes`` itself, so the ceiling is an input and
+# the called job applies it (linux 35, windows 50). Evidence only: the called
+# workflows upload JSON reports and build logs to Actions for 7 days and the
+# nightly disables the Windows binaries upload. Nothing here touches a GitHub
+# Release; release assets belong to release.yml (ticket 23).
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux-frozen-separation:
+    name: linux-frozen-separation (ubuntu-22.04)
+    uses: ./.github/workflows/linux-bundle.yml
+    with:
+      separation: true
+      timeout-minutes: 35
+
+  windows-frozen-separation:
+    name: windows-frozen-separation (windows-2022)
+    uses: ./.github/workflows/windows-bundle.yml
+    with:
+      allow_licence_pending: false
+      with_separation: true
+      upload_binaries: false
+      timeout-minutes: 50
