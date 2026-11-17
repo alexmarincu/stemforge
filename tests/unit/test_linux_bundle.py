@@ -215,6 +215,10 @@ def test_provenance_metadata_is_allowed_in_vendor(tmp_path: Path) -> None:
     assert _verify(root, lock).ok
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="Windows has no executable bit; POSIX packaging is checked on Linux",
+)
 def test_the_launcher_and_run_script_must_be_executable(tmp_path: Path) -> None:
     root, lock = _make_bundle(tmp_path)
     (root / "run.sh").chmod(0o644)
@@ -354,6 +358,10 @@ def test_the_appimage_tool_pin_is_complete() -> None:
     assert runtime["size"] > 0
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="the Linux scripts are parsed and shellchecked on POSIX hosts",
+)
 @pytest.mark.parametrize(
     ("script", "shell"),
     [

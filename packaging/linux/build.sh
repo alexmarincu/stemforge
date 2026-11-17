@@ -110,6 +110,13 @@ if command -v strip >/dev/null 2>&1 && command -v file >/dev/null 2>&1; then
     note "stripping unstripped ELF shared objects in _internal/"
     find "$bundle/_internal" -type f \( -name '*.so' -o -name '*.so.*' \) -print0 |
         while IFS= read -r -d '' library; do
+            # `strip` rewrites the OpenBLAS load segments and leaves them
+            # unaligned for the glibc 2.35 loader (`ELF load command
+            # address/offset not page-aligned`). Its symbols are worth ~1.4 MB;
+            # keep the library untouched and inside the budget.
+            case "$(basename -- "$library")" in
+                libscipy_openblas* | libopenblas*) continue ;;
+            esac
             if file -b -- "$library" | grep -q 'not stripped'; then
                 strip --strip-unneeded -- "$library"
             fi
