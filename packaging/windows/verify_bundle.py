@@ -462,7 +462,9 @@ def _check_vendor(report: Report, bundle: Path, lock_path: Path) -> None:
     if not missing and not mismatched:
         report.pass_("vendor.files", f"{len(entries)} vendor files match vendor.lock.json")
 
-    expected_paths = set(entries)
+    # The build record is the only provenance for source-built files whose
+    # vendor.lock.json hash is null (rubberband.exe, sndfile.dll).
+    expected_paths = set(entries) | {"PROVENANCE.txt"}
     unexpected = [
         _relative(path, bundle)
         for path in _files(vendor)
