@@ -50,3 +50,27 @@ def test_the_dialog_rejection_has_sensible_copy() -> None:
 
     assert copy.headline == "That file type isn't supported."
     assert "WAV, MP3, FLAC, or M4A" in copy.action
+
+
+@pytest.mark.parametrize(
+    ("reason", "action"),
+    [
+        ("permission", "Choose another folder, or check its permissions."),
+        ("in_use", "Close the file in other apps and try again."),
+        ("name_too_long", "Choose a shorter name or folder."),
+        ("device_gone", "Reconnect the drive and try again."),
+        ("other", "Try another folder; the details are in the job log."),
+    ],
+)
+def test_every_export_write_reason_has_its_sentence(reason: str, action: str) -> None:
+    copy = formatting.copy_for(errors.EXPORT_WRITE_FAILED, reason)
+
+    assert copy.headline == "Couldn't save the file."
+    assert copy.action == action
+
+
+def test_export_disk_full_chooses_another_location() -> None:
+    copy = formatting.copy_for(errors.STORAGE_DISK_FULL, "export")
+
+    assert copy.headline == "Not enough disk space."
+    assert copy.action == "Choose another location."
