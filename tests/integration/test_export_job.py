@@ -540,6 +540,13 @@ def test_export_from_a_pitch_set_and_from_the_instrumental(
         ExportFormat.MP3_320,
         destination,
     )
+    shifted_stem = _export(
+        store,
+        media,
+        "render:render-stems:vocals",
+        ExportFormat.MP3_320,
+        destination,
+    )
 
     source_peak = _peaks(media, canonical)
     assert shifted.path.name == f"{TITLE} +3st.flac"
@@ -553,6 +560,12 @@ def test_export_from_a_pitch_set_and_from_the_instrumental(
     assert instrumental.target_key == "instrumental"
     assert instrumental.manifest["scope"] == "separation"
     assert _has_attached_picture(_probe_json(ffprobe_path, instrumental.path))
+
+    assert shifted_stem.path.name == f"{TITLE} - Vocals -2st.mp3"
+    assert abs(_peaks(media, shifted_stem.path) - (source_peak - 4.0)) <= 0.1
+    assert shifted_stem.target_key == "render:render-stems:vocals"
+    assert shifted_stem.manifest["scope"] == "stems"
+    assert shifted_stem.manifest["semitones"] == -2
 
 
 # ---------------------------------------------------------------------------
