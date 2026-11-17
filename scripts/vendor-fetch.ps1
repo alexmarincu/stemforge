@@ -413,44 +413,49 @@ function Build-RubberBandFromSource($Lock, $Sndfile) {
     if ($null -eq $pkgConfig) {
         $pkgConfig = Get-Command 'pkgconf' -ErrorAction SilentlyContinue
     }
-    if ($null -eq $pkgConfig) {
-        throw "missing pkg-config. Install pkgconfiglite (choco install pkgconfiglite -y) or pass -RubberBandPrebuilt."
-    }
 
-    # Meson's dependency('sndfile') is required when the command line is
-    # enabled. A tiny .pc file points at the CMake import library by absolute
-    # path, which works with MSVC; the generic '-lsndfile' form does not.
+    # Meson tries dependency('sndfile') first and falls back to
+    # cpp.find_library('sndfile', dirs: extra_lib_dirs) when the feature is
+    # `auto`. The .pc file is a best-effort shortcut; pkg-config-lite on the
+    # Windows runner returned an empty Libs line, so a failure here is a note,
+    # not a build failure.
     $libPath = ([string]$Sndfile.Lib).Replace('\', '/')
     $includePath = ([string]$Sndfile.Include).Replace('\', '/')
     $libDir = (Split-Path -Parent ([string]$Sndfile.Lib)).Replace('\', '/')
-    $pcLines = @(
-        "prefix=$(([string]$Sndfile.BuildDir).Replace('\', '/'))",
-        'exec_prefix=${prefix}',
-        'libdir=${prefix}',
-        "includedir=$includePath",
-        'Name: sndfile',
-        'Description: libsndfile 1.2.2 built for StemForge',
-        'Version: 1.2.2',
-        'Requires:',
-        'Libs: ' + $libPath,
-        'Cflags: -I' + $includePath
-    )
-    $pcPath = Join-Path $pkgConfigDir 'sndfile.pc'
-    Set-Content -LiteralPath $pcPath -Value $pcLines -Encoding ASCII
-
     $oldPkgConfigPath = $env:PKG_CONFIG_PATH
     $oldPkgConfig = $env:PKG_CONFIG
     try {
-        if ($oldPkgConfigPath) {
-            $env:PKG_CONFIG_PATH = "$pkgConfigDir;$oldPkgConfigPath"
+        if ($null -ne $pkgConfig) {
+            $pcLines = @(
+                "prefix=$(([string]$Sndfile.BuildDir).Replace('\', '/'))",
+                'exec_prefix=${prefix}',
+                'libdir=${prefix}',
+                "includedir=$includePath",
+                'Name: sndfile',
+                'Description: libsndfile 1.2.2 built for StemForge',
+                'Version: 1.2.2',
+                'Requires:',
+                'Libs: ' + $libPath,
+                'Cflags: -I' + $includePath
+            )
+            $pcPath = Join-Path $pkgConfigDir 'sndfile.pc'
+            Set-Content -LiteralPath $pcPath -Value $pcLines -Encoding ASCII
+            if ($oldPkgConfigPath) {
+                $env:PKG_CONFIG_PATH = "$pkgConfigDir;$oldPkgConfigPath"
+            }
+            else {
+                $env:PKG_CONFIG_PATH = $pkgConfigDir
+            }
+            $env:PKG_CONFIG = $pkgConfig.Source
+            $libs = (& $pkgConfig.Source '--libs' 'sndfile' 2>&1 | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $libs -notlike "*$libPath*") {
+                Write-Note "pkg-config did not resolve the sndfile import library (got: '$libs'); Meson will use find_library"
+                $env:PKG_CONFIG_PATH = $oldPkgConfigPath
+                $env:PKG_CONFIG = $oldPkgConfig
+            }
         }
         else {
-            $env:PKG_CONFIG_PATH = $pkgConfigDir
-        }
-        $env:PKG_CONFIG = $pkgConfig.Source
-        $libs = (& $pkgConfig.Source '--libs' 'sndfile' 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0 -or $libs -notlike "*$libPath*") {
-            throw "pkg-config did not resolve the absolute sndfile import library (got: $libs)"
+            Write-Note 'pkg-config is absent; Meson will use find_library with extra_lib_dirs'
         }
 
         Write-Note 'build   Rubber Band 4.0.0 (Meson/MSVC, static library, CLI)'
