@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal, Protocol, Self
 
+from . import binaries
+
 REPORT_VERSION: Final = 1
 
 EXIT_OK: Final = 0
@@ -385,15 +387,23 @@ def check_bundle(
     data_root: Path | None = None,
     frozen: bool | None = None,
     system: str | None = None,
+    target: str | None = None,
     version_of: Callable[[Path, str], str | None] | None = None,
 ) -> CheckResult:
-    """Verify the vendor binaries, lock files, and model lock (exit 8)."""
+    """Verify the vendor binaries, lock files, and model lock (exit 8).
+
+    A frozen Bundle must contain every file ``vendor.lock.json`` names for its
+    target, each executable must run and report the locked version, and the
+    Rubber Band CLI must have its co-located libsndfile. A development checkout
+    keeps the ticket 4 fallback: no ``vendor/`` means PATH is the source.
+    """
     resolved_system = sys.platform if system is None else system
     is_frozen = _is_frozen() if frozen is None else frozen
     bundle = _bundle_root(is_frozen) if bundle_root is None else Path(bundle_root)
     data = _data_root(is_frozen) if data_root is None else Path(data_root)
     vendor = bundle / "vendor"
     executable_suffix = ".exe" if resolved_system.startswith("win") else ""
+    target_key = target or _vendor_target(resolved_system)
 
     if not is_frozen:
         if not vendor.is_dir():
@@ -410,18 +420,29 @@ def check_bundle(
             )
     else:
         if not vendor.is_dir():
-            return _fail(CHECK_BUNDLE, "vendor/ is missing from the installation.")
+            return _fail(
+                CHECK_BUNDLE,
+                "vendor/ is missing from the installation. Reinstall or re-extract StemForge.",
+            )
         lock_path = _first_existing(_vendor_lock_candidates(bundle, data))
         if lock_path is None:
-            return _fail(CHECK_BUNDLE, "vendor.lock.json is missing from the installation.")
+            return _fail(
+                CHECK_BUNDLE,
+                "vendor.lock.json is missing from the installation. "
+                "Reinstall or re-extract StemForge.",
+            )
         models_lock = _first_existing(_models_lock_candidates(bundle, data))
         if models_lock is None:
             return _fail(CHECK_BUNDLE, "models.lock.json is missing or unreadable.")
 
-    expected_versions = _read_lock_versions(lock_path)
+    payload = _read_lock_payload(lock_path)
+    expected_versions = _versions_from_payload(payload) if payload is not None else None
     if expected_versions is None:
         if is_frozen:
-            return _fail(CHECK_BUNDLE, "vendor.lock.json is unreadable.")
+            return _fail(
+                CHECK_BUNDLE,
+                "vendor.lock.json is unreadable. Reinstall or re-extract StemForge.",
+            )
         return _ok(
             CHECK_BUNDLE,
             "Development fallback: vendor.lock.json is unreadable; skipping verification.",
@@ -429,6 +450,134 @@ def check_bundle(
     if not _readable(models_lock):
         return _fail(CHECK_BUNDLE, "models.lock.json is missing or unreadable.")
 
+    problems: list[str] = []
+    declared = _lock_installs(payload, target_key) if payload is not None else {}
+    if declared:
+        problems.extend(
+            _verify_declared_files(
+                vendor,
+                declared,
+                expected_versions,
+                resolved_system=resolved_system,
+                version_of=version_of,
+            )
+        )
+    else:
+        problems.extend(
+            _verify_fallback_layout(
+                vendor,
+                expected_versions,
+                executable_suffix=executable_suffix,
+                resolved_system=resolved_system,
+                version_of=version_of,
+            )
+        )
+
+    if problems:
+        return _fail(
+            CHECK_BUNDLE,
+            "; ".join(problems) + ". Reinstall or re-extract StemForge.",
+        )
+
+    return _ok(
+        CHECK_BUNDLE,
+        "ffmpeg, ffprobe, rubberband, and deno match vendor.lock.json; "
+        "models.lock.json is readable.",
+    )
+
+
+def _vendor_target(system: str) -> str | None:
+    if system.startswith("win"):
+        return "windows-x64"
+    if system.startswith("linux"):
+        return "linux-x86_64"
+    return None
+
+
+def _lock_installs(payload: object, target: str | None) -> dict[str, list[tuple[Path, bool]]]:
+    """The vendor-relative files the lock declares for one target."""
+    if not isinstance(payload, dict) or target is None:
+        return {}
+    components = payload.get("components")
+    if not isinstance(components, dict):
+        return {}
+
+    declared: dict[str, list[tuple[Path, bool]]] = {}
+    for name, record in components.items():
+        if not isinstance(name, str) or not isinstance(record, dict):
+            continue
+        targets = record.get("targets")
+        if not isinstance(targets, dict):
+            continue
+        entry = targets.get(target)
+        if not isinstance(entry, dict):
+            continue
+        install = entry.get("install")
+        if not isinstance(install, list):
+            continue
+        files: list[tuple[Path, bool]] = []
+        for item in install:
+            if not isinstance(item, dict):
+                continue
+            relative = item.get("to")
+            if not isinstance(relative, str) or not relative:
+                continue
+            path = Path(relative)
+            if path.is_absolute() or ".." in path.parts:
+                continue
+            files.append((path, item.get("executable") is True))
+        if files:
+            declared[name] = files
+    return declared
+
+
+def _verify_declared_files(
+    vendor: Path,
+    declared: dict[str, list[tuple[Path, bool]]],
+    expected_versions: dict[str, str],
+    *,
+    resolved_system: str,
+    version_of: Callable[[Path, str], str | None] | None,
+) -> list[str]:
+    problems: list[str] = []
+    present: list[Path] = []
+
+    for tool, files in declared.items():
+        for relative, executable in files:
+            path = vendor / relative
+            present.append(relative)
+            if not path.is_file():
+                problems.append(f"missing: vendor/{relative.as_posix()}")
+                continue
+            if executable and not _is_executable(path, resolved_system):
+                problems.append(f"not executable: vendor/{relative.as_posix()}")
+                continue
+            if not executable or tool not in VENDOR_TOOLS:
+                continue
+            output = (version_of or _tool_version)(path, tool)
+            expected = expected_versions.get(tool)
+            if output is None:
+                problems.append(f"--version failed: {tool}")
+            elif expected is not None and not _version_matches(output, expected):
+                problems.append(f"version mismatch: {tool}")
+
+    library = shared_library_name("rubberband", system=resolved_system)
+    if "rubberband" in declared and library is not None:
+        relative = Path("rubberband") / library
+        if relative not in present:
+            problems.append(f"missing: vendor/{relative.as_posix()}")
+    return problems
+
+
+def _verify_fallback_layout(
+    vendor: Path,
+    expected_versions: dict[str, str],
+    *,
+    executable_suffix: str,
+    resolved_system: str,
+    version_of: Callable[[Path, str], str | None] | None,
+) -> list[str]:
+    """The ticket 4 layout, used by an older or minimal lock without installs."""
     problems: list[str] = []
     for tool in VENDOR_TOOLS:
         path = vendor / _tool_directory(tool) / f"{tool}{executable_suffix}"
@@ -444,15 +593,12 @@ def check_bundle(
             problems.append(f"--version failed: {tool}")
         elif expected is not None and not _version_matches(output, expected):
             problems.append(f"version mismatch: {tool}")
+    return problems
 
-    if problems:
-        return _fail(CHECK_BUNDLE, "; ".join(problems) + ".")
 
-    return _ok(
-        CHECK_BUNDLE,
-        "ffmpeg, ffprobe, rubberband, and deno match vendor.lock.json; "
-        "models.lock.json is readable.",
-    )
+def shared_library_name(tool: str, *, system: str | None = None) -> str | None:
+    """The co-located shared library the lock expects for ``tool``."""
+    return binaries.shared_library_name(tool, system=system)
 
 
 def check_storage(paths: AppPathsLike, *, home_override: str | None = None) -> CheckResult:
@@ -747,6 +893,9 @@ def _models_lock_candidates(bundle: Path, data: Path) -> tuple[Path, ...]:
         data / "packaging" / "models" / "models.lock.json",
         bundle / "models" / "models.lock.json",
         bundle / "packaging" / "models" / "models.lock.json",
+        # Development checkout: ``resources.data_root()`` is the package
+        # directory, so the lock the app reads lives under ``src/stemforge``.
+        bundle / "src" / "stemforge" / "models" / "models.lock.json",
     )
 
 
@@ -757,12 +906,28 @@ def _first_existing(candidates: Sequence[Path]) -> Path | None:
     return None
 
 
-def _read_lock_versions(path: Path) -> dict[str, str] | None:
+def read_vendor_lock_versions(path: Path) -> dict[str, str] | None:
+    """The tool versions recorded in ``vendor.lock.json``, or ``None``.
+
+    Accepts the ticket 19 schema (``components.<tool>.version``) and the older
+    skeleton spellings (``versions`` and loose ``name``/``tool``/``id`` records)
+    so a stale development lock cannot crash the preflight.
+    """
+    payload = _read_lock_payload(path)
+    if payload is None:
+        return None
+    return _versions_from_payload(payload)
+
+
+def _read_lock_payload(path: Path) -> object | None:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload: object = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
+    return payload
 
+
+def _versions_from_payload(payload: object) -> dict[str, str] | None:
     if not isinstance(payload, (dict, list)):
         return None
 
@@ -840,6 +1005,7 @@ def _tool_version(path: Path, tool: str) -> str | None:
             text=True,
             errors="replace",
             timeout=10,
+            env=binaries.tool_environment(path),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
