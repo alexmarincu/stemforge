@@ -237,7 +237,9 @@ def test_cli_diagnostics_report_writes_the_same_text(
     assert "Preflight:" in written
     assert "Paths: data=" in written
     assert "--- app log (last 200 lines) ---" in written
-    assert os.environ["STEMFORGE_HOME"] in written
+    # Windows hands out 8.3 short names (RUNNER~1) for the session temp dir; the
+    # app resolves them through AppPaths.ensure(), so compare the same path.
+    assert str(Path(os.environ["STEMFORGE_HOME"]).resolve() / "data") in written
     assert capsys.readouterr().out == ""
 
 
