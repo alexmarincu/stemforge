@@ -75,21 +75,24 @@ function Assert-File([string]$Path, [string]$Label) {
 }
 
 function Invoke-Captured([string]$Tool, [string[]]$Arguments, [string]$Label) {
-    # Native stderr becomes a terminating ErrorRecord under
-    # $ErrorActionPreference='Stop'. Rubber Band writes --version to stderr.
-    $previous = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
+    # Rubber Band writes --version to stderr; capture both streams at the OS
+    # level so PowerShell does not turn that into a NativeCommandError.
+    $stdout = [System.IO.Path]::GetTempFileName()
+    $stderr = [System.IO.Path]::GetTempFileName()
     try {
-        $output = (& $Tool @Arguments 2>&1 | Out-String).Trim()
-        $code = $LASTEXITCODE
+        $process = Start-Process -FilePath $Tool -ArgumentList $Arguments `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $out = Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue
+        $err = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
+        if ($process.ExitCode -ne 0) {
+            throw "$Label failed; the vendor tree is damaged"
+        }
+        return (("$out$err").Trim())
     }
     finally {
-        $ErrorActionPreference = $previous
+        Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $stdout, $stderr
     }
-    if ($code -ne 0) {
-        throw "$Label failed; the vendor tree is damaged"
-    }
-    return $output
 }
 
 function Add-RuntimeBuildInfo([string]$BundleRoot) {

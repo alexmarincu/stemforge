@@ -182,21 +182,33 @@ function Find-Child([string]$Root, [string]$Leaf) {
     return $found.FullName
 }
 
-function Test-Version([string]$Tool, [string]$Path, [string]$Flag, [string]$Expected) {
-    Assert-File $Path $Path
-    # Rubber Band's --version writes to stderr. Merging it with 2>&1 under
-    # $ErrorActionPreference='Stop' turns the version string into a terminating
-    # ErrorRecord, so relax the preference only around this probe.
-    $previous = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
+function Invoke-CaptureProcess([string]$Tool, [string[]]$Arguments) {
+    # Capture stdout and stderr at the OS level. PowerShell turns a native
+    # process's stderr into ErrorRecords, and rubberband.exe --version writes
+    # the version to stderr; Start-Process avoids that translation entirely.
+    $stdout = [System.IO.Path]::GetTempFileName()
+    $stderr = [System.IO.Path]::GetTempFileName()
     try {
-        $output = (& $Path $Flag 2>&1 | Out-String).Trim()
-        $code = $LASTEXITCODE
+        $process = Start-Process -FilePath $Tool -ArgumentList $Arguments `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $out = Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue
+        $err = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
+        return [pscustomobject]@{
+            Code = $process.ExitCode
+            Output = (("$out$err").Trim())
+        }
     }
     finally {
-        $ErrorActionPreference = $previous
+        Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $stdout, $stderr
     }
-    if ($code -ne 0) {
+}
+
+function Test-Version([string]$Tool, [string]$Path, [string]$Flag, [string]$Expected) {
+    Assert-File $Path $Path
+    $result = Invoke-CaptureProcess $Path @($Flag)
+    $output = [string]$result.Output
+    if ($result.Code -ne 0) {
         throw "--version failed: $Tool ($output)"
     }
     $first = ($output -split "`r?`n")[0].Trim()
