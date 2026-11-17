@@ -149,15 +149,18 @@ function Expand-TarArchive(
     [int]$Strip = 0
 ) {
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-    # bsdtar auto-detects the compression; -xf works for the pinned .tar.xz and
-    # .tar.gz archives on windows-2022 and avoids relying on a format flag.
-    $tarArgs = @('-xf', $Archive, '-C', $Destination)
-    if ($Strip -gt 0) {
-        $tarArgs += "--strip-components=$Strip"
+    # windows-2022 and windows-2025 ship different bsdtar builds; the 2022 one
+    # stalled on libsndfile's .tar.xz in the first release run. Python's stdlib
+    # tarfile (with lzma) is the same everywhere and rejects path escapes.
+    $python = Join-Path $RepoRoot '.venv\Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+        $python = 'python'
     }
-    & tar.exe @tarArgs
+    Write-Note "extract $Archive -> $Destination (strip $Strip)"
+    & $python (Join-Path $PSScriptRoot 'vendor_unpack.py') `
+        --archive $Archive --destination $Destination --strip $Strip
     if ($LASTEXITCODE -ne 0) {
-        throw "tar.exe failed to extract $Archive"
+        throw "vendor_unpack.py failed to extract $Archive"
     }
 }
 
@@ -266,6 +269,17 @@ function Install-Stage([string]$Relative) {
     Move-Item -Force -LiteralPath $temporary -Destination $destination
 }
 
+function Invoke-Logged([string]$Tool, [string[]]$Arguments) {
+    # Stream each native line. Out-Host buffers a native process's output until
+    # it exits on the Windows runner; ForEach-Object/Write-Host keeps the log
+    # live so a hang is visible in the canceled-step evidence.
+    Write-Note "run  $Tool $($Arguments -join ' ')"
+    & $Tool @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Tool failed with exit code $LASTEXITCODE"
+    }
+}
+
 function Invoke-LockBuildConfigure($Entry, [string]$SourceRoot, [string]$WorkingDirectory) {
     $argv = @($Entry.build.configure | ForEach-Object { $_ -replace '<source>', $SourceRoot })
     if ($argv.Count -lt 2) {
@@ -275,10 +289,7 @@ function Invoke-LockBuildConfigure($Entry, [string]$SourceRoot, [string]$Working
     $arguments = @($argv[1..($argv.Count - 1)])
     Push-Location -LiteralPath $WorkingDirectory
     try {
-        & $tool @arguments | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            throw "$tool failed with exit code $LASTEXITCODE; see the lock's build.configure line"
-        }
+        Invoke-Logged $tool $arguments
     }
     finally {
         Pop-Location
@@ -331,6 +342,11 @@ function Build-Libsndfile($Lock, [int]$Parallel) {
 
     Write-Note 'build   libsndfile 1.2.2 (CMake, shared, WAV-only)'
     $cmake = Find-Tool 'cmake' 'CMake is preinstalled on windows-2022; install it or pass -RubberBandPrebuilt.'
+    Write-Note "cmake   $((& $cmake --version | Select-Object -First 1))"
+    # Have MSVC on PATH before CMake probes for a toolchain. The VS generator
+    # still drives MSBuild, but this removes the runner-image difference that
+    # made the first windows-2022 configure look idle for the whole job.
+    Enter-MsvcEnvironment
     switch ($format) {
         'tar.xz' { Expand-TarXz $archive $sourceRoot 1 }
         'tar.gz' { Expand-TarGz $archive $sourceRoot 1 }
@@ -342,10 +358,7 @@ function Build-Libsndfile($Lock, [int]$Parallel) {
 
     Invoke-LockBuildConfigure $entry $sourceRoot $workDir
     $buildDir = Join-Path $workDir 'build'
-    & $cmake --build $buildDir --config Release --parallel $Parallel | Out-Host
-    if ($LASTEXITCODE -ne 0) {
-        throw "cmake --build failed for libsndfile"
-    }
+    Invoke-Logged $cmake @('--build', $buildDir, '--config', 'Release', '--parallel', "$Parallel")
 
     $dll = Find-Child $workDir 'sndfile.dll'
     $importLibrary = Find-Child $workDir 'sndfile.lib'
@@ -443,14 +456,8 @@ function Build-RubberBandFromSource($Lock, $Sndfile) {
             "-Dextra_lib_dirs=$libDir",
             "-Dextra_include_dirs=$includePath"
         )
-        & $meson @mesonArguments
-        if ($LASTEXITCODE -ne 0) {
-            throw "meson setup failed for Rubber Band"
-        }
-        & $ninja '-C' $buildDir
-        if ($LASTEXITCODE -ne 0) {
-            throw "ninja failed for Rubber Band"
-        }
+        Invoke-Logged $meson $mesonArguments
+        Invoke-Logged $ninja @('-C', $buildDir)
     }
     finally {
         $env:PKG_CONFIG_PATH = $oldPkgConfigPath

@@ -274,6 +274,7 @@ jobs:
           key: hf-${{ runner.os }}-${{ hashFiles('src/stemforge/models/models.lock.json') }}
       - name: Fetch and build the pinned vendor set
         shell: pwsh
+        timeout-minutes: 25
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/vendor-fetch.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -281,12 +282,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build the frozen bundle
         shell: pwsh
+        timeout-minutes: 15
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass `
             -File packaging/windows/build.ps1 -SkipVendorFetch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Frozen smoke and separation in the temporary STEMFORGE_HOME
         shell: pwsh
+        timeout-minutes: 10
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass `
             -File packaging/windows/smoke-test.ps1 `
@@ -296,6 +299,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package the portable ZIP and Inno setup
         shell: pwsh
+        timeout-minutes: 10
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File packaging/windows/package.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
