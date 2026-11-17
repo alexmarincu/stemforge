@@ -4,7 +4,8 @@ Audited in the `ticket/24-failure-audit` worktree on 2026-11-17, based on
 `integration/v0.1.0` (`f9d0beb`; tickets #1–#23 closed, merged again after the audit
 with no incoming changes). The branch commits are `03e62bf` (WAV comment),
 `ac95b26` (no automatic model retries plus Remove cancellation), `65c7a1b`
-(diagnostics, Details, catalogue, drills, docs), and `61c56e3` (retry flags).
+(diagnostics, Details, catalogue, drills, docs), `61c56e3` (retry flags), and
+`c3f8e42` (missing Job log is coded).
 The coordinator merges this branch after the report; nothing here changes
 `.github/workflows/release.yml`.
 
