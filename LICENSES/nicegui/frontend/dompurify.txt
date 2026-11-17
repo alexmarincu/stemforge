@@ -1,0 +1,10 @@
+DOMPurify 3.4.17
+
+Copyright (c) Cure53 and other contributors
+Licence: Apache-2.0 OR MPL-2.0
+Upstream: https://github.com/cure53/DOMPurify
+
+Full licence text:
+
+- ../../common/Apache-2.0.txt
+- ../../common/MPL-2.0.txt
