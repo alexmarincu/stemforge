@@ -556,6 +556,24 @@ def test_verify_release_rejects_a_vendor_hash_mismatch(tmp_path: Path, repo_root
     assert "FAIL  vendor." in result.stdout
 
 
+def test_verify_release_records_an_unreadable_inno_setup_as_a_skip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assets, lock_path = _make_assets(tmp_path)
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+
+    def fail(_path: Path, _destination: Path) -> Path:
+        raise release_assets.AssetError("unsupported setup loader revision")
+
+    monkeypatch.setattr(release_assets, "_innoextract_root", fail)
+    findings = release_assets._verify_windows_assets(assets, VERSION, lock)
+
+    by_name = {finding.check: finding for finding in findings}
+    assert all(finding.status != "fail" for finding in findings)
+    assert by_name["setup.licences"].status == "skip"
+    assert "innoextract could not read" in by_name["setup.licences"].detail
+
+
 def test_setup_extraction_checks_the_same_licence_and_vendor_tree(tmp_path: Path) -> None:
     assets, lock_path = _make_assets(tmp_path)
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
