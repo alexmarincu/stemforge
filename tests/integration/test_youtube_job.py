@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-import socket
 import subprocess
 import threading
 import time
@@ -39,18 +38,13 @@ ARTIST = "Test Uploader"
 
 
 @pytest.fixture(autouse=True)
-def _guard_system_boundaries(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No real socket and no real ``YoutubeDL``: every test injects a factory."""
-
-    def refuse_socket(*args: object, **kwargs: object) -> None:
-        raise AssertionError("the YouTube Job tests must not open a connection")
+def _guard_system_boundaries(no_external_network: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No external socket and no real ``YoutubeDL``: every test injects a factory."""
 
     def refuse_youtube_dl(options: object) -> None:
         del options
         raise AssertionError("tests must inject a YoutubeDL factory")
 
-    monkeypatch.setattr(socket.socket, "connect", refuse_socket)
-    monkeypatch.setattr(socket.socket, "connect_ex", refuse_socket)
     monkeypatch.setattr("stemforge.engines.youtube._default_youtube_dl", refuse_youtube_dl)
 
 
