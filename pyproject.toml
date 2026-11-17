@@ -127,6 +127,7 @@ markers = [
   "integration: tests that use real external binaries such as ffmpeg",
   "ui: NiceGUI tests that need no browser",
   "slow: tests that need torch/demucs or take longer than 30 seconds",
+  "licensing: tests for the generated licence tree; they need the full installed metadata",
   "network: opt-in tests that use the network; never run in CI",
   "platform_linux: tests specific to Linux",
   "platform_windows: tests specific to Windows",

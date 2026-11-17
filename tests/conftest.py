@@ -21,7 +21,7 @@ os.environ["STEMFORGE_HOME"] = str(SESSION_HOME)
 
 from stemforge.platform.paths import AppPaths  # noqa: E402
 
-LAYER_MARKERS = frozenset({"unit", "integration", "ui"})
+LAYER_MARKERS = frozenset({"unit", "integration", "ui", "licensing"})
 
 # Windows emulates ``socket.socketpair`` (asyncio's event-loop self-pipe) by
 # connecting to a loopback listener, so the guard has to allow local transports
@@ -86,6 +86,6 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             problems.append(f"{item.nodeid} [{label}]")
     if problems:
         raise pytest.UsageError(
-            "every test needs exactly one of the unit, integration, or ui markers; "
+            "every test needs exactly one layer marker (unit, integration, ui, licensing); "
             f"offending tests: {'; '.join(problems)}"
         )

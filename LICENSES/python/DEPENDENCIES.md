@@ -27,7 +27,7 @@ build/test-only and are listed for completeness.
 | `clr-loader` | 0.3.1 | `MIT` | runtime (windows) | https://github.com/pythonnet/clr-loader | [`MIT`](../common/MIT.txt) |
 | `colorama` | 0.4.6 | `BSD-3-Clause` | runtime (windows) | https://github.com/tartley/colorama | [`BSD-3-Clause`](../common/BSD-3-Clause.txt) |
 | `coverage` | 7.17.3 | `Apache-2.0` | development | https://github.com/coveragepy/coveragepy | [`license.txt-0d542e0c8804.txt`](../texts/license.txt-0d542e0c8804.txt)<br>[`notice.txt-80e177ab397d.txt`](../texts/notice.txt-80e177ab397d.txt) |
-| `demucs` | 4.1.0 | `MIT` | runtime | https://github.com/adefossez/demucs | [`MIT-demucs`](../common/MIT-demucs.txt) |
+| `demucs` | 4.1.0 | `MIT` | runtime | https://github.com/adefossez/demucs | [`license-cf9b17822d1f.txt`](../texts/license-cf9b17822d1f.txt) |
 | `docutils` | 0.23 | `BSD-3-Clause` | runtime | https://sourceforge.net/p/docutils/code/ | [`copying.rst-6ab4f27c76c7.txt`](../texts/copying.rst-6ab4f27c76c7.txt)<br>[`bsd-0-clause.rst-42ac50251ab8.txt`](../texts/bsd-0-clause.rst-42ac50251ab8.txt)<br>[`bsd-2-clause.rst-b8f3b31a2f43.txt`](../texts/bsd-2-clause.rst-b8f3b31a2f43.txt)<br>[`gpl-3-0.txt-e6037104443f.txt`](../texts/gpl-3-0.txt-e6037104443f.txt) |
 | `einops` | 0.8.2 | `MIT` | runtime | https://github.com/arogozhnikov/einops | [`license-30d984364296.txt`](../texts/license-30d984364296.txt) |
 | `fastapi` | 0.163.1 | `MIT` | runtime | https://github.com/fastapi/fastapi | [`license-4ec89ffc8148.txt`](../texts/license-4ec89ffc8148.txt) |
