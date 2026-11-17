@@ -120,10 +120,11 @@ SEPARATION_MODEL_DOWNLOAD_FAILED: Final = "Download failed"
 SEPARATION_MODEL_RETRY: Final = "Retry download"
 SEPARATION_MODEL_CANCELLED: Final = "Model download cancelled."
 SEPARATION_CANCELLED: Final = "Separation cancelled."
+EXPORT_CANCELLED: Final = "Export cancelled."
 SEPARATION_AB: Final = "A/B"
 SEPARATION_AB_TOOLTIP: Final = "Compare this stem with the original"
-SEPARATION_EXPORT_TOOLTIP: Final = "Select as export target"
-SEPARATION_EXPORT_SELECTED: Final = "Export target"
+SEPARATION_EXPORT_TOOLTIP: Final = "Export this stem"
+SEPARATION_EXPORT_SELECTED: Final = "Export this stem (selected)"
 SEPARATION_PRIMARY_BADGE: Final = "primary"
 SEPARATION_SUM_BADGE: Final = "sum"
 SEPARATION_ROLE_LABELS: Final[Mapping[str, str]] = MappingProxyType(
@@ -370,6 +371,12 @@ REASON_COPY: Final[Mapping[tuple[str, str], ErrorCopy]] = MappingProxyType(
         (errors.EXPORT_WRITE_FAILED, "other"): ErrorCopy(
             "Couldn't save the file.",
             "Try another folder; the details are in the job log.",
+        ),
+        # Export owns this reason so its disk-full action is "choose another
+        # location" rather than the cache's "clear cached audio" (14 §4.6).
+        (errors.STORAGE_DISK_FULL, "export"): ErrorCopy(
+            "Not enough disk space.",
+            "Choose another location.",
         ),
     }
 )

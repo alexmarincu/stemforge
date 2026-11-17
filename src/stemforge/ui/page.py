@@ -12,6 +12,7 @@ checks that the page responds before any service or native window exists.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -30,10 +31,21 @@ from stemforge.application import (
 )
 from stemforge.domain.models import OriginKind, RenderScope, Track
 from stemforge.errors import StemForgeError
-from stemforge.integration.dialogs import AudioFileDialog, filter_drop_paths
+from stemforge.integration.dialogs import (
+    AudioFileDialog,
+    NativeSaveDialog,
+    SaveAudioFileDialog,
+    filter_drop_paths,
+)
 from stemforge.platform.preflight import PreflightReport
 from stemforge.ui import formatting
 from stemforge.ui.components.about import SettingsDialog
+from stemforge.ui.components.export import (
+    ExportNotice,
+    ExportSheet,
+    ExportSpec,
+    ExportStatusBar,
+)
 from stemforge.ui.components.pitch import PitchCard
 from stemforge.ui.components.separation import SeparationCard
 from stemforge.ui.components.youtube import YouTubeRow
@@ -215,6 +227,42 @@ SHELL_CSS: Final = """
 .sf-stall { border: 1px solid #40341d; background: #1d1a12; border-radius: 10px;
   padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .sf-stall-text { font-size: 11.5px; color: #e4d3a9; }
+.sf-export-modal { width: min(480px, 94vw); display: flex; flex-direction: column;
+  gap: 12px; }
+.sf-export-body { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.sf-export-title { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+.sf-format-list, .sf-export-targets { display: flex; flex-direction: column; gap: 6px; }
+.sf-export-targets { max-height: 230px; overflow-y: auto; padding-right: 2px; }
+.sf-format-row, .sf-target-row { display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border: 1px solid #2a3240; border-radius: 9px; cursor: pointer;
+  background: #12161d; }
+.sf-format-row:hover, .sf-target-row:hover { border-color: #55647a; }
+.sf-format-row.is-active, .sf-target-row.is-active {
+  border-color: #5b4520; background: #3a2c14; }
+.sf-format-radio { width: 12px; height: 12px; flex: none; border-radius: 50%;
+  border: 1px solid #55647a; }
+.sf-format-row.is-active .sf-format-radio, .sf-target-row.is-active .sf-format-radio {
+  border-color: #f0a83a; background: #f0a83a; box-shadow: inset 0 0 0 2px #3a2c14; }
+.sf-format-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.sf-format-name { font-size: 12.5px; font-weight: 550; }
+.sf-format-size { font-size: 10.5px; color: #8994a4; }
+.sf-export-summary { border-top: 1px solid #232a35; padding-top: 8px;
+  display: flex; flex-direction: column; gap: 2px; }
+.sf-export-footer { display: flex; justify-content: flex-end; gap: 8px;
+  border-top: 1px solid #232a35; padding-top: 10px; }
+.sf-export-confirm { background: #f0a83a; color: #141414; font-weight: 600; }
+.sf-exportbar { flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 7px 16px; background: #11141a; border-top: 1px solid #232833; }
+.sf-exportbar.is-failure { background: #241617; border-top-color: #5b2c2c; }
+.sf-exportbar-icon { color: #9fd3ad; }
+.sf-exportbar.is-failure .sf-exportbar-icon { color: #f1b7b7; }
+.sf-exportbar-main { display: flex; flex-direction: column; gap: 1px;
+  min-width: 0; flex: 1; }
+.sf-exportbar-title { font-size: 11.5px; font-weight: 600; color: #d8e0eb;
+  overflow-wrap: anywhere; }
+.sf-exportbar-detail { font-size: 10.5px; color: #9aa6b7; }
+.sf-exportbar-code { font-size: 10.5px; color: #a47878;
+  font-family: ui-monospace, monospace; }
 """
 
 
@@ -224,6 +272,7 @@ class UiContext:
 
     service: WorkspaceService
     dialogs: AudioFileDialog
+    save_dialog: SaveAudioFileDialog | None = None
     show_recovery: bool = False
     recovery_dismissed: bool = False
     preflight: PreflightReport | None = None
@@ -372,6 +421,9 @@ class WorkspacePage:
         self._ab_alternate: dict[str, str] = {}
         self._extra_targets: dict[str, dict[str, PreviewTarget]] = {}
         self._export_selection: dict[str, str] = {}
+        self._export_jobs: dict[str, ExportSpec] = {}
+        self._export_notice: ExportNotice | None = None
+        self._export_status = ExportStatusBar()
         self._unavailable_preview: set[str] = set()
         self._pitch = PitchCard(
             self.service,
@@ -387,6 +439,12 @@ class WorkspacePage:
             on_export_target=self._select_export_target,
         )
         self._separation_jobs: dict[str, str] = {}
+        self._export_sheet = ExportSheet(
+            self.service,
+            context.save_dialog if context.save_dialog is not None else NativeSaveDialog(),
+            on_job_started=self._export_job_started,
+            on_target_selected=self._export_target_changed,
+        )
 
     # -- composition --------------------------------------------------------
 
@@ -410,6 +468,8 @@ class WorkspacePage:
                 # One element per client for the whole app (ticket 08 §8).
                 with ui.element("div").classes("sf-player"):
                     self._player = ui.audio("", controls=False).props("preload=none").mark("player")
+        # The sheet is one persistent dialog; see ExportSheet.build for why.
+        self._export_sheet.build()
         ui.timer(POLL_INTERVAL_S, self.poll)
         self._install_drop_handler()
 
@@ -790,7 +850,7 @@ class WorkspacePage:
                         ui.button(
                             "Export",
                             icon="file_download",
-                            on_click=lambda _=None: self._not_yet("Export"),
+                            on_click=lambda _=None, item=track: self._open_export_for_current(item),
                         )
                         .props("flat dense no-caps size=sm")
                         .mark("export-action")
@@ -835,6 +895,18 @@ class WorkspacePage:
                         ui.label("source").classes("sf-output-meta")
                     else:
                         ui.label("render").classes("sf-output-meta")
+                    export_button = (
+                        ui.button(
+                            icon="file_download",
+                            on_click=lambda _=None, item=target: self._open_export_for_preview(
+                                track, item
+                            ),
+                        )
+                        .props("flat dense round size=sm")
+                        .mark("output-export", f"output-export-{target.key}")
+                    )
+                    export_button.set_enabled(not self._busy())
+                    export_button.tooltip("Export this version")
 
     def _play_from_row(self, track_id: str) -> None:
         track = next(
@@ -1013,6 +1085,13 @@ class WorkspacePage:
     def _job_bar(self) -> None:
         snapshot = self._active_job()
         if snapshot is None:
+            if self._export_notice is not None:
+                self._export_status.build(
+                    self._export_notice,
+                    busy=self._busy(),
+                    on_retry=self._retry_export,
+                    on_dismiss=self._dismiss_export,
+                )
             return
         with ui.element("div").classes("sf-jobbar").mark("job-bar"):
             ui.element("span").classes("sf-dot")
@@ -1078,6 +1157,7 @@ class WorkspacePage:
     def _watch_job(self, job_id: str) -> None:
         self._watched_jobs.add(job_id)
         self._reported_jobs.discard(job_id)
+        self._export_notice = None
 
     def _on_youtube_submitted(self, job_id: str) -> None:
         """Mirror the local-import submit: watch the Job and show the bar."""
@@ -1131,13 +1211,124 @@ class WorkspacePage:
         self._toggle_target(track, target)
 
     def _select_export_target(self, track: Track, target: ExportTarget) -> None:
-        """Remember the row Export will use; ticket 17 owns the dialog flow."""
+        """A stem row's export icon selects that target and opens the sheet."""
         self._export_selection[track.track_id] = target.key
+        self._detail.refresh()
+        self._open_export(track, initial_target=target.key)
+
+    def _export_target_changed(self, track_id: str, key: str) -> None:
+        """The sheet's source selection is the card's selected export target."""
+        self._export_selection[track_id] = key
         self._detail.refresh()
 
     def export_selection(self, track_id: str) -> str | None:
         """The Separation export row currently selected for one Track."""
         return self._export_selection.get(track_id)
+
+    # -- export -------------------------------------------------------------
+
+    def _open_export_for_current(self, track: Track) -> None:
+        preview = self._active_target(track)
+        initial = self._export_key_for_preview(track, preview) if preview is not None else None
+        self._open_export(track, initial_target=initial)
+
+    def _open_export_for_preview(self, track: Track, target: PreviewTarget) -> None:
+        key = self._export_key_for_preview(track, target)
+        self._open_export(track, initial_target=key)
+
+    def _open_export(self, track: Track, *, initial_target: str | None = None) -> None:
+        if self._busy():
+            return
+        self._export_sheet.open(track, initial_target=initial_target, busy=False)
+
+    def _export_key_for_preview(self, track: Track, preview: PreviewTarget) -> str | None:
+        """Map a listening target to the export target the same row would save."""
+        if preview.key == "original":
+            return "master"
+        targets = self.service.export_targets(track)
+        keys = {target.key for target in targets}
+        if ":" in preview.key and preview.key.startswith("sep-"):
+            role = preview.key.rsplit(":", 1)[1]
+            key = "instrumental" if role == "instrumental" else f"stem:{role}"
+            if key in keys:
+                return key
+        for target in targets:
+            if target.render_key == preview.key and target.role in {"instrumental", "original"}:
+                return target.key
+        for target in targets:
+            if target.render_key == preview.key:
+                return target.key
+        return None
+
+    def _export_job_started(self, job_id: str, spec: ExportSpec) -> None:
+        self._export_jobs[job_id] = spec
+        self._export_notice = None
+        self._watch_job(job_id)
+        self._job_signature = None
+        self._job_bar_visible = True
+        self._job_bar.refresh()
+        self._refresh_all()
+
+    def _finish_export_job(self, snapshot: JobView) -> None:
+        spec = self._export_jobs.pop(snapshot.job_id, None)
+        if spec is None:
+            return
+        if snapshot.state.value == "succeeded":
+            result = self.service.export_result(snapshot.job_id)
+            if result is None:
+                self._export_notice = ExportNotice.failure(
+                    spec,
+                    code=errors.INTERNAL_UNEXPECTED,
+                    detail=None,
+                    retryable=False,
+                )
+            else:
+                self._export_notice = ExportNotice.success(spec, result.path)
+                with contextlib.suppress(OSError):
+                    self.service.settings.set_export_dir(result.path.parent)
+                ui.notify(f"Exported to {result.path}", type="positive")
+        elif snapshot.state.value == "failed":
+            code = snapshot.error_code or errors.INTERNAL_UNEXPECTED
+            self._export_notice = ExportNotice.failure(
+                spec,
+                code=code,
+                detail=snapshot.error_detail,
+                retryable=snapshot.retryable,
+            )
+            reason = "export" if code == errors.STORAGE_DISK_FULL else snapshot.error_detail
+            ui.notify(formatting.copy_for(code, reason).headline, type="negative")
+        elif snapshot.state.value == "cancelled":
+            ui.notify(formatting.EXPORT_CANCELLED, type="info")
+        self._job_bar.refresh()
+        self._refresh_all()
+
+    def _retry_export(self) -> None:
+        notice = self._export_notice
+        if notice is None or self._busy():
+            return
+        spec = notice.spec
+        try:
+            job_id = self.service.submit_export(
+                spec.track_id,
+                spec.target_key,
+                spec.fmt,
+                spec.destination_dir,
+                destination_name=spec.destination_name,
+            )
+        except StemForgeError as error:
+            self._export_notice = ExportNotice.failure(
+                spec,
+                code=error.code,
+                detail=error.detail,
+                retryable=error.retryable,
+            )
+            self._job_bar.refresh()
+            return
+        self._export_job_started(job_id, spec)
+
+    def _dismiss_export(self) -> None:
+        self._export_notice = None
+        self._job_bar.refresh()
 
     def _open_recent(self, entry: RecentEntry) -> None:
         if self._busy():
@@ -1225,6 +1416,9 @@ class WorkspacePage:
                 continue
             if snapshot.kind.value == "model_install":
                 self._finish_model_job(snapshot)
+                continue
+            if snapshot.kind.value == "export":
+                self._finish_export_job(snapshot)
                 continue
             if snapshot.state.value == "succeeded":
                 self._on_import_success(snapshot)
@@ -1405,6 +1599,13 @@ class WorkspacePage:
         self._ab_alternate.pop(track.track_id, None)
         self._extra_targets.pop(track.track_id, None)
         self._export_selection.pop(track.track_id, None)
+        self._export_jobs = {
+            job_id: spec
+            for job_id, spec in self._export_jobs.items()
+            if spec.track_id != track.track_id
+        }
+        if self._export_notice is not None and self._export_notice.spec.track_id == track.track_id:
+            self._export_notice = None
         self._unavailable_preview.discard(track.track_id)
         self._separation.forget_track(track.track_id)
         self._refresh_all()
