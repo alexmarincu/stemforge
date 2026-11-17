@@ -229,6 +229,7 @@ def _copy_native(source: Path, target: Path) -> None:
         raise StemForgeError(
             code,
             f"could not copy the source into staging: {exc}",
+            retryable=True,
             detail=str(exc),
             context={"source": str(source), "path": str(target), "errno": exc.errno},
         ) from exc

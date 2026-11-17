@@ -929,7 +929,7 @@ def test_cli_writes_the_report_file(
 
 
 @pytest.mark.unit
-def test_fatal_cli_writes_the_report_before_the_box_and_copies_its_json(
+def test_fatal_cli_writes_the_report_before_the_box_and_copies_diagnostics(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from stemforge import __main__ as entry
@@ -950,8 +950,17 @@ def test_fatal_cli_writes_the_report_before_the_box_and_copies_its_json(
 
     assert code == preflight.EXIT_WINDOW_UNAVAILABLE
     assert target.is_file()
+    assert list(json.loads(target.read_text(encoding="utf-8"))) == [
+        "version",
+        "ok",
+        "exit_code",
+        "degraded",
+        "checks",
+        "warnings",
+    ]
     assert len(shown) == 1
-    assert shown[0].copy_text == target.read_text(encoding="utf-8")
+    assert shown[0].copy_text.startswith("StemForge ")
+    assert "--- app log (last 200 lines) ---" in shown[0].copy_text
     assert capsys.readouterr().out == ""
 
 

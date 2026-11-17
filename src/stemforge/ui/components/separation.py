@@ -18,6 +18,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from nicegui import ui
@@ -25,7 +26,13 @@ from nicegui import ui
 from stemforge import errors
 from stemforge.domain.models import Track
 from stemforge.errors import StemForgeError
+from stemforge.integration.shell import PathOpener
 from stemforge.ui import formatting
+from stemforge.ui.components.diagnostics import (
+    ClipboardWriter,
+    DiagnosticsProvider,
+    error_details,
+)
 
 if TYPE_CHECKING:
     from stemforge.application import (
@@ -93,6 +100,8 @@ class SeparationFailure:
     code: str
     detail: str | None
     retryable: bool
+    job_id: str | None = None
+    log_path: Path | None = None
 
 
 class SeparationCard:
@@ -108,12 +117,18 @@ class SeparationCard:
         on_export_target: SelectExport,
         clock: Callable[[], float] = time.monotonic,
         stall_seconds: float = 30.0,
+        diagnostics: DiagnosticsProvider | None = None,
+        clipboard: ClipboardWriter | None = None,
+        open_path: PathOpener | None = None,
     ) -> None:
         self._service = service
         self._on_job_started = on_job_started
         self._on_cancel = on_cancel
         self._on_play = on_play
         self._on_export_target = on_export_target
+        self._diagnostics = diagnostics
+        self._clipboard = clipboard
+        self._open_path = open_path
         # Injectable so tests advance time instead of sleeping for minutes.
         self.clock = clock
         self.stall_seconds = stall_seconds
@@ -128,7 +143,7 @@ class SeparationCard:
         self._last_change_at: float | None = None
         self._stalled = False
         self._stall_ack: tuple[str, int, str] | None = None
-        self._download_failure: tuple[str, str | None] | None = None
+        self._download_failure: SeparationFailure | None = None
 
     # -- composition --------------------------------------------------------
 
@@ -211,6 +226,13 @@ class SeparationCard:
             ui.label(f"{errors.SEPARATION_MODEL_MISSING} · reason={reason}").classes(
                 "sf-notice-detail"
             ).mark("separation-model-code")
+            error_details(
+                code=errors.SEPARATION_MODEL_MISSING,
+                marker="separation-gate-error",
+                diagnostics=self._diagnostics,
+                clipboard=self._clipboard,
+                open_path=self._open_path,
+            )
             download = self._job is not None and self._job.kind.value == "model_install"
             if self._download_failure is not None and not download:
                 self._download_error(self._download_failure, busy=busy)
@@ -241,14 +263,21 @@ class SeparationCard:
                 )
                 button.set_enabled(not busy)
 
-    def _download_error(self, failure: tuple[str, str | None], *, busy: bool = False) -> None:
-        code, detail = failure
-        reason = _detail_reason(detail)
-        copy = formatting.copy_for(code, reason)
+    def _download_error(self, failure: SeparationFailure, *, busy: bool = False) -> None:
+        reason = _detail_reason(failure.detail)
+        copy = formatting.copy_for(failure.code, reason)
         ui.label(copy.headline).classes("sf-notice-headline")
         ui.label(copy.action).classes("sf-notice-action")
-        ui.label(f"{code} · {detail}" if detail else code).classes("sf-notice-detail").mark(
-            "separation-model-error-code"
+        error_details(
+            code=failure.code,
+            marker="separation-model-error"
+            if failure.code == errors.SEPARATION_MODEL_DOWNLOAD_FAILED
+            else "separation-error",
+            job_id=failure.job_id,
+            log_path=failure.log_path,
+            diagnostics=self._diagnostics,
+            clipboard=self._clipboard,
+            open_path=self._open_path,
         )
         retry = (
             ui.button(
@@ -476,11 +505,18 @@ class SeparationCard:
         if failure is None or failure.code == errors.SEPARATION_MODEL_MISSING:
             return
         copy = formatting.copy_for(failure.code, _detail_reason(failure.detail))
-        detail = f"{failure.code} · {failure.detail}" if failure.detail else failure.code
         with ui.element("div").classes("sf-notice").mark("separation-error"):
             ui.label(copy.headline).classes("sf-notice-headline")
             ui.label(copy.action).classes("sf-notice-action")
-            ui.label(detail).classes("sf-notice-detail").mark("separation-error-code")
+            error_details(
+                code=failure.code,
+                marker="separation-error",
+                job_id=failure.job_id,
+                log_path=failure.log_path,
+                diagnostics=self._diagnostics,
+                clipboard=self._clipboard,
+                open_path=self._open_path,
+            )
             retryable = failure.retryable or failure.code in _RETRYABLE_CODES
             if retryable:
                 retry = (
@@ -511,7 +547,11 @@ class SeparationCard:
         try:
             job_id = self._service.install_model(accept_licence=True)
         except StemForgeError as error:
-            self._download_failure = (error.code, error.detail)
+            self._download_failure = SeparationFailure(
+                code=error.code,
+                detail=error.detail,
+                retryable=error.retryable,
+            )
             self.build.refresh()
             return
         self._download_failure = None
@@ -625,19 +665,36 @@ class SeparationCard:
         detail: str | None,
         *,
         retryable: bool = False,
+        job_id: str | None = None,
+        log_path: Path | None = None,
     ) -> None:
         self._failures[track_id] = SeparationFailure(
             code=code or errors.SEPARATION_ENGINE_ERROR,
             detail=detail,
             retryable=retryable,
+            job_id=job_id,
+            log_path=log_path,
         )
         if code == errors.SEPARATION_MODEL_MISSING:
             self._service.remember_pending_separation(track_id)
         if track_id == self._current_track_id:
             self.build.refresh()
 
-    def record_model_failure(self, code: str, detail: str | None) -> None:
-        self._download_failure = (code or errors.SEPARATION_MODEL_DOWNLOAD_FAILED, detail)
+    def record_model_failure(
+        self,
+        code: str,
+        detail: str | None,
+        *,
+        job_id: str | None = None,
+        log_path: Path | None = None,
+    ) -> None:
+        self._download_failure = SeparationFailure(
+            code=code or errors.SEPARATION_MODEL_DOWNLOAD_FAILED,
+            detail=detail,
+            retryable=True,
+            job_id=job_id,
+            log_path=log_path,
+        )
         self._job = None
         self._last_change_at = None
         self.build.refresh()

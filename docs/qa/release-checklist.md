@@ -98,6 +98,11 @@ Columns: `Pass/fail`, `OS build`, `Date`, `Tester`, `Artifact SHA-256`.
 | L9 | Logs exist under the 07 paths; About shows licence, notices, source offer, and the licences folder | all five Linux hosts | | | | | |
 | L10 | AppImage with and without FUSE (`--appimage-extract-and-run`); browser fallback when WebKitGTK or GStreamer is missing; Wayland and X11; the 2.52+ NVIDIA/Skia workaround note | Ubuntu 22.04 (both sessions), Ubuntu 24.04, Fedora, Arch | | | | | |
 | L11 | Offline: launch, local import, and Separation with the model already installed; model missing + offline shows the actionable error | Ubuntu 22.04, Ubuntu 24.04, Fedora | | | | | |
+| L12 | Fatal preflight: start on a host without GTK 3/WebKitGTK 4.1; the native "StemForge can't start" box names the fix, `Copy details` yields the diagnostics report, and the process exits 3 | Ubuntu 22.04 | | | | | |
+| L13 | Degraded playback: remove GStreamer's good plugins; the persistent banner appears, transports are disabled with "Playback unavailable", Separation/Pitch/Export still work, and `--preflight` exits 4 while the GUI starts | Ubuntu 22.04 | | | | | |
+| L14 | Resource warning: under 8 GB RAM or under 20 GB free disk shows a dismissible banner once per launch; importing still starts and the per-Job space check still enforces | Ubuntu 22.04 | | | | | |
+| L15 | Crash recovery: force-quit during Export, relaunch; the startup sweep removes cache partials, the one-time recovery banner appears once, completed audio survives, and a clean relaunch shows no banner | Ubuntu 22.04 | | | | | |
+| L16 | About → Copy diagnostics and every error Details disclosure: read-only report, "Contains local file paths. Review before sharing.", clipboard copy works, the text stays selectable when copy fails, and nothing is uploaded or written | all five Linux hosts | | | | | |
 
 ## Windows matrix (ticket 11 §7)
 
@@ -114,6 +119,7 @@ and build in `OS build`.
 | W6 | Title bar, taskbar, Start Menu, and Alt-Tab icon at 16/20/24/32/48/256 px | both Windows hosts | | | | | |
 | W7 | Uninstall keeps `%LOCALAPPDATA%\StemForge` and shows the data path; reinstall reuses it | both Windows hosts | | | | | |
 | W8 | `--preflight --json` on a clean VM; WebView2/.NET failure exits 5 with the actionable message | Windows 10 22H2 + ESU without WebView2; Windows 11 fresh | | | | | |
+| W9 | Native fatal box for missing WebView2/.NET: "StemForge can't start", the download/fix line, `Copy details` gives the diagnostics report, and the process exits 5 | Windows 10 22H2 + ESU without WebView2 | | | | | |
 
 ## Both OSes, once per release (ticket 11 §7)
 
@@ -123,6 +129,8 @@ and build in `OS build`.
 | B2 | corrupt-file and unsupported-file errors | Linux and Windows | | | | | |
 | B3 | disk-space warning | Linux and Windows | | | | | |
 | B4 | job log path from the error banner | Linux and Windows | | | | | |
+| B5 | crash recovery banner after a force-quit mid-Job: shown once when the sweep removed residue, absent on a clean launch | Linux and Windows | | | | | |
+| B6 | Copy diagnostics from About and from one failed Job's Details: read-only, paths visible, copy-only, no upload or file written | Linux and Windows | | | | | |
 
 ## Automated evidence
 

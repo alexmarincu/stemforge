@@ -41,6 +41,11 @@ from stemforge.integration.shell import PathOpener
 from stemforge.platform.preflight import PreflightReport
 from stemforge.ui import formatting
 from stemforge.ui.components.about import SettingsDialog
+from stemforge.ui.components.diagnostics import (
+    ClipboardWriter,
+    DiagnosticsProvider,
+    error_details,
+)
 from stemforge.ui.components.export import (
     ExportNotice,
     ExportSheet,
@@ -161,6 +166,12 @@ SHELL_CSS: Final = """
 .sf-notice-headline { font-size: 12.5px; font-weight: 600; color: #f1b7b7; }
 .sf-notice-action { font-size: 11.5px; color: #d5a3a3; }
 .sf-notice-detail { font-size: 10.5px; color: #a47878; font-family: ui-monospace, monospace; }
+.sf-details { width: 100%; }
+.sf-details .q-expansion-item__container { font-size: 11px; color: #9aa6b7; }
+.sf-details-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.sf-diagnostics { width: min(720px, 94vw); display: flex; flex-direction: column; gap: 10px; }
+.sf-diagnostics-text { width: 100%; font-family: ui-monospace, monospace; font-size: 11px; }
+.sf-diagnostics-text textarea { min-height: 42vh; white-space: pre; }
 .sf-banner { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
   background: #1d1a12; border-bottom: 1px solid #40341d; color: #e4d3a9; font-size: 12px; }
 .sf-jobbar { flex: none; min-height: 44px; display: flex; align-items: center; gap: 12px;
@@ -283,6 +294,9 @@ class UiContext:
     show_recovery: bool = False
     recovery_dismissed: bool = False
     preflight: PreflightReport | None = None
+    diagnostics: DiagnosticsProvider | None = None
+    clipboard: ClipboardWriter | None = None
+    resource_warning_dismissed: bool = False
 
     @property
     def playback_available(self) -> bool:
@@ -297,6 +311,17 @@ class PitchJobSpec:
     track_id: str
     semitones: int
     scope: RenderScope
+
+
+@dataclass(frozen=True, slots=True)
+class Notice:
+    """One coded inline error card; the raw detail never reaches the UI."""
+
+    code: str
+    headline: str
+    action: str
+    job_id: str | None = None
+    log_path: Path | None = None
 
 
 class RecentEntry(Protocol):
@@ -363,6 +388,9 @@ class JobView(Protocol):
     def retryable(self) -> bool: ...
 
     @property
+    def log_path(self) -> Path | None: ...
+
+    @property
     def result_keys(self) -> Mapping[str, str]: ...
 
 
@@ -413,7 +441,7 @@ class WorkspacePage:
         self._reported_jobs: set[str] = set()
         self._job_signature: tuple[str, str, int, str, str] | None = None
         self._job_bar_visible = False
-        self._notice: tuple[str, str, str, str | None] | None = None
+        self._notice: Notice | None = None
         self._add_button: ui.button | None = None
         self._youtube_row: YouTubeRow | None = None
         self._recent_signature: tuple[tuple[str, bool], ...] | None = None
@@ -436,6 +464,9 @@ class WorkspacePage:
             self.service,
             on_select=self._select_pitch_set,
             on_job_started=self._pitch_job_started,
+            diagnostics=context.diagnostics,
+            clipboard=context.clipboard,
+            open_path=context.open_path,
         )
         self._pitch_jobs: dict[str, PitchJobSpec] = {}
         self._separation = SeparationCard(
@@ -444,6 +475,9 @@ class WorkspacePage:
             on_cancel=self._cancel_active_job,
             on_play=self._play_separation_target,
             on_export_target=self._select_export_target,
+            diagnostics=context.diagnostics,
+            clipboard=context.clipboard,
+            open_path=context.open_path,
         )
         self._separation_jobs: dict[str, str] = {}
         self._export_sheet = ExportSheet(
@@ -451,6 +485,9 @@ class WorkspacePage:
             context.save_dialog if context.save_dialog is not None else NativeSaveDialog(),
             on_job_started=self._export_job_started,
             on_target_selected=self._export_target_changed,
+            diagnostics=context.diagnostics,
+            clipboard=context.clipboard,
+            open_path=context.open_path,
         )
 
     # -- composition --------------------------------------------------------
@@ -475,6 +512,7 @@ class WorkspacePage:
                 # One element per client for the whole app (ticket 08 §8).
                 with ui.element("div").classes("sf-player"):
                     self._player = ui.audio("", controls=False).props("preload=none").mark("player")
+                    self._player.on("error", self._on_player_error)
         # The sheet is one persistent dialog; see ExportSheet.build for why.
         self._export_sheet.build()
         ui.timer(POLL_INTERVAL_S, self.poll)
@@ -637,6 +675,19 @@ class WorkspacePage:
                 with ui.element("div").classes("sf-banner-text flex-1"):
                     ui.label(copy.headline).classes("sf-banner-headline")
                     ui.label(copy.action).classes("sf-banner-hint")
+        warning = self._resource_warning()
+        if warning is not None and not self.context.resource_warning_dismissed:
+            with ui.element("div").classes("sf-banner").mark("resource-banner"):
+                ui.icon("memory")
+                ui.label(warning).classes("flex-1")
+                (
+                    ui.button(
+                        formatting.RESOURCE_WARNING_DISMISS,
+                        on_click=self._dismiss_resource_warning,
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .mark("resource-dismiss")
+                )
         if not self.context.show_recovery or self.context.recovery_dismissed:
             return
         with ui.element("div").classes("sf-banner").mark("recovery-banner"):
@@ -649,15 +700,36 @@ class WorkspacePage:
                 "flat dense no-caps size=sm"
             )
 
+    def _resource_warning(self) -> str | None:
+        report = self.context.preflight
+        if report is None:
+            return None
+        for check in report.checks:
+            if check.name == "resources" and check.status == "warn":
+                return check.message
+        return None
+
+    def _dismiss_resource_warning(self) -> None:
+        self.context.resource_warning_dismissed = True
+        self._banner.refresh()
+
     @ui.refreshable_method
     def _notice_block(self) -> None:
         if self._notice is None:
             return
-        code, headline, action, detail = self._notice
+        notice = self._notice
         with ui.element("div").classes("sf-notice").mark("import-error"):
-            ui.label(headline).classes("sf-notice-headline")
-            ui.label(action).classes("sf-notice-action")
-            ui.label(f"{code} · {detail}" if detail else code).classes("sf-notice-detail")
+            ui.label(notice.headline).classes("sf-notice-headline")
+            ui.label(notice.action).classes("sf-notice-action")
+            error_details(
+                code=notice.code,
+                marker="import-details",
+                job_id=notice.job_id,
+                log_path=notice.log_path,
+                diagnostics=self.context.diagnostics,
+                clipboard=self.context.clipboard,
+                open_path=self.context.open_path,
+            )
 
     @ui.refreshable_method
     def _detail(self) -> None:
@@ -719,6 +791,9 @@ class WorkspacePage:
                     self.service,
                     busy=busy,
                     on_submitted=self._on_youtube_submitted,
+                    diagnostics=self.context.diagnostics,
+                    clipboard=self.context.clipboard,
+                    open_path=self.context.open_path,
                 )
                 self._youtube_row.build()
             else:
@@ -873,6 +948,13 @@ class WorkspacePage:
                 ui.label("Preview unavailable. Re-import the file to rebuild it.").classes(
                     "sf-unavailable"
                 ).mark("preview-unavailable")
+                error_details(
+                    code=errors.PLAYBACK_UNAVAILABLE,
+                    marker="playback-error",
+                    diagnostics=self.context.diagnostics,
+                    clipboard=self.context.clipboard,
+                    open_path=self.context.open_path,
+                )
                 if not targets:
                     return
             for target in targets:
@@ -1049,6 +1131,12 @@ class WorkspacePage:
         ):
             self._mark_preview_unavailable(track_id)
 
+    def _on_player_error(self) -> None:
+        """The browser's ``<audio>`` error handler maps to playback.unavailable."""
+        track_id = self._playing_track_id
+        if track_id is not None:
+            self._mark_preview_unavailable(track_id)
+
     def _mark_preview_unavailable(self, track_id: str) -> None:
         if self._player is not None:
             self._player.pause()
@@ -1057,6 +1145,7 @@ class WorkspacePage:
         self._playing_key = None
         self._active_key.pop(track_id, None)
         self._unavailable_preview.add(track_id)
+        ui.notify(formatting.copy_for(errors.PLAYBACK_UNAVAILABLE).headline, type="negative")
         self._refresh_playback()
 
     def _seek(self, event: events.ValueChangeEventArguments[float | None]) -> None:
@@ -1098,6 +1187,9 @@ class WorkspacePage:
                     busy=self._busy(),
                     on_retry=self._retry_export,
                     on_dismiss=self._dismiss_export,
+                    diagnostics=self.context.diagnostics,
+                    clipboard=self.context.clipboard,
+                    open_path=self.context.open_path,
                 )
             return
         with ui.element("div").classes("sf-jobbar").mark("job-bar"):
@@ -1301,8 +1393,12 @@ class WorkspacePage:
                 code=code,
                 detail=snapshot.error_detail,
                 retryable=snapshot.retryable,
+                job_id=snapshot.job_id or None,
+                log_path=snapshot.log_path,
             )
-            reason = "export" if code == errors.STORAGE_DISK_FULL else snapshot.error_detail
+            reason = (
+                "export" if code == errors.STORAGE_DISK_FULL else _reason(snapshot.error_detail)
+            )
             ui.notify(formatting.copy_for(code, reason).headline, type="negative")
         elif snapshot.state.value == "cancelled":
             ui.notify(formatting.EXPORT_CANCELLED, type="info")
@@ -1447,6 +1543,8 @@ class WorkspacePage:
                 snapshot.error_code or errors.INTERNAL_UNEXPECTED,
                 snapshot.error_detail,
                 retryable=snapshot.retryable,
+                job_id=snapshot.job_id,
+                log_path=snapshot.log_path,
             )
         elif snapshot.state.value == "cancelled":
             self._separation.clear_failure(track_id)
@@ -1461,6 +1559,8 @@ class WorkspacePage:
             self._separation.record_model_failure(
                 snapshot.error_code or errors.SEPARATION_MODEL_DOWNLOAD_FAILED,
                 snapshot.error_detail,
+                job_id=snapshot.job_id,
+                log_path=snapshot.log_path,
             )
             self._refresh_all()
             return
@@ -1502,6 +1602,8 @@ class WorkspacePage:
                 snapshot.error_detail,
                 spec.semitones,
                 spec.scope,
+                job_id=snapshot.job_id,
+                log_path=snapshot.log_path,
             )
             self._refresh_all()
             return
@@ -1532,17 +1634,26 @@ class WorkspacePage:
 
     def _on_import_failure(self, snapshot: JobView) -> None:
         code = snapshot.error_code or errors.INTERNAL_UNEXPECTED
-        copy = formatting.copy_for(code, snapshot.error_detail)
+        copy = formatting.copy_for(code, _reason(snapshot.error_detail))
         ui.notify(copy.headline, type="negative")
-        detail = f"job {snapshot.job_id[:8]}" if snapshot.job_id else None
-        self._notice = (code, copy.headline, copy.action, detail)
+        self._notice = Notice(
+            code=code,
+            headline=copy.headline,
+            action=copy.action,
+            job_id=snapshot.job_id or None,
+            log_path=snapshot.log_path,
+        )
         self._notice_block.refresh()
         self._refresh_all()
 
     def _show_error(self, error: StemForgeError) -> None:
-        copy = formatting.copy_for(error.code, error.detail)
+        copy = formatting.copy_for(error.code, _reason(error.detail))
         ui.notify(copy.headline, type="negative")
-        self._notice = (error.code, copy.headline, copy.action, error.detail)
+        self._notice = Notice(
+            code=error.code,
+            headline=copy.headline,
+            action=copy.action,
+        )
         self._notice_block.refresh()
 
     # -- native drop --------------------------------------------------------
@@ -1594,6 +1705,7 @@ class WorkspacePage:
         dialog.close()
         if self._playing_track_id == track.track_id:
             self._pause()
+        ui.notify(formatting.REMOVING, type="info")
         try:
             self.service.remove_track(track.track_id)
         except StemForgeError as error:
@@ -1634,6 +1746,8 @@ class WorkspacePage:
             self.service,
             on_youtube_toggle=self._on_youtube_toggle,
             open_path=self.context.open_path,
+            diagnostics=self.context.diagnostics,
+            clipboard=self.context.clipboard,
         ).open()
 
     def _on_youtube_toggle(self) -> None:
@@ -1756,6 +1870,17 @@ class WorkspacePage:
             "model_install": "Downloading model",
         }
         return labels.get(kind, "Working")
+
+
+def _reason(detail: str | None) -> str | None:
+    """Pick the stable copy reason out of a log-only detail string."""
+    text = (detail or "").strip()
+    if not text:
+        return None
+    for part in text.replace("\n", " ").split():
+        if part.startswith("reason="):
+            return part.removeprefix("reason=")
+    return text if " " not in text else None
 
 
 def _dispatch_drop(event: NativeEventArguments) -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -547,6 +547,34 @@ def test_enforce_cap_evicts_oldest_whole_sets_first(store: ArtifactStore) -> Non
     assert newest.directory.is_dir()
     assert report.usage_after == sum(sizes.values()) - sizes["oldest"]
     assert store.usage_bytes() == report.usage_after
+
+
+@pytest.mark.unit
+def test_enforce_cap_records_evictions_for_the_diagnostics_window(
+    store: ArtifactStore,
+) -> None:
+    source = _commit_source(store, "old")
+    newest = _commit_source(store, "new")
+    _set_used(store, "old", 100.0)
+    _set_used(store, "new", 200.0)
+    store = ArtifactStore(store.paths, cap_bytes=_dir_size(newest.directory))
+
+    store.enforce_cap(set())
+
+    now = datetime.now(UTC)
+    assert store.eviction_count(now - timedelta(days=7)) == 1
+    assert store.eviction_count(now + timedelta(minutes=1)) == 0
+    assert store.eviction_count(now - timedelta(days=7)) < 2
+    assert not source.directory.exists()
+    assert store.eviction_ledger_path.is_file()
+
+
+@pytest.mark.unit
+def test_a_corrupt_eviction_ledger_never_breaks_diagnostics(store: ArtifactStore) -> None:
+    store.eviction_ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    store.eviction_ledger_path.write_text("not json\n", encoding="utf-8")
+
+    assert store.eviction_count(datetime.now(UTC)) == 0
 
 
 @pytest.mark.unit

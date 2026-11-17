@@ -19,7 +19,13 @@ from nicegui import ui
 
 from stemforge import errors
 from stemforge.errors import StemForgeError
+from stemforge.integration.shell import PathOpener
 from stemforge.ui import formatting
+from stemforge.ui.components.diagnostics import (
+    ClipboardWriter,
+    DiagnosticsProvider,
+    error_details,
+)
 
 if TYPE_CHECKING:
     from stemforge.application import WorkspaceService
@@ -34,16 +40,23 @@ class YouTubeRow:
         *,
         busy: bool = False,
         on_submitted: Callable[[str], None] | None = None,
+        diagnostics: DiagnosticsProvider | None = None,
+        clipboard: ClipboardWriter | None = None,
+        open_path: PathOpener | None = None,
     ) -> None:
         self._service = service
         self._busy = busy
         self._on_submitted = on_submitted
+        self._diagnostics = diagnostics
+        self._clipboard = clipboard
+        self._open_path = open_path
         self._declined = False
         self._pending_url: str | None = None
         self._dialog: ui.dialog | None = None
         self._input: ui.input | None = None
         self._button: ui.button | None = None
         self._error: ui.label | None = None
+        self._error_details: ui.column | None = None
         self._status: ui.label | None = None
 
     def build(self) -> None:
@@ -66,6 +79,8 @@ class YouTubeRow:
                 )
             self._error = ui.label("").classes("sf-yt-error").mark("youtube-field-error")
             self._error.set_visibility(False)
+            self._error_details = ui.column().classes("w-full").mark("youtube-error-details")
+            self._error_details.set_visibility(False)
             self._status = ui.label("").classes("sf-yt-status").mark("youtube-status")
             self._status.set_visibility(False)
             ui.label(formatting.YOUTUBE_DISCLAIMER).classes("sf-yt-disclaimer").mark(
@@ -170,13 +185,36 @@ class YouTubeRow:
             self._dialog = None
 
     def _show_field_error(self, error: StemForgeError) -> None:
-        copy = formatting.copy_for(error.code, error.detail)
+        copy = formatting.copy_for(error.code, _reason(error.detail))
         if self._error is not None:
             self._error.set_text(copy.headline)
             self._error.set_visibility(True)
+        if self._error_details is not None:
+            self._error_details.clear()
+            with self._error_details:
+                error_details(
+                    code=error.code,
+                    marker="youtube-error",
+                    diagnostics=self._diagnostics,
+                    clipboard=self._clipboard,
+                    open_path=self._open_path,
+                )
+            self._error_details.set_visibility(self._diagnostics is not None)
         if self._status is not None:
             self._status.set_visibility(False)
 
     def _clear_field_error(self) -> None:
         if self._error is not None:
             self._error.set_visibility(False)
+        if self._error_details is not None:
+            self._error_details.set_visibility(False)
+
+
+def _reason(detail: str | None) -> str | None:
+    text = (detail or "").strip()
+    if not text:
+        return None
+    for part in text.replace("\n", " ").split():
+        if part.startswith("reason="):
+            return part.removeprefix("reason=")
+    return text if " " not in text else None
