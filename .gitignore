@@ -18,6 +18,9 @@ build/
 dist/
 *.egg-info/
 
+# Vendored binaries and build scratch (ticket 19: pinned by packaging/vendor.lock.json)
+/vendor/
+
 # OS noise
 .DS_Store
 Thumbs.db
