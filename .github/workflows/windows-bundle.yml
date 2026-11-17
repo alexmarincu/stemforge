@@ -1,0 +1,169 @@
+name: Windows bundle evidence
+
+# Ticket 21. This workflow is deliberately off pull requests: ticket 11's PR CI
+# is Linux-only and must stay under 15 minutes. Dispatch it manually to produce
+# Windows runner evidence (frozen self/smoke/separation, budgets, ZIP/setup).
+# Ticket 23 owns the tagged release workflow and its assets; this workflow only
+# uploads evidence artifacts (and the binaries only when explicitly requested).
+
+on:
+  workflow_dispatch:
+    inputs:
+      allow_licence_pending:
+        description: "Build without the ticket 22 licence tree (non-release evidence only)"
+        type: boolean
+        default: false
+      with_separation:
+        description: "Install the pinned weights into a temporary STEMFORGE_HOME and run --smoke-separation"
+        type: boolean
+        default: true
+      upload_binaries:
+        description: "Upload the portable ZIP and setup.exe (large; normally release.yml owns them)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: windows-bundle-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-bundle:
+    name: windows-2022 bundle
+    runs-on: windows-2022
+    timeout-minutes: 35
+    env:
+      PYTHONUTF8: "1"
+      STEMFORGE_REQUIRE_VENDOR: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install uv dependencies
+        run: uv sync --frozen --group build
+
+      - name: Parse the PowerShell scripts
+        shell: pwsh
+        run: |
+          $files = @(
+            'scripts/vendor-fetch.ps1',
+            'packaging/windows/build.ps1',
+            'packaging/windows/package.ps1',
+            'packaging/windows/smoke-test.ps1'
+          )
+          $failed = $false
+          foreach ($file in $files) {
+            $errors = $null
+            $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD $file), [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              $errors | ForEach-Object { Write-Error "$file:$($_.Extent.StartLineNumber): $($_.Message)" }
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Install the Windows vendor build tools
+        shell: pwsh
+        run: |
+          uv pip install --python .venv\Scripts\python.exe meson ninja
+          if (-not (Get-Command pkg-config -ErrorAction SilentlyContinue)) {
+            choco install pkgconfiglite -y --no-progress
+          }
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Cache the pinned vendor set
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ffmpeg
+            vendor/deno
+            vendor/rubberband
+            vendor/PROVENANCE.txt
+          key: vendor-windows-${{ hashFiles('packaging/vendor.lock.json', 'scripts/vendor-fetch.ps1') }}
+
+      - name: Cache the PyInstaller bootloader cache
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pyinstaller
+          key: pyinstaller-windows-${{ hashFiles('uv.lock') }}-${{ hashFiles('packaging/vendor.lock.json') }}
+
+      - name: Fetch and build the pinned vendor set
+        shell: pwsh
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/vendor-fetch.ps1
+
+      - name: Verify the vendor set against the lock
+        shell: pwsh
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/vendor-fetch.ps1 -VerifyOnly
+
+      - name: Build the frozen bundle
+        shell: pwsh
+        run: |
+          $arguments = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', 'packaging/windows/build.ps1', '-SkipVendorFetch'
+          )
+          if ('${{ inputs.allow_licence_pending }}' -eq 'true') {
+            $arguments += '-AllowLicencePending'
+          }
+          & powershell.exe @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Smoke-test the frozen bundle
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass `
+            -File packaging/windows/smoke-test.ps1 `
+            -WithSeparation:${{ inputs.with_separation }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package the portable ZIP and Inno setup
+        if: ${{ !inputs.allow_licence_pending }}
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File packaging/windows/package.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Record artifact sizes and hashes
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/reports | Out-Null
+          $lines = @()
+          foreach ($path in @(Get-ChildItem -Path dist -File -ErrorAction SilentlyContinue)) {
+            $lines += ('{0}  {1} bytes  {2}' -f $path.Name, $path.Length, (Get-FileHash -LiteralPath $path.FullName -Algorithm SHA256).Hash.ToLowerInvariant())
+          }
+          $lines | Set-Content -LiteralPath build/reports/artifact-sizes.txt -Encoding UTF8
+
+      - name: Upload Windows evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-bundle-evidence
+          path: |
+            build/reports/
+            build/windows/
+            dist/SHA256SUMS
+            dist/UNSIGNED.txt
+          if-no-files-found: warn
+
+      - name: Upload the built binaries
+        if: ${{ inputs.upload_binaries && !inputs.allow_licence_pending }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-bundle-binaries
+          path: |
+            dist/*-portable.zip
+            dist/*-setup.exe
+          if-no-files-found: error
