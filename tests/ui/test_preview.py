@@ -389,9 +389,11 @@ async def test_degraded_preview_keeps_a_banner_and_disables_only_transport(
             assert _enabled(user, "output-play-original") is False
 
             # Other capabilities stay usable (ticket 14 §3). The Pitch card is
-            # usable even though its Render action is disabled at 0 by design.
+            # usable even though its Render action is disabled at 0 by design;
+            # Separation shows its inline model gate because no weights are
+            # installed in this harness.
             assert _enabled(user, "add-audio") is True
-            assert _enabled(user, "separation-action") is True
+            assert _enabled(user, "model-download") is True
             assert _only(user, "pitch-semitones").text == "0"
             assert _enabled(user, "pitch-up") is True
             assert _enabled(user, "pitch-render") is False
@@ -449,7 +451,7 @@ async def test_playback_stays_enabled_while_second_job_actions_disable(
 
         # Only actions that would submit a second Job are disabled.
         assert _enabled(user, "add-audio") is False
-        assert _enabled(user, "separation-action") is False
+        assert _enabled(user, "model-download") is False
         assert _enabled(user, "pitch-render") is False
         assert _enabled(user, "export-action") is False
 

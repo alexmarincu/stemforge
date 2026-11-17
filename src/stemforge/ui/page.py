@@ -23,7 +23,11 @@ from nicegui.client import Client
 from nicegui.events import NativeEventArguments
 
 from stemforge import __version__, errors
-from stemforge.application import PreviewTarget, WorkspaceService
+from stemforge.application import (
+    PreviewTarget,
+    SeparationExportTarget,
+    WorkspaceService,
+)
 from stemforge.domain.models import OriginKind, RenderScope, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import AudioFileDialog, filter_drop_paths
@@ -31,6 +35,7 @@ from stemforge.platform.preflight import PreflightReport
 from stemforge.ui import formatting
 from stemforge.ui.components.about import SettingsDialog
 from stemforge.ui.components.pitch import PitchCard
+from stemforge.ui.components.separation import SeparationCard
 from stemforge.ui.components.youtube import YouTubeRow
 
 TITLE: Final = "StemForge"
@@ -187,6 +192,27 @@ SHELL_CSS: Final = """
 .sf-unavailable { font-size: 11.5px; color: #a47878; }
 .sf-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .sf-player { display: none; }
+.sf-separation-status { font-size: 11.5px; color: #9aa6b7; margin: 2px 0 6px; }
+.sf-gate { display: flex; flex-direction: column; gap: 6px; padding: 12px;
+  border: 1px solid #2a3240; border-radius: 10px; background: #12161d; margin: 4px 0 10px; }
+.sf-gate-title { font-size: 13px; font-weight: 600; }
+.sf-gate-summary { font-size: 11.5px; color: #b9c4d3; }
+.sf-gate-meta { font-size: 10.5px; color: #8994a4; font-family: ui-monospace, monospace; }
+.sf-gate-notice { font-size: 11px; color: #b9a77c; line-height: 1.45; }
+.sf-stem-row { display: flex; align-items: center; gap: 8px; padding: 4px 0;
+  border-top: 1px solid #1d222c; }
+.sf-stem-row.is-playing { background: #1b2230; border-radius: 8px; }
+.sf-stem-row.is-export-target { outline: 1px solid #5b4520; border-radius: 8px; }
+.sf-stem-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sf-stem-title { display: flex; align-items: center; gap: 6px; }
+.sf-stem-name { font-size: 12px; }
+.sf-stem-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: #8b97a8; border: 1px solid #2a3240; border-radius: 999px; padding: 0 6px; }
+.sf-stem-meta { font-size: 10.5px; color: #7c8798; }
+.sf-stem-ab { font-size: 10px; color: #9aa6b7; }
+.sf-stall { border: 1px solid #40341d; background: #1d1a12; border-radius: 10px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.sf-stall-text { font-size: 11.5px; color: #e4d3a9; }
 """
 
 
@@ -273,6 +299,9 @@ class JobView(Protocol):
     def error_detail(self) -> str | None: ...
 
     @property
+    def retryable(self) -> bool: ...
+
+    @property
     def result_keys(self) -> Mapping[str, str]: ...
 
 
@@ -336,6 +365,8 @@ class WorkspacePage:
         self._position_s = 0.0
         self._active_key: dict[str, str] = {}
         self._ab_alternate: dict[str, str] = {}
+        self._extra_targets: dict[str, dict[str, PreviewTarget]] = {}
+        self._export_selection: dict[str, str] = {}
         self._unavailable_preview: set[str] = set()
         self._pitch = PitchCard(
             self.service,
@@ -343,6 +374,14 @@ class WorkspacePage:
             on_job_started=self._pitch_job_started,
         )
         self._pitch_jobs: dict[str, PitchJobSpec] = {}
+        self._separation = SeparationCard(
+            self.service,
+            on_job_started=self._separation_job_started,
+            on_cancel=self._cancel_active_job,
+            on_play=self._play_separation_target,
+            on_export_target=self._select_export_target,
+        )
+        self._separation_jobs: dict[str, str] = {}
 
     # -- composition --------------------------------------------------------
 
@@ -567,8 +606,8 @@ class WorkspacePage:
             targets = self._targets(track)
             self._transport(track, targets)
             self._pitch_card(track)
+            self._separation_card(track)
             self._outputs(track, targets)
-            self._actions(track)
             with ui.element("section").classes("sf-card"):
                 ui.label("Source").classes("sf-card-title")
                 self._fact("File", filename or track.source.origin)
@@ -621,20 +660,33 @@ class WorkspacePage:
             busy=self._busy(),
         )
 
+    def _separation_card(self, track: Track) -> None:
+        playing_key = (
+            self._playing_key
+            if self._playing_track_id == track.track_id and self._is_playing
+            else None
+        )
+        self._separation.build(
+            track,
+            busy=self._busy(),
+            playing_key=playing_key,
+            export_key=self._export_selection.get(track.track_id),
+            playback_available=self.context.playback_available,
+        )
+
     def _active_target(
         self, track: Track, targets: Sequence[PreviewTarget] | None = None
     ) -> PreviewTarget | None:
         if targets is None:
             targets = self._targets(track)
-        if not targets:
-            return None
         key = self._active_key.get(track.track_id)
         if key is None:
-            return targets[0]
+            return targets[0] if targets else None
         for target in targets:
             if target.key == key:
                 return target
-        return None
+        extra = self._extra_targets.get(track.track_id, {})
+        return extra.get(key)
 
     def _ab_pair(
         self, track: Track, targets: Sequence[PreviewTarget] | None = None
@@ -645,6 +697,8 @@ class WorkspacePage:
         remembered = self._ab_alternate.get(track.track_id)
         if remembered is not None:
             alternate = next((target for target in targets if target.key == remembered), None)
+            if alternate is None:
+                alternate = self._extra_targets.get(track.track_id, {}).get(remembered)
             if alternate is not None:
                 return original, alternate
         alternate = next(
@@ -773,22 +827,6 @@ class WorkspacePage:
                     else:
                         ui.label("render").classes("sf-output-meta")
 
-    def _actions(self, track: Track) -> None:
-        del track
-        with ui.element("section").classes("sf-card").mark("track-actions"):
-            ui.label("Separation").classes("sf-card-title")
-            with ui.element("div").classes("sf-actions"):
-                separation = (
-                    ui.button(
-                        "Separate vocals",
-                        icon="call_split",
-                        on_click=lambda _=None: self._not_yet("Separation"),
-                    )
-                    .props("flat no-caps")
-                    .mark("separation-action")
-                )
-                separation.set_enabled(not self._busy())
-
     def _play_from_row(self, track_id: str) -> None:
         track = next(
             (item for item in self.service.snapshot().tracks if item.track_id == track_id),
@@ -829,7 +867,11 @@ class WorkspacePage:
             self._position_s = 0.0
         player.pause()
         self._unavailable_preview.discard(track.track_id)
+        if target.key not in {item.key for item in self._targets(track)}:
+            self._extra_targets.setdefault(track.track_id, {})[target.key] = target
         self._active_key[track.track_id] = target.key
+        if target.key != "original":
+            self._ab_alternate[track.track_id] = target.key
         self._playing_track_id = track.track_id
         self._playing_key = target.key
         self._is_playing = True
@@ -867,6 +909,8 @@ class WorkspacePage:
             return
         targets = self._targets(track)
         target = next((item for item in targets if item.key == key), None)
+        if target is None:
+            target = self._extra_targets.get(track_id, {}).get(key)
         was_playing = self._playing_track_id == track_id and self._is_playing
         player = self._player
         if player is not None:
@@ -912,7 +956,9 @@ class WorkspacePage:
             self._mark_preview_unavailable(track_id)
             return
         targets = self._targets(track)
-        if not any(target.key == self._playing_key for target in targets):
+        if not any(target.key == self._playing_key for target in targets) and (
+            self._playing_key not in self._extra_targets.get(track_id, {})
+        ):
             self._mark_preview_unavailable(track_id)
 
     def _mark_preview_unavailable(self, track_id: str) -> None:
@@ -967,7 +1013,7 @@ class WorkspacePage:
             ui.linear_progress(value=float(snapshot.progress), show_value=False).classes(
                 "sf-job-progress"
             )
-            ui.label(f"{round(snapshot.progress * 100)}%").classes("sf-job-pct")
+            ui.label(f"{round(snapshot.progress * 100)}%").classes("sf-job-pct").mark("job-percent")
             (
                 ui.button("Cancel", on_click=self._cancel_job)
                 .props("flat dense no-caps size=sm")
@@ -1040,6 +1086,36 @@ class WorkspacePage:
         self._job_bar.refresh()
         self._refresh_all()
 
+    def _separation_job_started(
+        self,
+        job_id: str,
+        kind: str,
+        track_id: str | None,
+    ) -> None:
+        """Watch a Separation or model-install Job started by the card."""
+        if kind == "separate" and track_id is not None:
+            self._separation_jobs[job_id] = track_id
+            self._separation.clear_failure(track_id)
+        self._watch_job(job_id)
+        self._job_signature = None
+        self._job_bar_visible = True
+        self._job_bar.refresh()
+        self._refresh_all()
+
+    def _play_separation_target(self, track: Track, target: PreviewTarget) -> None:
+        """Play one stem through the one player and remember it for A/B."""
+        self._extra_targets.setdefault(track.track_id, {})[target.key] = target
+        self._toggle_target(track, target)
+
+    def _select_export_target(self, track: Track, target: SeparationExportTarget) -> None:
+        """Remember the row Export will use; ticket 17 owns the dialog flow."""
+        self._export_selection[track.track_id] = target.key
+        self._detail.refresh()
+
+    def export_selection(self, track_id: str) -> str | None:
+        """The Separation export row currently selected for one Track."""
+        return self._export_selection.get(track_id)
+
     def _open_recent(self, entry: RecentEntry) -> None:
         if self._busy():
             return
@@ -1071,11 +1147,21 @@ class WorkspacePage:
         if snapshot is None:
             return
         self.service.runner.cancel(snapshot.job_id)
+        if snapshot.kind.value == "separate":
+            ui.notify(formatting.SEPARATION_CANCELLED, type="info")
+        elif snapshot.kind.value == "model_install":
+            ui.notify(formatting.SEPARATION_MODEL_CANCELLED, type="info")
         self._job_bar.refresh()
+        self._separation.observe(None)
+
+    def _cancel_active_job(self) -> None:
+        """The card's Cancel buttons use the same one-Job cancellation path."""
+        self._cancel_job()
 
     def poll(self) -> None:
         self._sync_recent_availability()
         snapshot = self._active_job()
+        self._separation.observe(snapshot)
         if snapshot is not None:
             self._watch_job(snapshot.job_id)
             signature = (
@@ -1114,6 +1200,12 @@ class WorkspacePage:
             if snapshot.kind.value == "render_pitch":
                 self._finish_pitch_job(snapshot)
                 continue
+            if snapshot.kind.value == "separate":
+                self._finish_separation_job(snapshot)
+                continue
+            if snapshot.kind.value == "model_install":
+                self._finish_model_job(snapshot)
+                continue
             if snapshot.state.value == "succeeded":
                 self._on_import_success(snapshot)
             elif snapshot.state.value == "failed":
@@ -1121,6 +1213,61 @@ class WorkspacePage:
             elif snapshot.state.value == "cancelled":
                 ui.notify("Import cancelled.", type="info")
                 self._refresh_all()
+
+    def _finish_separation_job(self, snapshot: JobView) -> None:
+        """Route a Separation outcome to the card; artifacts are the only truth."""
+        track_id = self._separation_jobs.pop(snapshot.job_id, None)
+        self._separation.observe(None)
+        if track_id is None:
+            return
+        if snapshot.state.value == "failed":
+            self._separation.record_failure(
+                track_id,
+                snapshot.error_code or errors.INTERNAL_UNEXPECTED,
+                snapshot.error_detail,
+                retryable=snapshot.retryable,
+            )
+        elif snapshot.state.value == "cancelled":
+            self._separation.clear_failure(track_id)
+        else:
+            self._separation.record_success(track_id, snapshot.result_keys.get("set_key"))
+        self._refresh_all()
+
+    def _finish_model_job(self, snapshot: JobView) -> None:
+        """On a successful install, resubmit a pending Separation exactly once."""
+        self._separation.observe(None)
+        if snapshot.state.value == "failed":
+            self._separation.record_model_failure(
+                snapshot.error_code or errors.SEPARATION_MODEL_DOWNLOAD_FAILED,
+                snapshot.error_detail,
+            )
+            self._refresh_all()
+            return
+        if snapshot.state.value == "cancelled":
+            self._separation.model_installed()
+            self._refresh_all()
+            return
+        self._separation.model_installed()
+        pending = self.service.pending_separation_track_id()
+        if pending is not None:
+            track = next(
+                (item for item in self.service.snapshot().tracks if item.track_id == pending),
+                None,
+            )
+            if track is not None:
+                try:
+                    job_id = self.service.resubmit_pending_separation(track)
+                except StemForgeError as error:
+                    self._separation.record_failure(
+                        track.track_id,
+                        error.code,
+                        error.detail,
+                        retryable=error.retryable,
+                    )
+                else:
+                    if job_id is not None:
+                        self._separation_job_started(job_id, "separate", track.track_id)
+        self._refresh_all()
 
     def _finish_pitch_job(self, snapshot: JobView) -> None:
         """Route a Render outcome to the Pitch card; the view only moves on success."""
@@ -1236,7 +1383,10 @@ class WorkspacePage:
             self._selected_id = remaining[0].track_id if remaining else None
         self._active_key.pop(track.track_id, None)
         self._ab_alternate.pop(track.track_id, None)
+        self._extra_targets.pop(track.track_id, None)
+        self._export_selection.pop(track.track_id, None)
         self._unavailable_preview.discard(track.track_id)
+        self._separation.forget_track(track.track_id)
         self._refresh_all()
 
     def _remove_recent(self, entry: RecentEntry) -> None:

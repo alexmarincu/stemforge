@@ -87,6 +87,51 @@ PITCH_TEMPO_NOTE: Final = (
 PITCH_EARLIER_SEPARATION: Final = "based on an earlier separation"
 PITCH_RETRY: Final = "Retry"
 
+# Ticket 08 §6 and §10 plus ticket 14 §4.3-4.4: the Separation card's copy.
+SEPARATION_TITLE: Final = "Separation"
+SEPARATION_VERSIONS: Final = "Separation versions"
+SEPARATION_NOT_SEPARATED: Final = "Not separated · htdemucs · CPU"
+SEPARATION_NOT_SEPARATED_HINT: Final = "Separate this track into four stems and an Instrumental."
+SEPARATION_ACTION: Final = "Separate vocals"
+SEPARATION_AGAIN: Final = "Separate again"
+SEPARATION_DONE: Final = "4 stems ready · htdemucs · CPU"
+SEPARATION_PRIMARY_NOTE: Final = (
+    "Vocals and Instrumental are primary. Drums, bass, and other stay behind Show 3 more stems."
+)
+SEPARATION_SHOW_MORE: Final = "Show 3 more stems"
+SEPARATION_SHOW_LESS: Final = "Show fewer stems"
+SEPARATION_RUNNING: Final = "Separating · {percent}%"
+SEPARATION_WORKER_NOTE: Final = "Runs in a worker process · safe to cancel"
+SEPARATION_STALL: Final = "No progress for {seconds} seconds. Separation may still be working."
+SEPARATION_KEEP_WAITING: Final = "Keep waiting"
+SEPARATION_CANCEL: Final = "Cancel"
+SEPARATION_RETRY: Final = "Retry"
+SEPARATION_EARLIER: Final = "based on an earlier separation"
+SEPARATION_CURRENT_SET: Final = "Newest separation"
+SEPARATION_OLDER_SET: Final = "Earlier separation"
+SEPARATION_LAST_SUCCESS: Final = "Stems from the last successful Separation are still available."
+SEPARATION_MODEL_CONSENT: Final = "Press Download model to accept this notice."
+SEPARATION_MODEL_DOWNLOADING: Final = "Downloading the model…"
+SEPARATION_MODEL_DOWNLOAD_FAILED: Final = "Download failed"
+SEPARATION_MODEL_RETRY: Final = "Retry download"
+SEPARATION_MODEL_CANCELLED: Final = "Model download cancelled."
+SEPARATION_CANCELLED: Final = "Separation cancelled."
+SEPARATION_AB: Final = "A/B"
+SEPARATION_AB_TOOLTIP: Final = "Compare this stem with the original"
+SEPARATION_EXPORT_TOOLTIP: Final = "Select as export target"
+SEPARATION_EXPORT_SELECTED: Final = "Export target"
+SEPARATION_PRIMARY_BADGE: Final = "primary"
+SEPARATION_SUM_BADGE: Final = "sum"
+SEPARATION_ROLE_LABELS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "vocals": "Vocals",
+        "instrumental": "Instrumental",
+        "drums": "Drums",
+        "bass": "Bass",
+        "other": "Other",
+    }
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ErrorCopy:
