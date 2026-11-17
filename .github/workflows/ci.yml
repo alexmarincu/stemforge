@@ -67,6 +67,18 @@ jobs:
           enable-cache: true
       - name: Install uv dependencies
         run: uv sync --frozen
+      - name: Parse the vendor fetch script
+        shell: pwsh
+        run: |
+          $errors = $null
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/vendor-fetch.ps1'), [ref]$tokens, [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
       - name: Unit and UI tests
         run: uv run pytest -m "unit or ui"
 
@@ -96,12 +108,36 @@ jobs:
             meson \
             ninja-build \
             cmake \
+            xz-utils \
+            unzip \
             libfuse2 \
             fuse \
             desktop-file-utils \
             librsvg2-dev
       - name: Install uv dependencies
         run: uv sync --frozen --group build
+      - name: Cache the pinned vendor set
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ffmpeg
+            vendor/deno
+            vendor/rubberband
+            vendor/PROVENANCE.txt
+          key: vendor-${{ runner.os }}-${{ hashFiles('packaging/vendor.lock.json') }}
+      - name: Fetch the pinned vendor set
+        run: bash scripts/vendor-fetch.sh
+      - name: Verify the vendor set against the lock
+        run: bash scripts/vendor-fetch.sh --verify-only
+      - name: Check the preflight bundle contract
+        run: |
+          uv run python - <<'PY'
+          from stemforge.platform import preflight
+
+          result = preflight.check_bundle(frozen=False)
+          print(f"{result.name}: {result.status}: {result.message}")
+          raise SystemExit(0 if result.status == preflight.STATUS_OK else 1)
+          PY
       - name: Build the frozen bundle
         run: bash packaging/linux/build.sh
       - name: Smoke-test the frozen bundle
