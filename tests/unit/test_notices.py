@@ -161,6 +161,7 @@ def test_source_offer_uses_release_toml_and_lists_every_archive(
     assert "2026" in offer
     assert "2029" in offer
     assert "GPL-3.0-only section 6" in offer
+    assert "packaging/vendor/SOURCES.md" in offer
 
     import json
 

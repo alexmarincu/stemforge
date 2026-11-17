@@ -15,6 +15,10 @@ uv run python scripts/generate_notices.py --check-release  # release.toml placeh
 uv run python scripts/generate_notices.py         # regenerate the committed tree
 ```
 
+The sync must include the default `dev` group: the tree also lists build/test
+packages, so their dist-info must be present (or curated in `python.toml`).
+`uv sync --frozen` and `uv sync --frozen --group build` both satisfy this.
+
 `--check` regenerates into a temporary directory and byte-compares it with the
 committed `LICENSE`, `THIRD_PARTY_NOTICES.md`, `SOURCE_OFFER.md`, and
 `LICENSES/`. It reports the first differing file and a unified diff summary. It

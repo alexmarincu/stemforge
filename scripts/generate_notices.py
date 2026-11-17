@@ -279,6 +279,7 @@ def release_problems(config: ReleaseConfig) -> tuple[str, ...]:
         "uv_lock",
         "venv",
         "vendor_lock",
+        "vendor_sources",
         "native_manifest",
         "python_manifest",
         "license_texts",
@@ -336,6 +337,8 @@ def generate(
     version = read_version(root / config.version_file)
     lock = _read_lock(root / config.paths["uv_lock"])
     vendor = _read_json(root / config.paths["vendor_lock"])
+    _verify_vendor_sources(root / config.paths["vendor_sources"], vendor)
+    _verify_source_offer_record(vendor, config)
     native = _read_native(root / config.paths["native_manifest"])
     overrides = _read_python_overrides(root / config.paths["python_manifest"])
     dist_infos = _dist_info_map(site_packages or _site_packages(root / config.paths["venv"]))
@@ -524,6 +527,53 @@ def _read_json(path: Path) -> Mapping[str, object]:
     if not isinstance(data, dict):
         raise ValueError(f"{path} must contain a JSON object")
     return data
+
+
+def _verify_vendor_sources(path: Path, vendor: Mapping[str, object]) -> None:
+    """Read the human-readable vendor record and cross-check it with the lock.
+
+    ``SOURCES.md`` is the prose source-offer input from ticket 19. It is not a
+    second machine-readable pin list; the lock wins, but every pinned component
+    must appear in the record, and the record must keep the offer term and the
+    no-weights statement.
+    """
+    if not path.is_file():
+        raise FileNotFoundError(f"missing the vendor source record: {path}")
+    text = path.read_text(encoding="utf-8")
+    components = vendor.get("components", {})
+    if isinstance(components, dict):
+        missing = [name for name in components if f"`{name}`" not in text]
+        if missing:
+            raise ValueError(
+                f"{path} does not mention the pinned vendor component(s): {', '.join(missing)}"
+            )
+    for phrase in ("three years", "No weights"):
+        if phrase not in text:
+            raise ValueError(f"{path} lost its {phrase!r} statement")
+
+
+def _verify_source_offer_record(vendor: Mapping[str, object], config: ReleaseConfig) -> None:
+    """Refuse a vendor lock whose duplicate URLs disagree with ``release.toml``.
+
+    ``packaging/release.toml`` is the only source of truth; the vendor lock's
+    ``source_offer`` block is the ticket-19 record. Divergence is a config bug,
+    not something to silently prefer.
+    """
+    offer = vendor.get("source_offer")
+    if not isinstance(offer, dict):
+        raise ValueError("vendor.lock.json has no source_offer block")
+    checks = (
+        ("contact", config.source_offer_contact),
+        ("release_page", config.releases_url),
+        ("offer_years", config.offer_years),
+    )
+    for field, expected in checks:
+        actual = offer.get(field)
+        if actual != expected:
+            raise ValueError(
+                f"vendor.lock.json source_offer.{field} is {actual!r}, "
+                f"but packaging/release.toml says {expected!r}"
+            )
 
 
 def _read_native(path: Path) -> tuple[NativeComponent, ...]:
@@ -1323,7 +1373,8 @@ def _write_source_offer(
         "",
         "The first asset is the exact tagged source tree, including `packaging/`,",
         "the PyInstaller specs, the licence generator, and the build scripts. The",
-        "second contains the third-party sources listed below.",
+        "second contains the third-party sources listed below. The committed",
+        "human-readable vendor record is `packaging/vendor/SOURCES.md`.",
         "",
         "## Written offer (GPL-3.0-only section 6(b))",
         "",
