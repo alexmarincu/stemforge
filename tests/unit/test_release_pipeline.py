@@ -26,7 +26,7 @@ from typing import Any
 
 import pytest
 import yaml
-from scripts import fetch_sources, release_assets, release_notes
+from scripts import fetch_sources, release_assets, release_notes, vendor_unpack
 
 pytestmark = pytest.mark.unit
 
@@ -173,6 +173,17 @@ def test_separation_jobs_cache_the_model_lock(workflow: dict[str, Any]) -> None:
         assert "actions/cache" in text
         assert "packaging/vendor.lock.json" in text
         assert model_lock in text
+
+
+def test_windows_steps_cannot_hang_the_whole_job(workflow: dict[str, Any]) -> None:
+    steps = {step.get("name"): step for step in workflow["jobs"]["windows"]["steps"]}
+    for name in (
+        "Fetch and build the pinned vendor set",
+        "Build the frozen bundle",
+        "Frozen smoke and separation in the temporary STEMFORGE_HOME",
+        "Package the portable ZIP and Inno setup",
+    ):
+        assert steps[name]["timeout-minutes"] <= 25, name
 
 
 def test_next_image_jobs_are_non_blocking(workflow: dict[str, Any]) -> None:
@@ -807,6 +818,42 @@ def test_fetch_sources_verify_rejects_a_tampered_archive(tmp_path: Path) -> None
     )
     assert verify.returncode == 1
     assert "SHA-256 mismatch" in verify.stdout
+
+
+# ---------------------------------------------------------------------------
+# Vendor unpack (the Windows runner's tarfile replacement)
+# ---------------------------------------------------------------------------
+
+
+def _tar_xz(path: Path, members: dict[str, bytes]) -> Path:
+    with tarfile.open(path, "w:xz") as archive:
+        for name, data in sorted(members.items()):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            info.mtime = 0
+            archive.addfile(info, io.BytesIO(data))
+    return path
+
+
+def test_vendor_unpack_strips_the_archive_root(tmp_path: Path) -> None:
+    archive = _tar_xz(
+        tmp_path / "source.tar.xz",
+        {"libsndfile-1.2.2/CMakeLists.txt": b"cmake", "libsndfile-1.2.2/src/a.c": b"a"},
+    )
+    destination = tmp_path / "out"
+
+    count = vendor_unpack.unpack(archive, destination, strip=1)
+
+    assert count == 2
+    assert (destination / "CMakeLists.txt").read_bytes() == b"cmake"
+    assert (destination / "src" / "a.c").read_bytes() == b"a"
+
+
+def test_vendor_unpack_rejects_a_path_escape(tmp_path: Path) -> None:
+    archive = _tar_xz(tmp_path / "source.tar.xz", {"../evil": b"x"})
+
+    with pytest.raises(ValueError, match="unsafe archive path"):
+        vendor_unpack.unpack(archive, tmp_path / "out")
 
 
 # ---------------------------------------------------------------------------
