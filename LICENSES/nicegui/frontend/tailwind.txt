@@ -1,0 +1,9 @@
+Tailwind CSS 4.3.4
+
+Copyright (c) Tailwind Labs, Inc.
+Licence: MIT
+Upstream: https://github.com/tailwindlabs/tailwindcss
+
+Full licence text:
+
+- ../../common/MIT.txt

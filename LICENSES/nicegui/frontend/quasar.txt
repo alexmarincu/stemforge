@@ -1,0 +1,9 @@
+Quasar Framework 2.35.2
+
+Copyright (c) 2015-present PULSARIO, LLC
+Licence: MIT
+Upstream: https://github.com/quasarframework/quasar
+
+Full licence text:
+
+- ../../common/MIT.txt

@@ -1,0 +1,9 @@
+Material Icons Google Fonts
+
+Copyright (c) Google Inc.
+Licence: Apache-2.0
+Upstream: https://github.com/google/material-design-icons
+
+Full licence text:
+
+- ../../common/Apache-2.0.txt
