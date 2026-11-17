@@ -409,53 +409,75 @@ function Build-RubberBandFromSource($Lock, $Sndfile) {
     Enter-MsvcEnvironment
     $meson = Find-Tool 'meson' "Install it with 'uv pip install --python .venv\Scripts\python.exe meson ninja'."
     $ninja = Find-Tool 'ninja' "Install it with 'uv pip install --python .venv\Scripts\python.exe meson ninja'."
-    $pkgConfig = Get-Command 'pkg-config' -ErrorAction SilentlyContinue
-    if ($null -eq $pkgConfig) {
-        $pkgConfig = Get-Command 'pkgconf' -ErrorAction SilentlyContinue
+    # Meson refuses to fall back to find_library when the pkg-config *tool* is
+    # missing; it only reaches the fallback when the tool runs but the package
+    # is not found. The runner image ships a broken Strawberry Perl
+    # pkg-config.bat and pkgconfiglite may be shadowed by it, so validate a
+    # candidate by running --version and force Meson to use the working one.
+    $pkgConfigCandidates = @()
+    if ($env:PKG_CONFIG) { $pkgConfigCandidates += $env:PKG_CONFIG }
+    $pkgConfigCandidates += @(
+        'C:\ProgramData\chocolatey\bin\pkg-config.exe',
+        'C:\Program Files (x86)\pkgconfiglite\bin\pkg-config.exe',
+        'C:\Program Files\pkgconfiglite\bin\pkg-config.exe'
+    )
+    foreach ($name in @('pkgconf', 'pkg-config')) {
+        $pkgConfigCandidates += @(
+            (Get-Command $name -All -ErrorAction SilentlyContinue |
+                ForEach-Object { $_.Source })
+        )
     }
+    $pkgConfigPath = $null
+    foreach ($candidate in $pkgConfigCandidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+        $version = (& $candidate '--version' 2>$null | Select-Object -First 1)
+        if ($LASTEXITCODE -eq 0 -and $version) {
+            $pkgConfigPath = $candidate
+            break
+        }
+    }
+    if ($null -eq $pkgConfigPath) {
+        throw 'no working pkg-config. Install pkgconfiglite (choco install pkgconfiglite -y) or pass -RubberBandPrebuilt.'
+    }
+    Write-Note "pkg-config $pkgConfigPath"
 
     # Meson tries dependency('sndfile') first and falls back to
     # cpp.find_library('sndfile', dirs: extra_lib_dirs) when the feature is
-    # `auto`. The .pc file is a best-effort shortcut; pkg-config-lite on the
-    # Windows runner returned an empty Libs line, so a failure here is a note,
-    # not a build failure.
+    # `auto`. The .pc file is a best-effort shortcut; on the Windows runner the
+    # only pkg-config was Strawberry Perl's broken shim, so a failure here is a
+    # note, not a build failure.
     $libPath = ([string]$Sndfile.Lib).Replace('\', '/')
     $includePath = ([string]$Sndfile.Include).Replace('\', '/')
     $libDir = (Split-Path -Parent ([string]$Sndfile.Lib)).Replace('\', '/')
     $oldPkgConfigPath = $env:PKG_CONFIG_PATH
     $oldPkgConfig = $env:PKG_CONFIG
     try {
-        if ($null -ne $pkgConfig) {
-            $pcLines = @(
-                "prefix=$(([string]$Sndfile.BuildDir).Replace('\', '/'))",
-                'exec_prefix=${prefix}',
-                'libdir=${prefix}',
-                "includedir=$includePath",
-                'Name: sndfile',
-                'Description: libsndfile 1.2.2 built for StemForge',
-                'Version: 1.2.2',
-                'Requires:',
-                'Libs: ' + $libPath,
-                'Cflags: -I' + $includePath
-            )
-            $pcPath = Join-Path $pkgConfigDir 'sndfile.pc'
-            Set-Content -LiteralPath $pcPath -Value $pcLines -Encoding ASCII
-            if ($oldPkgConfigPath) {
-                $env:PKG_CONFIG_PATH = "$pkgConfigDir;$oldPkgConfigPath"
-            }
-            else {
-                $env:PKG_CONFIG_PATH = $pkgConfigDir
-            }
-            $env:PKG_CONFIG = $pkgConfig.Source
-            $libs = (& $pkgConfig.Source '--libs' 'sndfile' 2>&1 | Out-String).Trim()
-            if ($LASTEXITCODE -ne 0 -or $libs -notlike "*$libPath*") {
-                Write-Note "pkg-config did not resolve the sndfile import library (got: '$libs'); Meson will use find_library"
-                $env:PKG_CONFIG_PATH = $oldPkgConfigPath
-                $env:PKG_CONFIG = $oldPkgConfig
-            }
+        $env:PKG_CONFIG = $pkgConfigPath
+        $pcLines = @(
+            "prefix=$(([string]$Sndfile.BuildDir).Replace('\', '/'))",
+            'exec_prefix=${prefix}',
+            'libdir=${prefix}',
+            "includedir=$includePath",
+            'Name: sndfile',
+            'Description: libsndfile 1.2.2 built for StemForge',
+            'Version: 1.2.2',
+            'Requires:',
+            'Libs: ' + $libPath,
+            'Cflags: -I' + $includePath
+        )
+        $pcPath = Join-Path $pkgConfigDir 'sndfile.pc'
+        Set-Content -LiteralPath $pcPath -Value $pcLines -Encoding ASCII
+        if ($oldPkgConfigPath) {
+            $env:PKG_CONFIG_PATH = "$pkgConfigDir;$oldPkgConfigPath"
         }
         else {
-            Write-Note 'pkg-config is absent; Meson will use find_library with extra_lib_dirs'
+            $env:PKG_CONFIG_PATH = $pkgConfigDir
+        }
+        $libs = (& $pkgConfigPath '--libs' 'sndfile' 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or $libs -notlike "*$libPath*") {
+            Write-Note "pkg-config did not resolve the sndfile import library (got: '$libs'); Meson will use find_library"
+            $env:PKG_CONFIG_PATH = $oldPkgConfigPath
         }
 
         Write-Note 'build   Rubber Band 4.0.0 (Meson/MSVC, static library, CLI)'
@@ -469,7 +491,7 @@ function Build-RubberBandFromSource($Lock, $Sndfile) {
             '-Dlv2=disabled',
             '-Dladspa=disabled',
             '-Djni=disabled',
-            '-Dcmdline=enabled',
+            '-Dcmdline=auto',
             '-Dtests=disabled',
             '--vsenv',
             "-Dextra_lib_dirs=$libDir",
