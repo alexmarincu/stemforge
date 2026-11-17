@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from stemforge import __main__
-from stemforge.integration.window import MIN_WINDOW_SIZE, configure_window
+from stemforge.integration.window import MIN_WINDOW_SIZE, WEBKIT_SHM_ENV, configure_window
 from stemforge.platform.paths import AppPaths
 from stemforge.platform.preflight import PreflightReport
 
@@ -27,6 +28,42 @@ def test_window_configuration_sets_the_minimum_and_no_downloads(tmp_path: Path) 
     assert app.native.start_args["private_mode"] is False
     assert app.native.start_args["storage_path"] == str(paths.webview)
     assert app.native.settings["ALLOW_DOWNLOADS"] is False
+
+
+@pytest.mark.parametrize(("existing", "expected"), [(None, "1"), ("0", "0")])
+def test_linux_window_forces_the_webkit_shared_memory_renderer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    existing: str | None,
+    expected: str,
+) -> None:
+    """WebKitGTK 2.52+ paints a white view when GBM allocation fails (NVIDIA/X11)."""
+    import sys
+
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    monkeypatch.setattr(sys, "platform", "linux")
+    if existing is None:
+        monkeypatch.delenv(WEBKIT_SHM_ENV, raising=False)
+    else:
+        monkeypatch.setenv(WEBKIT_SHM_ENV, existing)
+
+    configure_window(paths)
+
+    assert os.environ[WEBKIT_SHM_ENV] == expected
+
+
+def test_windows_window_does_not_set_the_linux_webkit_workaround(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delenv(WEBKIT_SHM_ENV, raising=False)
+
+    configure_window(paths)
+
+    assert WEBKIT_SHM_ENV not in os.environ
 
 
 def test_windows_window_asserts_the_edge_chromium_backend(

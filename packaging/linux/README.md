@@ -73,11 +73,14 @@ Without the GStreamer preview stack the app can still separate and export, but
 in-window playback is unavailable. Missing GTK/WebKitGTK means no native window
 at all, so browser mode is the fallback.
 
-On WebKitGTK 2.52 and newer with an NVIDIA driver, the upstream workarounds can
-avoid a blank or flickering window:
+On WebKitGTK 2.52 and newer with an NVIDIA driver, the web view can open blank
+while the GTK frame renders. StemForge sets
+`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` before opening the window, which keeps the
+view on the shared-memory renderer. If it is still blank, add the upstream CPU
+rendering override:
 
 ```sh
-WEBKIT_SKIA_ENABLE_CPU_RENDERING=1 WEBKIT_DMABUF_RENDERER_FORCE_SHM=1 ./run.sh
+WEBKIT_SKIA_ENABLE_CPU_RENDERING=1 ./run.sh
 ```
 
 Wayland stays native; do not set `GDK_BACKEND=x11` unless you are troubleshooting
