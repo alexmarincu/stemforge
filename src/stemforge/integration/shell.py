@@ -44,7 +44,10 @@ class SystemPathOpener:
             )
         try:
             if sys.platform.startswith("win"):
-                os.startfile(str(target))  # type: ignore[attr-defined]
+                starter = getattr(os, "startfile", None)
+                if starter is None:
+                    raise OSError("os.startfile is unavailable")
+                starter(str(target))
                 return
             command = (
                 ["open", str(target)] if sys.platform == "darwin" else ["xdg-open", str(target)]
