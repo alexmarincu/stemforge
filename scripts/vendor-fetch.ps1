@@ -217,8 +217,15 @@ function Test-Version([string]$Tool, [string]$Path, [string]$Flag, [string]$Expe
             }
         }
         'rubberband' {
-            if ($first -ne $Expected -and $first -ne "Rubber Band $Expected") {
-                throw "$Tool version mismatch: expected $Expected, got '$first'"
+            # On Windows the MSVC build writes to stderr, which PowerShell
+            # prefixes with the executable name; the version is on its own line.
+            $lines = @(
+                $output -split "`r?`n" |
+                    ForEach-Object { $_.Trim() } |
+                    Where-Object { $_ }
+            )
+            if ($lines -notcontains $Expected -and $lines -notcontains "Rubber Band $Expected") {
+                throw "$Tool version mismatch: expected $Expected, got '$output'"
             }
         }
         default {
