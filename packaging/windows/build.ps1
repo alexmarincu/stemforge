@@ -183,13 +183,13 @@ if (-not $SkipVendorFetch) {
         throw 'scripts/vendor-fetch.ps1 failed; the Windows runner needs MSVC, CMake, Meson, Ninja, and pkg-config (or -RubberBandPrebuilt)'
     }
 }
-$missingVendor = Get-MissingVendor
+$missingVendor = @(Get-MissingVendor)
 if ($missingVendor.Count -gt 0) {
     throw "vendor/ is incomplete: $($missingVendor -join ', '); run scripts/vendor-fetch.ps1"
 }
 
 $licencePending = $false
-$missingLicence = Get-MissingLicence
+$missingLicence = @(Get-MissingLicence)
 if ($missingLicence.Count -gt 0) {
     if (-not $AllowLicencePending) {
         throw @"
