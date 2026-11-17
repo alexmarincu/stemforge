@@ -11,15 +11,36 @@ from __future__ import annotations
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from typing import cast
 from urllib.parse import quote
 from uuid import uuid4
 
 from stemforge import errors
-from stemforge.artifacts import ArtifactStore, RemoveReport, SweepReport
-from stemforge.domain.models import JobKind, ModelConsent, OriginKind, Source, Track
+from stemforge.artifacts import (
+    ArtifactStore,
+    RemoveReport,
+    RenderArtifact,
+    SeparationArtifact,
+    SweepReport,
+)
+from stemforge.domain.models import (
+    JobKind,
+    ModelConsent,
+    OriginKind,
+    RenderScope,
+    Source,
+    Track,
+)
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
 from stemforge.engines.media import MediaTool
+from stemforge.engines.pitch import (
+    MAX_SEMITONES,
+    MIN_SEMITONES,
+    PitchEngine,
+    validate_semitones,
+)
 from stemforge.engines.youtube import YouTubeVideo, parse_youtube_url
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import Job, JobContext, JobRun
@@ -32,6 +53,7 @@ from stemforge.pipeline.model_job import (
     consent_is_current,
     require_model_consent,
 )
+from stemforge.pipeline.pitch_job import STEM_ROLES, find_pitch_render, run_pitch_job
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
 
@@ -68,6 +90,24 @@ class PreviewTarget:
     key: str
     label: str
     url: str
+
+
+@dataclass(frozen=True, slots=True)
+class PitchSet:
+    """One immutable Render set as version tabs and A/B see it (ticket 11).
+
+    ``label`` is the tab text (``+3`` or, when both scopes exist at one
+    semitone, ``+3 master`` / ``+3 stems``). ``based_on_earlier_separation`` is
+    the ticket-05/08 note that the set's recorded input hashes no longer match
+    the current Stems; such a set stays listed and selectable.
+    """
+
+    render_key: str
+    semitones: int
+    scope: RenderScope
+    label: str
+    created_at: datetime
+    based_on_earlier_separation: bool = False
 
 
 class WorkspaceService:
@@ -198,7 +238,9 @@ class WorkspaceService:
 
         Only files inside the cache root are exposed. A missing preview is simply
         absent, which lets the UI mark its row unavailable instead of requesting a
-        URL that can only 404.
+        URL that can only 404. Render sets follow in creation order, newest last;
+        a stems set previews its shifted Instrumental because that is the one
+        primary output the set always carries.
         """
         track = next(
             (item for item in self.snapshot().tracks if item.track_id == track_id),
@@ -206,26 +248,191 @@ class WorkspaceService:
         )
         if track is None:
             return ()
+        return self._preview_targets(track)
+
+    def _preview_targets(self, track: Track) -> tuple[PreviewTarget, ...]:
         targets: list[PreviewTarget] = []
         source_url = self._preview_url(track.source.preview_path)
         if source_url is not None:
             targets.append(PreviewTarget(key="original", label="Original", url=source_url))
-        renders = sorted(self._artifacts.iter_renders(), key=lambda item: item.created_at)
-        for artifact in renders:
-            if artifact.source_id != track.source_id:
-                continue
-            preview = artifact.path_for("original_preview")
-            url = self._preview_url(preview)
+        for view in self._render_views(track.source_id):
+            url = self._render_preview_url(view)
             if url is None:
                 continue
-            targets.append(
-                PreviewTarget(
-                    key=artifact.render_key,
-                    label=_render_label(artifact.manifest),
-                    url=url,
+            targets.append(PreviewTarget(key=view.artifact.render_key, label=view.label, url=url))
+        return tuple(targets)
+
+    # -- Pitch -------------------------------------------------------------
+
+    def has_separation(self, track: Track) -> bool:
+        """Whether the Track has committed Stems, so the stems scope can be offered."""
+        return self._artifacts.find_separation(track.source_id) is not None
+
+    def pitch_sets(self, track: Track) -> tuple[PitchSet, ...]:
+        """Every committed render set for the Track, oldest first (ticket 08 §7)."""
+        return tuple(
+            PitchSet(
+                render_key=view.artifact.render_key,
+                semitones=view.semitones,
+                scope=view.scope,
+                label=view.label,
+                created_at=view.artifact.created_at,
+                based_on_earlier_separation=view.based_on_earlier_separation,
+            )
+            for view in self._render_views(track.source_id)
+        )
+
+    def pitch_set(
+        self,
+        track: Track,
+        semitones: int,
+        scope: RenderScope | str,
+    ) -> PitchSet | None:
+        """The set that satisfies a Render request for ``(semitones, scope)``.
+
+        Scope is part of the query: a master render never answers a stems
+        request (ticket 08 §5). A stems set built from an earlier separation is
+        not a cache hit for the current Stems, so Render is offered instead of
+        Open while the old set stays in the tabs.
+        """
+        if isinstance(semitones, bool) or not isinstance(semitones, int):
+            return None
+        if not MIN_SEMITONES <= semitones <= MAX_SEMITONES or semitones == 0:
+            return None
+        resolved_scope = RenderScope(scope)
+        found = find_pitch_render(
+            self._artifacts,
+            source_id=track.source_id,
+            semitones=semitones,
+            scope=resolved_scope,
+        )
+        sets = self.pitch_sets(track)
+        if found is not None:
+            match = next(
+                (item for item in sets if item.render_key == found.artifact.render_key),
+                None,
+            )
+            if match is not None and not match.based_on_earlier_separation:
+                return match
+        for item in reversed(sets):
+            if (
+                item.semitones == semitones
+                and item.scope is resolved_scope
+                and not item.based_on_earlier_separation
+            ):
+                return item
+        return None
+
+    def pitch_preview_target(self, track: Track, render_key: str) -> PreviewTarget | None:
+        """The playable preview of one render set, or ``None`` when it is gone."""
+        return next(
+            (target for target in self._preview_targets(track) if target.key == render_key),
+            None,
+        )
+
+    def render_pitch(
+        self,
+        track: Track,
+        semitones: int,
+        scope: RenderScope | str,
+    ) -> str:
+        """Submit one Pitch Render Job and return its id (ticket 03, ticket 08 §5).
+
+        The request is explicit: the UI's stepper never calls this by itself.
+        ``scope`` is ``original`` for the default v1 flow, or ``stems`` when the
+        user asks for the explicit stems action after a Separation.
+        """
+        shift = validate_semitones(semitones)
+        resolved_scope = RenderScope(scope)
+        pitch = cast("PitchEngine | None", self._engines.pitch)
+        media = self._engines.media
+        if pitch is None or media is None:
+            raise StemForgeError(
+                errors.INTERNAL_UNEXPECTED,
+                "the pitch render engines are not configured",
+            )
+        if (
+            resolved_scope is RenderScope.STEMS
+            and self._artifacts.find_separation(track.source_id) is None
+        ):
+            raise ValueError(f"stems are not available for this source: {track.source_id}")
+        job = Job(
+            kind=JobKind.RENDER_PITCH,
+            identity=(
+                JobKind.RENDER_PITCH.value,
+                track.source_id,
+                resolved_scope.value,
+                str(shift),
+            ),
+            title=track.title,
+            run=self._pitch_run(track, shift, resolved_scope, pitch, media),
+        )
+        return self._runner.submit(job)
+
+    def _pitch_run(
+        self,
+        track: Track,
+        semitones: int,
+        scope: RenderScope,
+        pitch: PitchEngine,
+        media: MediaTool,
+    ) -> JobRun:
+        def run(ctx: JobContext) -> Mapping[str, str]:
+            result = run_pitch_job(
+                ctx,
+                artifacts=self._artifacts,
+                pitch=pitch,
+                media=media,
+                source_id=track.source_id,
+                semitones=semitones,
+                scope=scope,
+                title=track.title,
+            )
+            return {
+                "track_id": track.track_id,
+                "render_key": result.artifact.render_key,
+                "scope": result.scope.value,
+                "semitones": str(result.semitones),
+            }
+
+        return run
+
+    def _render_views(self, source_id: str) -> tuple[_RenderView, ...]:
+        """Resolve render manifests into tab labels, scope, and staleness."""
+        artifacts = [item for item in self._artifacts.iter_renders() if item.source_id == source_id]
+        parsed: list[tuple[RenderArtifact, RenderScope, int]] = []
+        for artifact in artifacts:
+            scope = _render_scope(artifact)
+            semitones = _render_semitones(artifact)
+            if scope is None or semitones is None:
+                continue
+            parsed.append((artifact, scope, semitones))
+        parsed.sort(key=lambda item: (item[0].created_at, item[0].render_key))
+        collisions = {(semitones, scope) for _, scope, semitones in parsed}
+        separation = self._artifacts.find_separation(source_id) if parsed else None
+        views: list[_RenderView] = []
+        for artifact, scope, semitones in parsed:
+            label = _semitone_label(semitones)
+            other = RenderScope.STEMS if scope is RenderScope.ORIGINAL else RenderScope.ORIGINAL
+            if (semitones, other) in collisions:
+                label += " master" if scope is RenderScope.ORIGINAL else " stems"
+            based_on_earlier = scope is RenderScope.STEMS and _based_on_earlier_separation(
+                artifact, separation
+            )
+            views.append(
+                _RenderView(
+                    artifact=artifact,
+                    semitones=semitones,
+                    scope=scope,
+                    label=label,
+                    based_on_earlier_separation=based_on_earlier,
                 )
             )
-        return tuple(targets)
+        return tuple(views)
+
+    def _render_preview_url(self, view: _RenderView) -> str | None:
+        role = "original_preview" if view.scope is RenderScope.ORIGINAL else "instrumental_preview"
+        return self._preview_url(view.artifact.path_for(role))
 
     def _preview_url(self, path: Path | None) -> str | None:
         if path is None:
@@ -400,14 +607,78 @@ class WorkspaceService:
         return track
 
 
-def _render_label(manifest: Mapping[str, object]) -> str:
-    """A version label for the A/B hook: ``+3`` or ``+3 stems``."""
-    semitones = manifest.get("semitones")
-    label = (
-        f"{semitones:+d}"
-        if isinstance(semitones, int) and not isinstance(semitones, bool)
-        else "Render"
-    )
-    if manifest.get("scope") == "stems":
-        label += " stems"
-    return label
+@dataclass(frozen=True, slots=True)
+class _RenderView:
+    """One render artifact with the label, scope, and staleness the UI needs."""
+
+    artifact: RenderArtifact
+    semitones: int
+    scope: RenderScope
+    label: str
+    based_on_earlier_separation: bool
+
+
+def _semitone_label(semitones: int) -> str:
+    """The tab text for one shift: ``+3``, or a minus-sign prefix when negative."""
+    return f"+{semitones}" if semitones > 0 else f"\u2212{abs(semitones)}"
+
+
+def _render_scope(artifact: RenderArtifact) -> RenderScope | None:
+    value = artifact.manifest.get("scope")
+    if not isinstance(value, str):
+        return None
+    try:
+        return RenderScope(value)
+    except ValueError:
+        return None
+
+
+def _render_semitones(artifact: RenderArtifact) -> int | None:
+    value = artifact.manifest.get("semitones")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if not MIN_SEMITONES <= value <= MAX_SEMITONES or value == 0:
+        return None
+    return value
+
+
+def _recorded_input_hashes(manifest: Mapping[str, object]) -> dict[str, str]:
+    raw = manifest.get("inputs")
+    if not isinstance(raw, list):
+        return {}
+    hashes: dict[str, str] = {}
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            continue
+        role = entry.get("role")
+        digest = entry.get("sha256")
+        if isinstance(role, str) and isinstance(digest, str) and digest:
+            hashes[role] = digest
+    return hashes
+
+
+def _based_on_earlier_separation(
+    artifact: RenderArtifact,
+    separation: SeparationArtifact | None,
+) -> bool:
+    """Whether a stems set's recorded inputs no longer match the current Stems.
+
+    The manifest is the source of truth (ticket 05 §2). Comparison uses the
+    separation manifest's recorded stem hashes, never a fresh read of the audio:
+    a detail refresh must not hash hundreds of megabytes. If the separation
+    records no hashes, the set cannot be proven stale and stays unlabelled.
+    """
+    recorded = _recorded_input_hashes(artifact.manifest)
+    if not recorded:
+        return False
+    if separation is None:
+        return True
+    current = {
+        entry.role: entry.sha256
+        for entry in separation.files
+        if entry.role in STEM_ROLES and entry.sha256 is not None
+    }
+    if not current:
+        return False
+    roles = {role for role in STEM_ROLES if role in recorded or role in current}
+    return any(recorded.get(role) != current.get(role) for role in roles)
