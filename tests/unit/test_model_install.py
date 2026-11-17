@@ -1,8 +1,9 @@
-"""Model install: pins, consent, streaming, verification, cancel, and retry.
+"""Model install: pins, consent, streaming, verification, and cancellation.
 
 The tests drive only the public seams: ``ModelStore`` and ``ModelInstallJob``.
 No test reaches the network; the download transport is injected and reads bytes
-that live in the test process. The real weights never appear in the repository.
+that live in the test process. Ticket 14 §8 allows no automatic retries, so a
+transient transport failure is a single failed attempt.
 """
 
 from __future__ import annotations
@@ -165,14 +166,11 @@ def _job(
     *,
     consent: ModelConsent | None = None,
     give_consent: bool = True,
-    retry_delay_s: float = 0.0,
 ) -> ModelInstallJob:
     return ModelInstallJob(
         store=store,
         consent=(_consent() if consent is None else consent) if give_consent else None,
         transport=transport,
-        sleep=lambda _seconds: None,
-        retry_delay_s=retry_delay_s,
     )
 
 
@@ -404,26 +402,21 @@ def test_cancel_deletes_the_partial_and_keeps_no_weights(store: ModelStore) -> N
     assert not store.marker_path().exists()
 
 
-def test_transient_network_failure_is_retried_then_succeeds(store: ModelStore) -> None:
+def test_a_transient_network_failure_is_not_retried(store: ModelStore) -> None:
     transport = _ScriptedTransport(
         [urllib.error.URLError(OSError("temporary outage")), _Response(PAYLOAD)]
     )
     ctx, _ = _context()
-    delays: list[float] = []
 
-    job = ModelInstallJob(
-        store=store,
-        consent=_consent(),
-        transport=transport,
-        sleep=delays.append,
-        retry_delay_s=0.25,
-    )
-    result = job.run(ctx)
+    with pytest.raises(StemForgeError) as raised:
+        _job(store, transport).run(ctx)
 
-    assert result.status.verified is True
-    assert transport.calls == 2
-    assert delays == [0.25]
-    assert store.path().read_bytes() == PAYLOAD
+    assert raised.value.code == errors.SEPARATION_MODEL_DOWNLOAD_FAILED
+    assert raised.value.detail == "reason=offline"
+    assert raised.value.retryable is True
+    assert transport.calls == 1
+    assert not store.path().exists()
+    assert not store.partial_path().exists()
 
 
 def test_persistent_offline_failure_is_coded_and_leaves_no_partial(store: ModelStore) -> None:
@@ -436,7 +429,7 @@ def test_persistent_offline_failure_is_coded_and_leaves_no_partial(store: ModelS
     assert raised.value.code == errors.SEPARATION_MODEL_DOWNLOAD_FAILED
     assert raised.value.detail == "reason=offline"
     assert raised.value.retryable is True
-    assert transport.calls == ModelInstallJob.MAX_ATTEMPTS
+    assert transport.calls == 1
     assert not store.partial_path().exists()
 
 
@@ -454,7 +447,7 @@ def test_http_error_is_coded_as_an_http_failure(store: ModelStore) -> None:
     assert transport.calls == 1
 
 
-def test_a_transient_5xx_is_retried(store: ModelStore) -> None:
+def test_a_transient_5xx_is_not_retried(store: ModelStore) -> None:
     transport = _ScriptedTransport(
         [
             urllib.error.HTTPError(store.spec.download_url, 503, "Unavailable", {}, None),
@@ -463,10 +456,13 @@ def test_a_transient_5xx_is_retried(store: ModelStore) -> None:
     )
     ctx, _ = _context()
 
-    result = _job(store, transport).run(ctx)
+    with pytest.raises(StemForgeError) as raised:
+        _job(store, transport).run(ctx)
 
-    assert result.status.verified is True
-    assert transport.calls == 2
+    assert raised.value.code == errors.SEPARATION_MODEL_DOWNLOAD_FAILED
+    assert raised.value.detail == "reason=http"
+    assert transport.calls == 1
+    assert not store.partial_path().exists()
 
 
 def test_size_mismatch_is_a_checksum_failure_and_leaves_no_files(store: ModelStore) -> None:

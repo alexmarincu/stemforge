@@ -66,7 +66,6 @@ from stemforge.pipeline.export_job import (
 from stemforge.pipeline.export_names import unique_export_path
 from stemforge.pipeline.import_job import run_local_import
 from stemforge.pipeline.model_job import (
-    DEFAULT_RETRY_DELAY_S,
     ModelInstallJob,
     Transport,
     consent_is_current,
@@ -226,7 +225,6 @@ class WorkspaceService:
         engines: ServiceEngines | None = None,
         models: ModelStore | None = None,
         model_transport: Transport | None = None,
-        model_retry_delay_s: float = DEFAULT_RETRY_DELAY_S,
         youtube_delay: Callable[[float], None] = time.sleep,
         bundle_root: Path | None = None,
     ) -> None:
@@ -244,11 +242,11 @@ class WorkspaceService:
         self._engines = engines if engines is not None else ServiceEngines()
         self._models = models if models is not None else ModelStore(self._paths)
         self._model_transport = model_transport
-        self._model_retry_delay_s = max(0.0, float(model_retry_delay_s))
         self._youtube_delay = youtube_delay
         self._workspace = Workspace()
         self._lock = threading.Lock()
         self._pending_separation_track_id: str | None = None
+        self._job_owners: dict[str, tuple[str | None, str | None]] = {}
 
     @property
     def settings(self) -> SettingsStore:
@@ -338,16 +336,51 @@ class WorkspaceService:
         return self.import_local(path)
 
     def remove_track(self, track_id: str) -> RemoveOutcome:
-        """Remove a Track and delete its cached audio when nothing else uses it."""
+        """Remove a Track and delete its cached audio when nothing else uses it.
+
+        Removing the Track that owns an active Job cancels that Job first and
+        waits for the runner to acknowledge it (ticket 14 §6), so the runner can
+        never delete a cache subtree that a Job is still writing.
+        """
+        with self._lock:
+            track = self._workspace.find(track_id)
+            if track is None:
+                raise KeyError(track_id)
+            owned = [
+                job_id
+                for job_id in self._active_job_ids_locked()
+                if self._owns_track(job_id, track.track_id, track.source_id)
+            ]
+        for job_id in owned:
+            self._runner.cancel(job_id)
+        if owned:
+            self._runner.wait_idle(timeout=5.0)
         with self._lock:
             track = self._workspace.remove_track(track_id)
             self._artifacts.release(track.source_id)
             still_live = self._artifacts.is_live(track.source_id)
+            for job_id in owned:
+                self._job_owners.pop(job_id, None)
         if still_live:
             return RemoveOutcome(track=track, cache_removed=False)
         report = self._artifacts.remove_source(track.source_id)
         removed = report.source_removed or bool(report.renders_removed)
         return RemoveOutcome(track=track, cache_removed=removed, report=report)
+
+    def _active_job_ids_locked(self) -> tuple[str, ...]:
+        return tuple(snapshot.job_id for snapshot in self._runner.jobs() if snapshot.active)
+
+    def _owns_track(self, job_id: str, track_id: str, source_id: str) -> bool:
+        owner = self._job_owners.get(job_id)
+        if owner is None:
+            return False
+        owner_track, owner_source = owner
+        return owner_track == track_id or owner_source == source_id
+
+    def _remember_job(self, job_id: str, *, track_id: str | None, source_id: str | None) -> str:
+        with self._lock:
+            self._job_owners[job_id] = (track_id, source_id)
+        return job_id
 
     def sweep_stale(self) -> SweepReport:
         """Run the startup sweep once; the UI shows recovery copy when it deleted work."""
@@ -513,7 +546,11 @@ class WorkspaceService:
             title=track.title,
             run=self._pitch_run(track, shift, resolved_scope, pitch, media),
         )
-        return self._runner.submit(job)
+        return self._remember_job(
+            self._runner.submit(job),
+            track_id=track.track_id,
+            source_id=track.source_id,
+        )
 
     def _pitch_run(
         self,
@@ -682,7 +719,11 @@ class WorkspaceService:
             title=track.title,
             run=self._separation_run(track, separation, media),
         )
-        return self._runner.submit(job)
+        return self._remember_job(
+            self._runner.submit(job),
+            track_id=track.track_id,
+            source_id=track.source_id,
+        )
 
     def _separation_run(
         self,
@@ -827,7 +868,11 @@ class WorkspaceService:
                 destination_name,
             ),
         )
-        return self._runner.submit(job)
+        return self._remember_job(
+            self._runner.submit(job),
+            track_id=found.track_id,
+            source_id=found.source_id,
+        )
 
     def export_result(self, job_id: str) -> ExportedFile | None:
         """Return the finished file's facts, or ``None`` before success."""
@@ -987,7 +1032,6 @@ class WorkspaceService:
                 store=self._models,
                 consent=self._settings.model_consent(),
                 transport=transport,
-                retry_delay_s=self._model_retry_delay_s,
             )
             result = job.run(ctx)
             return {

@@ -319,6 +319,25 @@ def test_a_failed_job_is_coded_and_isolated_from_the_next_job(runner: JobRunner)
     assert runner.snapshot(later_id).state is JobState.SUCCEEDED
 
 
+def test_a_retryable_failure_is_not_automatically_retried(runner: JobRunner) -> None:
+    runs = 0
+    lock = threading.Lock()
+
+    def fail(ctx: JobContext) -> Mapping[str, str] | None:
+        nonlocal runs
+        with lock:
+            runs += 1
+        raise StemForgeError(errors.DECODE_FAILED, "boom", retryable=True)
+
+    runner.start()
+    job_id = runner.submit(_job(("retryable",), fail))
+
+    assert runner.wait_idle(timeout=5)
+    assert runs == 1
+    assert runner.snapshot(job_id).retryable is True
+    assert [job.job_id for job in runner.jobs()] == [job_id]
+
+
 def test_an_unexpected_exception_becomes_internal_unexpected(runner: JobRunner) -> None:
     def explode(ctx: JobContext) -> Mapping[str, str] | None:
         raise RuntimeError("kaboom")

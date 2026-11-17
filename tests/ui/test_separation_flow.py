@@ -329,7 +329,6 @@ class Harness:
             engines=ServiceEngines(media=self.media, separation=self.separation),
             models=self.models,
             model_transport=self.transport,
-            model_retry_delay_s=0.0,
         )
         self.context = page.UiContext(service=self.service, dialogs=self.dialog)
 
