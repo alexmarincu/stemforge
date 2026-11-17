@@ -532,6 +532,8 @@ def _native_owner(relative: str) -> str | None:
     stem = base.split(".", 1)[0]
     if base.startswith("libiomp5md"):
         return "llvm-openmp"
+    if base.startswith("libomp"):
+        return "llvm-openmp"
     if base.startswith(("libssl", "libcrypto")):
         return "openssl"
     if base.startswith(("libgomp", "libgfortran", "libquadmath")):
