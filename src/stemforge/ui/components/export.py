@@ -471,7 +471,11 @@ class ExportStatusBar:
         open_path: PathOpener | None,
     ) -> None:
         code = notice.code or errors.INTERNAL_UNEXPECTED
-        reason = "export" if code == errors.STORAGE_DISK_FULL else _reason(notice.detail)
+        reason = (
+            "export"
+            if code == errors.STORAGE_DISK_FULL
+            else formatting.reason_from_detail(notice.detail)
+        )
         copy = formatting.copy_for(code, reason)
         with ui.element("div").classes("sf-exportbar is-failure").mark("export-failure"):
             ui.icon("error_outline", size="sm").classes("sf-exportbar-icon")
@@ -499,13 +503,3 @@ class ExportStatusBar:
                 .props("flat dense no-caps size=sm")
                 .mark("export-dismiss")
             )
-
-
-def _reason(detail: str | None) -> str | None:
-    text = (detail or "").strip()
-    if not text:
-        return None
-    for part in text.replace("\n", " ").split():
-        if part.startswith("reason="):
-            return part.removeprefix("reason=")
-    return text if " " not in text else None

@@ -36,6 +36,30 @@ def test_cache_sizes_use_one_decimal_and_the_ticket_units() -> None:
     assert formatting.format_bytes(0) == "0.0 MB"
 
 
+def test_cache_meter_never_exceeds_a_full_bar() -> None:
+    assert formatting.cache_percent(0, 8 * 1024**3) == 0
+    assert formatting.cache_percent(4 * 1024**3, 8 * 1024**3) == 50
+    assert formatting.cache_percent(9 * 1024**3, 8 * 1024**3) == 100
+    assert formatting.cache_percent(10, 0) == 0
+
+
+@pytest.mark.parametrize(
+    ("detail", "reason"),
+    [
+        (None, None),
+        ("", None),
+        ("reason=offline", "offline"),
+        ("decode failed\nreason=checksum", "checksum"),
+        ("single", "single"),
+        ("a whole sentence is not a reason", None),
+    ],
+)
+def test_reason_from_detail_keeps_the_stable_classifier(
+    detail: str | None, reason: str | None
+) -> None:
+    assert formatting.reason_from_detail(detail) == reason
+
+
 def test_relative_time_is_human_and_stable() -> None:
     now = datetime(2026, 11, 17, 12, 0, tzinfo=UTC)
 

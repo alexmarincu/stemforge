@@ -257,6 +257,36 @@ class SourceArtifact:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceManifest:
+    """A structurally valid ``source.json`` even when derived files are missing.
+
+    Recovery uses this when :meth:`ArtifactStore.find_source` refuses an
+    incomplete set: the record is trusted only for what the manifest says, and
+    the caller re-validates the native file's size and hash before repairing it.
+    It is not a committed artifact set and never satisfies a cache lookup.
+    """
+
+    source_id: str
+    directory: Path
+    manifest_path: Path
+    manifest: Mapping[str, object]
+    files: tuple[ManifestFile, ...]
+    created_at: datetime
+
+    def entry_for(self, role: str) -> ManifestFile | None:
+        """Return the file entry with ``role``, if the manifest records one."""
+        for entry in self.files:
+            if entry.role == role:
+                return entry
+        return None
+
+    def path_for(self, role: str) -> Path | None:
+        """Return the recorded path with ``role``; existence is not implied."""
+        entry = self.entry_for(role)
+        return None if entry is None else self.directory / entry.path
+
+
+@dataclass(frozen=True, slots=True)
 class SeparationArtifact:
     """A committed ``sources/<source_id>/stems/`` set."""
 
@@ -593,6 +623,39 @@ class ArtifactStore:
             gain_db=_gain_db(result.payload),
         )
 
+    def read_source_manifest(self, source_id: str) -> SourceManifest | None:
+        """Read a source manifest without requiring every referenced file.
+
+        ADR 0004 makes the store the only manifest reader. Recovery needs the
+        recorded native entry when a canonical or preview file is missing, so
+        this validates the schema, identity, timestamp, and path confinement
+        while leaving existence and hashes to the caller.
+        """
+        if not _is_valid_identity(source_id):
+            return None
+        directory = self.sources_dir / source_id
+        result = _read_manifest(
+            directory / SOURCE_MANIFEST_NAME,
+            base_dir=directory,
+            expect_kind=SOURCE_KIND,
+            identity_field="source_id",
+            identity=source_id,
+            required_roles=frozenset(),
+            require_files=False,
+        )
+        if result.status is not _ManifestStatus.VALID:
+            return None
+        assert result.payload is not None
+        assert result.created_at is not None
+        return SourceManifest(
+            source_id=source_id,
+            directory=directory,
+            manifest_path=directory / SOURCE_MANIFEST_NAME,
+            manifest=result.payload,
+            files=result.files,
+            created_at=result.created_at,
+        )
+
     def find_separation(self, source_id: str) -> SeparationArtifact | None:
         if not _is_valid_identity(source_id):
             return None
@@ -826,16 +889,25 @@ class ArtifactStore:
                 _directory_size(directory) for directory in (self.sources_dir, self.renders_dir)
             )
 
-    def enforce_cap(self, live_keys: AbstractSet[str] = frozenset()) -> EvictionReport:
-        """Evict whole non-live sets oldest-first until under the cap.
+    def enforce_cap(self, needed_bytes: int = 0) -> EvictionReport:
+        """Evict whole non-live sets oldest-first until the cap admits a reservation.
 
-        Raises ``storage.cache_full`` when everything left is live.
+        ``needed_bytes`` is the next Job's output estimate (ticket 07 §2): the
+        cache must reach ``usage + needed_bytes <= cap``, not merely fit today's
+        bytes. Raises ``storage.cache_full`` when everything left is live.
         """
+        if needed_bytes < 0:
+            raise ValueError("needed bytes must not be negative")
         with self._lock:
             entries = self._cache_entries()
             usage_before = sum(entry.size_bytes for entry in entries)
-            protected = self._live_snapshot(live_keys)
-            plan = plan_evictions(entries, cap_bytes=self._cap_bytes, live_keys=protected)
+            protected = self._live_snapshot()
+            plan = plan_evictions(
+                entries,
+                cap_bytes=self._cap_bytes,
+                live_keys=protected,
+                needed_bytes=needed_bytes,
+            )
             for entry in plan.evicted:
                 base = self.sources_dir if entry.kind == CACHE_KIND_SOURCE else self.renders_dir
                 try:
@@ -844,7 +916,7 @@ class ArtifactStore:
                     _raise_wrapped(exc, f"evict {entry.key}")
             self._record_evictions(plan.evicted)
             usage_after = self.usage_bytes()
-            if usage_after > self._cap_bytes:
+            if usage_after + needed_bytes > self._cap_bytes:
                 raise StemForgeError(
                     errors.STORAGE_CACHE_FULL,
                     "cache is full and everything left is in use",
@@ -852,7 +924,7 @@ class ArtifactStore:
                     context={
                         "usage": usage_after,
                         "cap": self._cap_bytes,
-                        "needed": usage_after - self._cap_bytes,
+                        "needed": usage_after + needed_bytes - self._cap_bytes,
                     },
                 )
             return EvictionReport(
@@ -1189,15 +1261,19 @@ def plan_evictions(
     *,
     cap_bytes: int,
     live_keys: AbstractSet[str] = frozenset(),
+    needed_bytes: int = 0,
 ) -> EvictionPlan:
-    """Choose whole non-live sets oldest-first until the usage fits the cap.
+    """Choose whole non-live sets oldest-first until usage plus a reservation fits.
 
     A live source also protects every render whose manifest names it: those are
     artifacts of the live Workspace even when the render itself is not retained.
     ``over_cap`` is true only when everything left is live.
     """
+    if needed_bytes < 0:
+        raise ValueError("needed bytes must not be negative")
+    target = cap_bytes - needed_bytes
     usage = sum(entry.size_bytes for entry in entries)
-    if usage <= cap_bytes:
+    if usage <= target:
         return EvictionPlan((), usage, usage, False)
 
     candidates = sorted(
@@ -1207,11 +1283,11 @@ def plan_evictions(
     remaining = usage
     evicted: list[CacheEntry] = []
     for entry in candidates:
-        if remaining <= cap_bytes:
+        if remaining <= target:
             break
         evicted.append(entry)
         remaining -= entry.size_bytes
-    return EvictionPlan(tuple(evicted), usage, remaining, remaining > cap_bytes)
+    return EvictionPlan(tuple(evicted), usage, remaining, remaining > target)
 
 
 def _entry_is_live(entry: CacheEntry, live_keys: AbstractSet[str]) -> bool:
@@ -1256,6 +1332,7 @@ def _read_manifest(
     identity_field: str,
     identity: str,
     required_roles: AbstractSet[str],
+    require_files: bool = True,
 ) -> _ManifestResult:
     try:
         raw = manifest_path.read_text(encoding="utf-8")
@@ -1296,7 +1373,7 @@ def _read_manifest(
     files: list[ManifestFile] = []
     seen_paths: set[str] = set()
     for raw_entry in raw_files:
-        entry = _parse_manifest_file(raw_entry, base_dir)
+        entry = _parse_manifest_file(raw_entry, base_dir, require_file=require_files)
         if entry is None:
             return _ManifestResult(_ManifestStatus.INVALID)
         if entry.path in seen_paths:
@@ -1315,14 +1392,16 @@ def _read_manifest(
     )
 
 
-def _parse_manifest_file(raw_entry: object, base_dir: Path) -> ManifestFile | None:
+def _parse_manifest_file(
+    raw_entry: object, base_dir: Path, *, require_file: bool = True
+) -> ManifestFile | None:
     if not isinstance(raw_entry, dict):
         return None
     entry = cast("dict[str, object]", raw_entry)
     relative = entry.get("path")
     if not isinstance(relative, str) or not relative:
         return None
-    target = _resolve_member(base_dir, relative)
+    target = _resolve_member(base_dir, relative, must_exist=require_file)
     if target is None:
         return None
 
@@ -1344,6 +1423,9 @@ def _parse_manifest_file(raw_entry: object, base_dir: Path) -> ManifestFile | No
             return None
         sha256 = raw_hash.lower()
 
+    if not require_file:
+        return ManifestFile(path=relative, role=role, sha256=sha256, size=size)
+
     try:
         stat_result = target.stat()
     except OSError:
@@ -1357,7 +1439,7 @@ def _parse_manifest_file(raw_entry: object, base_dir: Path) -> ManifestFile | No
     return ManifestFile(path=relative, role=role, sha256=sha256, size=size)
 
 
-def _resolve_member(base_dir: Path, relative: str) -> Path | None:
+def _resolve_member(base_dir: Path, relative: str, *, must_exist: bool = True) -> Path | None:
     """Resolve a manifest path and refuse absolute, traversing, or symlink escapes."""
     if "\\" in relative or ":" in relative:
         return None
@@ -1370,8 +1452,8 @@ def _resolve_member(base_dir: Path, relative: str) -> Path | None:
     try:
         if target.is_symlink():
             return None
-        resolved = target.resolve(strict=True)
-        root = base_dir.resolve(strict=True)
+        resolved = target.resolve(strict=must_exist)
+        root = base_dir.resolve(strict=must_exist)
     except OSError:
         return None
     if not resolved.is_relative_to(root):

@@ -391,6 +391,38 @@ def test_manifest_is_written_last_and_a_failed_promotion_is_invisible(
 
 
 @pytest.mark.unit
+def test_read_source_manifest_survives_missing_derived_files(store: ArtifactStore) -> None:
+    artifact = _commit_source(store, "repairme")
+    (artifact.directory / "canonical.wav").unlink()
+
+    assert store.find_source("repairme") is None
+    record = store.read_source_manifest("repairme")
+
+    assert record is not None
+    assert record.source_id == "repairme"
+    assert record.entry_for("canonical") is not None
+    assert record.path_for("canonical") is not None
+    assert not record.path_for("canonical").exists()
+
+
+@pytest.mark.unit
+def test_read_source_manifest_refuses_unknown_ids_and_escaping_paths(
+    store: ArtifactStore,
+) -> None:
+    assert store.read_source_manifest("../escape") is None
+
+    directory = store.sources_dir / "badpath"
+    directory.mkdir(parents=True)
+    manifest = _source_manifest(
+        "badpath",
+        [{"path": "../escape.wav", "role": "canonical", "size": 1, "sha256": "0" * 64}],
+    )
+    (directory / "source.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert store.read_source_manifest("badpath") is None
+
+
+@pytest.mark.unit
 def test_sweep_removes_tmp_staging_and_partials_but_keeps_completed_work(
     store: ArtifactStore,
 ) -> None:
@@ -539,7 +571,7 @@ def test_enforce_cap_evicts_oldest_whole_sets_first(store: ArtifactStore) -> Non
     }
     store = ArtifactStore(store.paths, cap_bytes=sum(sizes.values()) - sizes["oldest"])
 
-    report = store.enforce_cap(set())
+    report = store.enforce_cap()
 
     assert [entry.key for entry in report.evicted] == ["oldest"]
     assert not source.directory.exists()
@@ -559,7 +591,7 @@ def test_enforce_cap_records_evictions_for_the_diagnostics_window(
     _set_used(store, "new", 200.0)
     store = ArtifactStore(store.paths, cap_bytes=_dir_size(newest.directory))
 
-    store.enforce_cap(set())
+    store.enforce_cap()
 
     now = datetime.now(UTC)
     assert store.eviction_count(now - timedelta(days=7)) == 1
@@ -586,7 +618,7 @@ def test_a_missing_used_marker_falls_back_to_manifest_created_at(store: Artifact
     cap = _dir_size(new.directory)
     store = ArtifactStore(store.paths, cap_bytes=cap)
 
-    report = store.enforce_cap(set())
+    report = store.enforce_cap()
 
     assert [entry.key for entry in report.evicted] == ["old"]
     assert not old.directory.exists()
@@ -604,7 +636,7 @@ def test_touch_source_moves_an_entry_to_the_newest_position(store: ArtifactStore
 
     assert store.touch_source("first") is True
 
-    report = store.enforce_cap(set())
+    report = store.enforce_cap()
 
     assert [entry.key for entry in report.evicted] == ["second"]
     assert first.directory.is_dir()
@@ -620,7 +652,7 @@ def test_live_entries_are_never_evicted(store: ArtifactStore) -> None:
     store = ArtifactStore(store.paths, cap_bytes=_dir_size(dead.directory) + 1)
     store.retain("live")
 
-    report = store.enforce_cap(set())
+    report = store.enforce_cap()
 
     assert [entry.key for entry in report.evicted] == ["dead"]
     assert live.directory.is_dir()
@@ -642,7 +674,7 @@ def test_live_keys_from_the_workspace_callback_are_protected(store: ArtifactStor
     _set_used(store, "live", 100.0)
     _set_used(store, "dead", 200.0)
 
-    report = store.enforce_cap(set())
+    report = store.enforce_cap()
 
     assert [entry.key for entry in report.evicted] == ["dead"]
     assert live.directory.is_dir()
@@ -657,12 +689,60 @@ def test_cache_full_is_raised_when_everything_left_is_live(store: ArtifactStore)
     store.retain("second")
 
     with pytest.raises(StemForgeError) as caught:
-        store.enforce_cap(set())
+        store.enforce_cap()
 
     assert caught.value.code == "storage.cache_full"
     assert caught.value.retryable is True
     assert first.directory.is_dir()
     assert second.directory.is_dir()
+
+
+@pytest.mark.unit
+def test_enforce_cap_evicts_room_for_the_next_job_estimate(store: ArtifactStore) -> None:
+    old = _commit_source(store, "old")
+    live = _commit_source(store, "live")
+    _set_used(store, "old", 100.0)
+    _set_used(store, "live", 200.0)
+    old_size = _dir_size(old.directory)
+    live_size = _dir_size(live.directory)
+    store = ArtifactStore(store.paths, cap_bytes=live_size + old_size)
+    store.retain("live")
+    staging_file = store.stage("active-job") / "partial.wav"
+    staging_file.write_bytes(b"unfinished")
+    model = store.paths.models / "htdemucs" / "weights.bin"
+    model.parent.mkdir(parents=True, exist_ok=True)
+    model.write_bytes(b"pinned weights stand-in")
+
+    report = store.enforce_cap(old_size)
+
+    assert [entry.key for entry in report.evicted] == ["old"]
+    assert not old.directory.exists()
+    assert live.directory.is_dir()
+    assert report.usage_after + old_size <= store.cap_bytes
+    assert staging_file.is_file()
+    assert model.is_file()
+
+
+@pytest.mark.unit
+def test_cache_full_counts_the_reservation_against_live_sets(store: ArtifactStore) -> None:
+    live = _commit_source(store, "live")
+    size = _dir_size(live.directory)
+    store = ArtifactStore(store.paths, cap_bytes=size)
+    store.retain("live")
+
+    with pytest.raises(StemForgeError) as caught:
+        store.enforce_cap(1)
+
+    assert caught.value.code == "storage.cache_full"
+    assert caught.value.context["needed"] == 1
+    assert live.directory.is_dir()
+    assert store.usage_bytes() == size
+
+
+@pytest.mark.unit
+def test_enforce_cap_rejects_a_negative_reservation(store: ArtifactStore) -> None:
+    with pytest.raises(ValueError, match="needed"):
+        store.enforce_cap(-1)
 
 
 @pytest.mark.unit
@@ -683,7 +763,7 @@ def test_a_newer_schema_entry_is_ignored_by_lookup_but_eligible_for_lru(
     _set_used(store, "future", 100.0)
     _set_used(store, "valid", 300.0)
 
-    report = store.enforce_cap(set())
+    report = store.enforce_cap()
 
     assert [entry.key for entry in report.evicted] == ["future"]
     assert not future.exists()

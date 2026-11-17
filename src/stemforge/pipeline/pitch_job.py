@@ -17,13 +17,18 @@ request, even at the same semitone (ticket 05 §4, ticket 08 §5).
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from stemforge.artifacts import ArtifactStore, RenderArtifact
+from stemforge.artifacts import (
+    ArtifactStore,
+    RenderArtifact,
+    estimate_render_bytes,
+    free_space_requirement,
+    require_free_space,
+)
 from stemforge.domain.models import RenderScope
 from stemforge.engines.media import CANONICAL_CHANNELS, CANONICAL_SAMPLE_RATE, MediaTool
 from stemforge.engines.pitch import (
@@ -38,7 +43,7 @@ from stemforge.engines.pitch import (
     validate_semitones,
 )
 from stemforge.jobs.job import JobContext
-from stemforge.pipeline.gain import presentation_gain
+from stemforge.pipeline.gain import max_peak_dbfs, presentation_gain
 
 STEM_ROLES: Final = ("vocals", "drums", "bass", "other")
 INSTRUMENTAL_ROLE: Final = "instrumental"
@@ -135,6 +140,14 @@ def run_pitch_job(
         artifacts.touch_render(render_key)
         emit(1.0, STAGE_DONE, "this render set already exists")
         return _render_set(existing, resolved_scope, shift, existing.gain_db)
+
+    # Ticket 07 §8: one master or five stem outputs (WAV + preview each); the
+    # cache reserves the same estimate before staging the set.
+    expected_outputs = 1 if resolved_scope is RenderScope.ORIGINAL else len(STEM_ROLES) + 1
+    duration_s = media.probe(canonical).duration_s
+    estimate = estimate_render_bytes(duration_s, outputs=expected_outputs)
+    require_free_space(artifacts.root, free_space_requirement(estimate))
+    artifacts.enforce_cap(estimate)
 
     staging = artifacts.stage(ctx.job_id)
     committed = False
@@ -321,14 +334,6 @@ def _file_entry(path: Path, role: str) -> Mapping[str, object]:
     }
 
 
-def _finite_peak(peaks: Mapping[str, float]) -> float | None:
-    loudest = float("-inf")
-    for peak in peaks.values():
-        if math.isfinite(peak) and peak > loudest:
-            loudest = peak
-    return loudest if math.isfinite(loudest) else None
-
-
 def _manifest(
     *,
     source_id: str,
@@ -356,7 +361,7 @@ def _manifest(
         "formant": FORMANT_PRESERVED,
         "window": WINDOW,
         "gain_db": gain_db,
-        "peak_dbfs": _finite_peak(peaks),
+        "peak_dbfs": max_peak_dbfs(peaks.values()),
         "validation": {"ok": True},
         "inputs": [
             {"role": item.role, "artifact": item.artifact, "sha256": input_hashes[item.role]}

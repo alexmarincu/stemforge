@@ -94,6 +94,7 @@ class Source:
     origin: str
     origin_kind: OriginKind
     metadata: SourceMetadata
+    downmixed: bool = False
     native_path: Path | None = None
     canonical_path: Path | None = None
     preview_path: Path | None = None
