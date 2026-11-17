@@ -32,12 +32,12 @@ notice; the notice links them.
 | Runtime packages | 80 | 104 dependencies + the project row; 80 runtime |
 | Development-only | 20 | marked `development` in the table |
 | Build-only | 5 | PyInstaller + hooks + altgraph/pefile/pywin32-ctypes |
-| Windows-only runtime | 6 | `pythonnet`, `clr-loader`, `cffi`, `pycparser`, `colorama`, `cffi` deps marked `(windows)` |
+| Windows-only runtime | 5 | `pythonnet`, `clr-loader`, `cffi`, `pycparser`, `colorama` marked `(windows)` |
 | Linux-only runtime | 1 | `uvloop` marked `(linux)` |
 | `torchaudio` | 0 | absent from `uv.lock`, paths, and generated text |
 | Model weights | 0 | no `.safetensors`/`.pt`/`.pth`/`.onnx`/`.ckpt` |
 | Vendor binaries | 0 | text-only tree; `.exe`/`.dll`/`.so` refused |
-| Curated components | 14 | FFmpeg, Rubber Band, libsndfile, Deno, yt-dlp/EJS, PyTorch, NumPy, Python runtime, PyInstaller, GCC runtime, OpenBLAS, LLVM OpenMP, OpenSSL, WebView2, NiceGUI frontend |
+| Curated components | 15 | FFmpeg, Rubber Band, libsndfile, Deno, yt-dlp/EJS, PyTorch, NumPy, Python runtime, PyInstaller, GCC runtime, OpenBLAS, LLVM OpenMP, OpenSSL, WebView2, NiceGUI frontend |
 
 Curated notices and their locations:
 
