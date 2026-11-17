@@ -525,18 +525,38 @@ def _webview_lock(tmp_path: Path, *, sha: str = "0" * 64) -> Path:
     return path
 
 
-def _native_manifest(tmp_path: Path, *, torch: bool = True) -> Path:
-    patterns = [
-        ("StemForge", ["StemForge.exe"]),
-        ("Vendor", ["vendor/**/*.exe", "vendor/**/*.dll"]),
+def _native_manifest(tmp_path: Path) -> Path:
+    rows = [
+        ("ffmpeg", "FFmpeg and ffprobe", ["GPL-3.0-or-later"], True),
+        ("rubberband", "Rubber Band Library", ["GPL-2.0-or-later"], True),
+        ("libsndfile", "libsndfile", ["LGPL-2.1-or-later"], True),
+        ("deno", "Deno", ["MIT"], False),
+        (
+            "pyinstaller",
+            "PyInstaller bootloader",
+            ["GPL-2.0-or-later", "Bootloader-exception"],
+            False,
+        ),
+        ("pytorch", "PyTorch", [], False),
+        ("python-runtime", "Python runtime", ["PSF-2.0"], False),
+        ("webview2", "Microsoft Edge WebView2", [], False),
     ]
-    if torch:
-        patterns.append(("PyTorch", ["_internal/torch/**/*.dll", "_internal/torch/**/*.exe"]))
-    body = "\n".join(
-        f'[[native]]\nname = "{name}"\npaths = {json.dumps(paths)}\n' for name, paths in patterns
-    )
+    blocks = []
+    for component_id, title, texts, buildinfo in rows:
+        blocks.append(
+            "\n".join(
+                [
+                    "[[component]]",
+                    f'id = "{component_id}"',
+                    f'title = "{title}"',
+                    'kind = "vendor"',
+                    f"texts = {json.dumps(texts)}",
+                    f"buildinfo = {str(buildinfo).lower()}",
+                ]
+            )
+        )
     path = tmp_path / "native.toml"
-    path.write_text(body, encoding="utf-8")
+    path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
     return path
 
 
@@ -547,6 +567,7 @@ def _bundle(tmp_path: Path, *, licence: bool = True) -> Path:
     _write(bundle / "_internal" / "models" / "models.lock.json", b"{}")
     _write(bundle / "_internal" / "torch" / "lib" / "torch_cpu.dll")
     _write(bundle / "_internal" / "torch" / "bin" / "torch_shm_manager.exe")
+    _write(bundle / "_internal" / "lameenc.cp313-win_amd64.pyd")
     for relative in (
         "ffmpeg/ffmpeg.exe",
         "ffmpeg/ffprobe.exe",
@@ -564,23 +585,43 @@ def _bundle(tmp_path: Path, *, licence: bool = True) -> Path:
     )
     _write(
         bundle / "THIRD_PARTY_NOTICES.md",
-        b"FFmpeg Deno Rubber Band Library libsndfile Microsoft Edge WebView2 Runtime\n",
+        b"FFmpeg and ffprobe; Rubber Band Library; libsndfile; Deno; "
+        b"PyInstaller bootloader; PyTorch; Python runtime; Microsoft Edge WebView2.\n",
     )
     _write(
         bundle / "SOURCE_OFFER.md",
         b"StemForge offers the corresponding source for three years from the release date. "
         b"See https://github.com/alexmarincu/stemforge/issues.\n",
     )
+    _write(bundle / "LICENSES" / "README.md", b"# Licence texts\n")
     texts = {
-        "ffmpeg": "LICENSE.txt",
-        "rubberband": "COPYING",
-        "libsndfile": "COPYING",
-        "deno": "LICENSE",
+        "GPL-3.0-or-later",
+        "GPL-2.0-or-later",
+        "LGPL-2.1-or-later",
+        "MIT",
+        "Bootloader-exception",
+        "PSF-2.0",
     }
-    for component, text in texts.items():
-        _write(bundle / "LICENSES" / component / text, b"licence text\n")
-    for component in ("ffmpeg", "rubberband", "libsndfile"):
-        _write(bundle / "LICENSES" / component / "BUILDINFO.txt", b"build info\n")
+    for text in sorted(texts):
+        _write(bundle / "LICENSES" / "common" / f"{text}.txt", b"licence text\n")
+    _write(
+        bundle / "LICENSES" / "python" / "DEPENDENCIES.md",
+        b"| `lameenc` | 1.9.0 | `LGPL-3.0-or-later` | runtime |\n",
+    )
+    components = {
+        "ffmpeg": True,
+        "rubberband": True,
+        "libsndfile": True,
+        "deno": False,
+        "pyinstaller": False,
+        "pytorch": False,
+        "python-runtime": False,
+        "webview2": False,
+    }
+    for component, buildinfo in components.items():
+        _write(bundle / "LICENSES" / component / "NOTICE.md", b"# Notice\n")
+        if buildinfo:
+            _write(bundle / "LICENSES" / component / "BUILDINFO.txt", b"build info\n")
     return bundle
 
 
@@ -702,11 +743,29 @@ def test_allow_licence_pending_is_a_warning_not_an_error(tmp_path: Path) -> None
     assert any(item.level == "warn" for item in report.findings)
 
 
-def test_a_native_file_without_a_manifest_row_fails(tmp_path: Path) -> None:
+def test_a_native_file_without_a_notice_or_dependency_row_fails(tmp_path: Path) -> None:
     bundle = _bundle(tmp_path)
-    manifest = _native_manifest(tmp_path, torch=False)
+    _write(bundle / "_internal" / "mystery" / "mystery.dll")
 
-    report = _verify(tmp_path, bundle, manifest=manifest)
+    report = _verify(tmp_path, bundle)
+
+    assert any(item.check == "licence.native" for item in _errors(report))
+
+
+def test_a_missing_curated_notice_fails_the_bundle(tmp_path: Path) -> None:
+    bundle = _bundle(tmp_path)
+    (bundle / "LICENSES" / "pytorch" / "NOTICE.md").unlink()
+
+    report = _verify(tmp_path, bundle)
+
+    assert any(item.check == "licence.tree" for item in _errors(report))
+
+
+def test_a_native_file_without_a_python_dependency_row_fails(tmp_path: Path) -> None:
+    bundle = _bundle(tmp_path)
+    (bundle / "LICENSES" / "python" / "DEPENDENCIES.md").write_text("# no rows\n", encoding="utf-8")
+
+    report = _verify(tmp_path, bundle)
 
     assert any(item.check == "licence.native" for item in _errors(report))
 

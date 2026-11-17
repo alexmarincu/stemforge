@@ -11,8 +11,9 @@ the unit job can feed synthetic trees to the same code the Windows runner uses:
   ``torchaudio``;
 * ``vendor/`` exactly matches ``packaging/vendor.lock.json`` for ``windows-x64``;
 * the licence tree (``LICENSE``, ``THIRD_PARTY_NOTICES.md``,
-  ``SOURCE_OFFER.md``, ``LICENSES/``) is complete and every shipped native file
-  has a row in the native manifest;
+  ``SOURCE_OFFER.md``, ``LICENSES/``) is complete; every curated component has
+  a ``NOTICE.md`` and every shipped native file maps to a curated notice or a
+  row in ``LICENSES/python/DEPENDENCIES.md``;
 * ``StemForge.exe`` is a GUI-subsystem PE with a ``VS_VERSION_INFO`` resource;
 * the pinned WebView2 bootstrapper, when supplied, matches its lock.
 
@@ -24,7 +25,6 @@ does, and a bundle carrying ``LICENCE-GATE-PENDING.txt`` is refused there.
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import hashlib
 import json
 import struct
@@ -59,18 +59,75 @@ WEIGHT_SUFFIXES: Final = (".safetensors", ".pt", ".pth", ".onnx", ".ckpt", ".h5"
 NATIVE_SUFFIXES: Final = (".exe", ".dll", ".pyd", ".so", ".dylib")
 TORCH_BIN_ALLOWED: Final = frozenset({"torch_shm_manager", "torch_shm_manager.exe"})
 LICENCE_ROOT_FILES: Final = ("LICENSE", "THIRD_PARTY_NOTICES.md", "SOURCE_OFFER.md")
-BUILDINFO_COMPONENTS: Final = ("ffmpeg", "rubberband", "libsndfile")
-NATIVE_ROW_KEYS: Final = (
-    "path",
-    "paths",
-    "file",
-    "files",
-    "filename",
-    "filenames",
-    "glob",
-    "globs",
-    "pattern",
-    "patterns",
+LICENCE_REQUIRED_DIRS: Final = ("LICENSES", "LICENSES/common", "LICENSES/python")
+LICENCE_README: Final = "LICENSES/README.md"
+PYTHON_DEPENDENCIES: Final = "LICENSES/python/DEPENDENCIES.md"
+
+# Ticket 22's native.toml is a curated component list, not a file-path mapping.
+# These are the components a shipped native file may be attributed to by
+# location; everything else must have a row in LICENSES/python/DEPENDENCIES.md.
+CURATED_NATIVE_NOTICES: Final = {
+    "ffmpeg": "ffmpeg",
+    "deno": "deno",
+    "rubberband": "rubberband",
+    "libsndfile": "libsndfile",
+    "pyinstaller": "pyinstaller",
+    "pytorch": "pytorch",
+    "torch": "pytorch",
+    "numpy": "numpy",
+    "python-runtime": "python-runtime",
+    "llvm-openmp": "llvm-openmp",
+    "gcc-runtime": "gcc-runtime",
+    "openblas": "openblas",
+    "openssl": "openssl",
+    "webview2": "webview2",
+}
+NATIVE_OWNER_ALIASES: Final = {
+    "_cffi_backend": "cffi",
+    "clr_loader": "clr-loader",
+    "pydantic_core": "pydantic-core",
+    "yaml": "pyyaml",
+    "webview": "pywebview",
+}
+RUNTIME_NATIVE_PREFIXES: Final = (
+    "python3",
+    "python313",
+    "vcruntime",
+    "msvcp",
+    "concrt",
+    "vcomp",
+    "ucrtbase",
+    "api-ms-win-",
+    "libffi",
+    "sqlite3",
+    "libexpat",
+    "libbz2",
+    "liblzma",
+    "libmpdec",
+    "zlib",
+)
+RUNTIME_NATIVE_NAMES: Final = frozenset(
+    {
+        "_asyncio",
+        "_bz2",
+        "_ctypes",
+        "_decimal",
+        "_elementtree",
+        "_hashlib",
+        "_lzma",
+        "_multiprocessing",
+        "_overlapped",
+        "_queue",
+        "_socket",
+        "_sqlite3",
+        "_ssl",
+        "_uuid",
+        "_wmi",
+        "pyexpat",
+        "select",
+        "unicodedata",
+        "winsound",
+    }
 )
 
 LEVEL_PASS: Final = "pass"
@@ -152,6 +209,17 @@ class ArtifactBudget:
 
     target: int
     fail: int
+
+
+@dataclass(frozen=True, slots=True)
+class NativeComponent:
+    """One curated row from ``packaging/licenses/native.toml``."""
+
+    id: str
+    title: str
+    kind: str
+    texts: tuple[str, ...]
+    buildinfo: bool
 
 
 BUDGETS: Final = {
@@ -406,116 +474,142 @@ def _check_vendor(report: Report, bundle: Path, lock_path: Path) -> None:
         report.pass_("vendor.extra", "vendor/ contains only the locked files")
 
 
-def _collect_native_patterns(value: Any) -> list[str]:
-    patterns: list[str] = []
-
-    def walk(node: Any) -> None:
-        if isinstance(node, dict):
-            for key, child in node.items():
-                if key in NATIVE_ROW_KEYS:
-                    if isinstance(child, str):
-                        patterns.append(child)
-                    elif isinstance(child, list):
-                        patterns.extend(item for item in child if isinstance(item, str))
-                else:
-                    walk(child)
-        elif isinstance(node, list):
-            for child in node:
-                walk(child)
-
-    walk(value)
-    normalized = []
-    for pattern in patterns:
-        pattern = pattern.replace("\\", "/").removeprefix("./")
-        if pattern.endswith("/"):
-            pattern += "**"
-        normalized.append(pattern)
-    return normalized
-
-
-def _matches(relative: str, pattern: str) -> bool:
-    return fnmatch.fnmatchcase(relative, pattern) or fnmatch.fnmatchcase("/" + relative, pattern)
-
-
-def _check_native_rows(report: Report, bundle: Path, manifest: Path) -> None:
-    try:
-        payload = tomllib.loads(manifest.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
-        report.error("licence.native", f"{manifest}: {error}")
-        return
-    patterns = _collect_native_patterns(payload)
-    if not patterns:
-        report.error(
-            "licence.native",
-            f"{manifest} has no native path rows; every shipped native file needs one",
+def _native_components(manifest: Path) -> dict[str, NativeComponent]:
+    """Read ticket 22's ``[[component]]`` rows from ``native.toml``."""
+    payload = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    rows = payload.get("component")
+    if not isinstance(rows, list):
+        raise ValueError("native.toml has no [[component]] rows")
+    components: dict[str, NativeComponent] = {}
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+            continue
+        texts = row.get("texts", [])
+        if not isinstance(texts, list):
+            texts = []
+        component_id = row["id"]
+        components[component_id] = NativeComponent(
+            id=component_id,
+            title=str(row.get("title", component_id)),
+            kind=str(row.get("kind", "")),
+            texts=tuple(item for item in texts if isinstance(item, str)),
+            buildinfo=bool(row.get("buildinfo", False)),
         )
+    if not components:
+        raise ValueError("native.toml has no usable [[component]] rows")
+    return components
+
+
+def _dependency_names(text: str) -> set[str]:
+    """The package names in ``LICENSES/python/DEPENDENCIES.md`` rows."""
+    names: set[str] = set()
+    for line in text.splitlines():
+        if line.startswith("| `") and "`" in line[3:]:
+            name = line.split("`", 2)[1]
+            names.add(name.lower().replace("_", "-"))
+    return names
+
+
+def _native_owner(relative: str) -> str | None:
+    """Attribute one shipped native file to a curated notice or a package row."""
+    lowered = relative.lower()
+    if lowered == "stemforge.exe":
+        return "pyinstaller"
+    if lowered.startswith("vendor/ffmpeg/"):
+        return "ffmpeg"
+    if lowered.startswith("vendor/deno/"):
+        return "deno"
+    if lowered.startswith("vendor/rubberband/rubberband"):
+        return "rubberband"
+    if lowered.startswith("vendor/rubberband/sndfile"):
+        return "libsndfile"
+    if not lowered.startswith("_internal/"):
+        return None
+
+    inner = relative.removeprefix("_internal/")
+    parts = inner.split("/")
+    base = parts[-1].lower()
+    stem = base.split(".", 1)[0]
+    if base.startswith("libiomp5md"):
+        return "llvm-openmp"
+    if base.startswith(("libssl", "libcrypto")):
+        return "openssl"
+    if base.startswith(("libgomp", "libgfortran", "libquadmath")):
+        return "gcc-runtime"
+    if base.startswith(("libscipy_openblas", "openblas")):
+        return "openblas"
+    if base.startswith(RUNTIME_NATIVE_PREFIXES):
+        return "python-runtime"
+    if stem in RUNTIME_NATIVE_NAMES:
+        return "python-runtime"
+
+    if len(parts) > 1:
+        owner = parts[0].lower()
+    else:
+        owner = stem
+        alias = NATIVE_OWNER_ALIASES.get(owner)
+        if alias is not None:
+            owner = alias
+        elif owner.startswith("_"):
+            return "python-runtime"
+    owner = NATIVE_OWNER_ALIASES.get(owner, owner)
+    return CURATED_NATIVE_NOTICES.get(owner, owner)
+
+
+def _check_native_coverage(
+    report: Report,
+    bundle: Path,
+    components: dict[str, NativeComponent],
+) -> None:
+    try:
+        dependencies = _dependency_names((bundle / PYTHON_DEPENDENCIES).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as error:
+        report.error("licence.native", f"{PYTHON_DEPENDENCIES}: {error}")
         return
 
     native = [
         _relative(path, bundle) for path in _files(bundle) if path.suffix.lower() in NATIVE_SUFFIXES
     ]
-    unmatched = [
-        relative
-        for relative in native
-        if not any(_matches(relative, pattern) for pattern in patterns)
-    ]
-    if unmatched:
+    uncovered: list[str] = []
+    for relative in native:
+        owner = _native_owner(relative)
+        if owner is None:
+            uncovered.append(relative)
+            continue
+        if owner in CURATED_NATIVE_NOTICES:
+            notice = bundle / "LICENSES" / owner / "NOTICE.md"
+            if owner not in components or not notice.is_file():
+                uncovered.append(f"{relative} (no LICENSES/{owner}/NOTICE.md)")
+        elif owner.lower().replace("_", "-") not in dependencies:
+            uncovered.append(f"{relative} (no {owner} row in {PYTHON_DEPENDENCIES})")
+
+    if uncovered:
         report.error(
             "licence.native",
-            "native files without a notice row: " + ", ".join(unmatched[:8]),
+            "native files without a notice/row: " + ", ".join(uncovered[:8]),
         )
     else:
         report.pass_(
             "licence.native",
-            f"{len(native)} native files match {len(patterns)} native manifest rows",
+            f"{len(native)} native files map to a curated notice or a Python dependency row",
         )
 
 
-def _check_licence_tree(report: Report, bundle: Path, lock_path: Path, manifest: Path) -> None:
+def _check_licence_tree(report: Report, bundle: Path, manifest: Path) -> None:
     missing = [name for name in LICENCE_ROOT_FILES if not (bundle / name).is_file()]
-    if not (bundle / "LICENSES").is_dir():
-        missing.append("LICENSES/")
+    missing.extend(name for name in LICENCE_REQUIRED_DIRS if not (bundle / name).is_dir())
+    if not (bundle / LICENCE_README).is_file():
+        missing.append(LICENCE_README)
+    if not (bundle / PYTHON_DEPENDENCIES).is_file():
+        missing.append(PYTHON_DEPENDENCIES)
     if missing:
         report.error("licence.tree", "missing licence tree entries: " + ", ".join(missing))
         return
 
     try:
-        payload = _load_json(lock_path)
-        components = payload.get("components", {})
-    except (OSError, ValueError, json.JSONDecodeError) as error:
-        report.error("licence.tree", f"{lock_path}: {error}")
-        return
-    if not isinstance(components, dict):
-        report.error("licence.tree", f"{lock_path} has no components object")
-        return
-    missing_texts: list[str] = []
-    projects: list[str] = []
-    for name, record in components.items():
-        if not isinstance(record, dict):
-            continue
-        provenance = record.get("provenance")
-        project = ""
-        if isinstance(provenance, dict) and isinstance(provenance.get("project"), str):
-            project = provenance["project"]
-            projects.append(project)
-        directories = [name]
-        if project:
-            slug = project.lower().replace(" ", "-")
-            if slug not in directories:
-                directories.append(slug)
-        for text in record.get("license_texts", []):
-            if not isinstance(text, str):
-                continue
-            if not any(
-                (bundle / "LICENSES" / directory / text).is_file() for directory in directories
-            ):
-                missing_texts.append((Path("LICENSES") / name / text).as_posix())
-    for name in BUILDINFO_COMPONENTS:
-        relative = Path("LICENSES") / name / "BUILDINFO.txt"
-        if not (bundle / relative).is_file():
-            missing_texts.append(relative.as_posix())
-    if missing_texts:
-        report.error("licence.tree", "missing licence files: " + ", ".join(missing_texts))
+        components = _native_components(manifest)
+    except (OSError, ValueError, tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
+        report.error("licence.native", f"{manifest}: {error}")
         return
 
     try:
@@ -525,14 +619,37 @@ def _check_licence_tree(report: Report, bundle: Path, lock_path: Path, manifest:
     except (OSError, UnicodeDecodeError) as error:
         report.error("licence.tree", f"unreadable licence text: {error}")
         return
-    missing_projects = [project for project in projects if project.lower() not in notices.lower()]
-    if missing_projects:
+
+    missing_components: list[str] = []
+    missing_texts: list[str] = []
+    for component in components.values():
+        notice = Path("LICENSES") / component.id / "NOTICE.md"
+        if not (bundle / notice).is_file():
+            missing_components.append(notice.as_posix())
+        if component.buildinfo:
+            buildinfo = Path("LICENSES") / component.id / "BUILDINFO.txt"
+            if not (bundle / buildinfo).is_file():
+                missing_components.append(buildinfo.as_posix())
+        for text in component.texts:
+            relative = Path("LICENSES") / "common" / f"{text}.txt"
+            if not (bundle / relative).is_file():
+                missing_texts.append(relative.as_posix())
+        lowered = notices.lower()
+        if component.id.lower() not in lowered and component.title.lower() not in lowered:
+            missing_components.append(f"THIRD_PARTY_NOTICES.md entry for {component.id}")
+    if missing_components:
         report.error(
-            "licence.notices",
-            "THIRD_PARTY_NOTICES.md does not name: " + ", ".join(sorted(set(missing_projects))),
+            "licence.tree",
+            "missing curated notices: " + ", ".join(missing_components[:8]),
         )
-    else:
-        report.pass_("licence.notices", "the notices name every vendor project")
+    if missing_texts:
+        report.error("licence.tree", "missing common texts: " + ", ".join(missing_texts[:8]))
+    if missing_components or missing_texts:
+        return
+
+    for required in ("ffmpeg", "rubberband", "libsndfile", "deno", "webview2"):
+        if required not in components:
+            report.error("licence.native", f"{manifest} has no {required} component")
     if "GNU GENERAL PUBLIC LICENSE" not in licence.upper() or "VERSION 3" not in licence.upper():
         report.error("licence.license", "LICENSE is not the GPL-3 text")
     else:
@@ -541,8 +658,12 @@ def _check_licence_tree(report: Report, bundle: Path, lock_path: Path, manifest:
         report.error("licence.offer", "SOURCE_OFFER.md is missing the three-year written offer")
     else:
         report.pass_("licence.offer", "SOURCE_OFFER.md carries the written offer")
+    report.pass_(
+        "licence.notices",
+        f"{len(components)} curated components have NOTICE.md entries",
+    )
 
-    _check_native_rows(report, bundle, manifest)
+    _check_native_coverage(report, bundle, components)
 
 
 def _check_licence_pending(report: Report, bundle: Path) -> None:
@@ -664,7 +785,7 @@ def verify(
         )
         _check_licence_pending(report, bundle)
     else:
-        _check_licence_tree(report, bundle, Path(lock_path), Path(native_manifest))
+        _check_licence_tree(report, bundle, Path(native_manifest))
     _check_artifacts(report, zip_path=zip_path, setup_path=setup_path)
     _check_webview2(
         report,
