@@ -113,6 +113,10 @@ def test_self_test_reports_missing_vendor_binaries_without_failing(tmp_path: Pat
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(
+    (PROJECT_ROOT / "vendor" / "ffmpeg" / "ffmpeg").is_file(),
+    reason="a checkout with vendor/ present has the binaries this test removes",
+)
 def test_self_test_requires_vendor_binaries_when_asked(tmp_path: Path) -> None:
     home = tmp_path / "home"
     empty_path = tmp_path / "empty-path"
@@ -136,6 +140,22 @@ def test_self_test_requires_vendor_binaries_when_asked(tmp_path: Path) -> None:
     report = _report(result)
     assert report["ok"] is False
     assert _check(report, "vendor.ffmpeg")["required"] is True
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(
+    not (PROJECT_ROOT / "vendor" / "ffmpeg" / "ffmpeg").is_file(),
+    reason="vendor/ is absent; run scripts/vendor-fetch.sh",
+)
+def test_self_test_executes_the_vendored_binaries(tmp_path: Path) -> None:
+    result = _run("--self-test", home=tmp_path / "home", cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    report = _report(result)
+    for name in ("vendor.ffmpeg", "vendor.ffprobe", "vendor.rubberband", "vendor.deno"):
+        check = _check(report, name)
+        assert check["status"] == "ok", check
+        assert check["detail"].startswith(str(PROJECT_ROOT / "vendor"))
 
 
 @pytest.mark.unit

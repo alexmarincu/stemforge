@@ -341,7 +341,11 @@ class RubberBandEngine:
     def _detect_version(self) -> str:
         executable = self.path
         try:
-            run = process.run_capture([str(executable), "--version"], timeout_s=VERSION_TIMEOUT_S)
+            run = process.run_capture(
+                [str(executable), "--version"],
+                timeout_s=VERSION_TIMEOUT_S,
+                env=binaries.tool_environment(executable),
+            )
         except OSError as error:
             raise _engine_missing(str(error), executable) from error
         except TimeoutError as error:
@@ -441,7 +445,10 @@ class RubberBandEngine:
     ) -> tuple[int, str]:
         try:
             proc = process.spawn(
-                [*argv, str(partial)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+                [*argv, str(partial)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                env=binaries.tool_environment(Path(argv[0])),
             )
         except OSError as error:
             raise _engine_missing(str(error), Path(argv[0])) from error
