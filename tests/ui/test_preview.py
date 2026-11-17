@@ -388,10 +388,17 @@ async def test_degraded_preview_keeps_a_banner_and_disables_only_transport(
             assert _enabled(user, f"track-play-{track_id}") is False
             assert _enabled(user, "output-play-original") is False
 
-            # Other capabilities stay usable (ticket 14 §3).
+            # Other capabilities stay usable (ticket 14 §3). The Pitch card is
+            # usable even though its Render action is disabled at 0 by design.
             assert _enabled(user, "add-audio") is True
             assert _enabled(user, "separation-action") is True
-            assert _enabled(user, "pitch-action") is True
+            assert _only(user, "pitch-semitones").text == "0"
+            assert _enabled(user, "pitch-up") is True
+            assert _enabled(user, "pitch-render") is False
+            user.find(marker="pitch-up").click()
+            await asyncio.sleep(0.05)
+            assert _only(user, "pitch-semitones").text == "+1"
+            assert _enabled(user, "pitch-render") is True
             assert _enabled(user, "export-action") is True
     finally:
         harness.runner.stop(timeout=10)
@@ -409,6 +416,11 @@ async def test_playback_stays_enabled_while_second_job_actions_disable(
         user.find(marker=f"track-row-{track_id}").click()
         await asyncio.sleep(0.05)
         assert _enabled(user, "transport-play") is True
+        # Ask for a semitone with no cached set so a Render action exists.
+        for _ in range(4):
+            user.find(marker="pitch-up").click()
+        await asyncio.sleep(0.05)
+        assert _enabled(user, "pitch-render") is True
 
         gate = harness.media.block_decoding()
         harness.dialog._selections = [(str(harness.source_file("Later.wav")),)]
@@ -438,7 +450,7 @@ async def test_playback_stays_enabled_while_second_job_actions_disable(
         # Only actions that would submit a second Job are disabled.
         assert _enabled(user, "add-audio") is False
         assert _enabled(user, "separation-action") is False
-        assert _enabled(user, "pitch-action") is False
+        assert _enabled(user, "pitch-render") is False
         assert _enabled(user, "export-action") is False
 
         gate.set()
