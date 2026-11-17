@@ -18,7 +18,7 @@ no nightly separation run. This branch adds the missing graph without touching
 | `integration-linux` | `ubuntu-22.04` | 12 | full (torch CPU) | vendor cache/build/verify, `pytest -m integration` including `slow`, `.coverage.integration-linux` |
 | `integration-windows` | `windows-2022` | 25 | lightweight | PSScriptAnalyzer (`-Severity Error`), vendor cache/build/verify, `pytest -m "integration and not slow"`, `--preflight --json` schema check |
 | `ui-linux` | `ubuntu-24.04` | 5 | lightweight | `pytest -m ui`, `.coverage.ui-linux` |
-| `licensing` | `ubuntu-24.04` | 5 | full | `generate_notices.py --check`, `--check-release` |
+| `licensing` | `ubuntu-24.04` | 5 | full | `generate_notices.py --check`, `--check-release`, `pytest -m licensing` |
 | `coverage` | `ubuntu-24.04` | 3 | lightweight | downloads the three coverage files, `coverage combine`, both §6 gates |
 | `frozen-linux` | `ubuntu-22.04` | 15 | full + build group | GUI packages, vendor cache, `build.sh`, `smoke-test.sh`, reports on failure |
 
@@ -31,6 +31,12 @@ uv sync --frozen --no-install-package torch --no-install-package torchaudio --no
 Every later command in those jobs uses `uv run --frozen --no-sync` so the
 exclusions are not undone. `integration-linux`, `licensing`, and `frozen-linux`
 install the full lock. All jobs run in parallel; no xdist, no retries.
+
+The licence-tree tests are a fourth layer marker, `licensing`. They need the
+full installed dependency metadata: the generator reads each package's
+`dist-info` (torch alone ships 70 licence files), which the lightweight sync
+deliberately omits. They run in the full-sync `licensing` job with
+`pytest -m licensing`; the unit and UI layers stay torch-free.
 
 ## Coverage
 
@@ -52,7 +58,7 @@ by `coverage run --append -m pytest -m integration`, after merging
 | Gate | Measured | Threshold |
 |---|---:|---:|
 | Core | **90%** (5266 statements, 545 missed) | ≥ 85% |
-| Overall | **85%** (7932 statements, 1220 missed) | ≥ 70% |
+| Overall | **85%** (7932 statements, 1223 missed) | ≥ 70% |
 
 No threshold was lowered and no test was added just to move the number.
 
@@ -100,10 +106,11 @@ than treated as a regression; any other exit fails the run.
 | `ruff format --check` / `ruff check` on the changed test | clean |
 | `actionlint .github/workflows/*.yml` (1.7.12) | clean |
 | All workflow YAML parsed by the topology tests | pass |
-| Lightweight `pytest -m unit` | 941 passed, 2 skipped in 26 s |
+| Lightweight `pytest -m unit` | 915 passed, 2 skipped in 28 s |
 | Lightweight `pytest -m ui` | 81 passed in 36 s |
 | Lightweight `pytest -m "integration and not slow"` | 131 passed in 66 s |
-| Full `pytest -m "unit or ui"` | 1022 passed, 2 skipped in 82 s |
+| Full `pytest -m "unit or ui"` | 996 passed, 2 skipped in 78 s |
+| Full `pytest -m licensing` | 26 passed in 4 s |
 | Full `pytest -m integration` | 133 passed, 7 skipped in 71 s |
 | `scripts/check.sh` | pass (133 integration, 7 vendor skips) |
 | `release.yml` digest | unchanged (`cd7ff89f…c2802`) |
@@ -116,6 +123,12 @@ first, so they run there.
 
 - **`integration-linux` ceiling is 12 minutes**, as ticket 11 §5 specifies. The
   earlier review brief said 15; the ticket wins.
+- **The licence-tree tests are a fourth layer marker.** They cannot run in the
+  torch-free unit layer (the generator needs installed `dist-info`), so 26 tests
+  moved from `unit` to `licensing` and run in the full-sync `licensing` job.
+- **The `release.yml` pin is an LF digest.** Git checks out CRLF on the Windows
+  runner, so the test normalizes `\r\n` to `\n` before hashing; the Linux and
+  Windows jobs now compare the same bytes.
 - **Ticket 11 says the nightly runs `fetch_models.py`.** No such script exists in
   this repository; the single model-download path is the bundle's
   `--install-model --accept-model-licence`, which `release.yml` also uses. The
