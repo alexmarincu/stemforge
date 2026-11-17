@@ -28,6 +28,11 @@ from stemforge.application import LicenceFiles, WorkspaceService
 from stemforge.errors import StemForgeError
 from stemforge.integration.shell import PathOpener
 from stemforge.ui import formatting
+from stemforge.ui.components.diagnostics import (
+    ClipboardWriter,
+    DiagnosticsProvider,
+    open_diagnostics_modal,
+)
 
 
 class SettingsDialog:
@@ -39,14 +44,19 @@ class SettingsDialog:
         *,
         on_youtube_toggle: Callable[[], None] | None = None,
         open_path: PathOpener | None = None,
+        diagnostics: DiagnosticsProvider | None = None,
+        clipboard: ClipboardWriter | None = None,
     ) -> None:
         self._service = service
         self._on_youtube_toggle = on_youtube_toggle
         self._open_path = open_path
+        self._diagnostics = diagnostics
+        self._clipboard = clipboard
         self._cache_size: ui.label | None = None
         self._recent_size: ui.label | None = None
         self._youtube_cache_size: ui.label | None = None
         self._licence_error: ui.label | None = None
+        self._licence_error_code: ui.label | None = None
 
     def open(self) -> None:
         files = self._service.licence_files()
@@ -117,6 +127,19 @@ class SettingsDialog:
                 .props("flat no-caps")
                 .mark("about-open-licences")
             )
+        with ui.element("div").classes("sf-setting-row"):
+            with ui.element("div").classes("sf-setting-main"):
+                ui.label(formatting.COPY_DIAGNOSTICS_LABEL).classes("sf-setting-label")
+                ui.label(formatting.DIAGNOSTICS_NOTICE).classes("sf-fineprint")
+            button = (
+                ui.button(
+                    formatting.COPY_DIAGNOSTICS_LABEL,
+                    on_click=self._copy_diagnostics,
+                )
+                .props("flat no-caps")
+                .mark("about-copy-diagnostics")
+            )
+            button.set_enabled(self._diagnostics is not None)
         ui.label(formatting.SETTINGS_WEIGHTS_NOTE).classes("sf-fineprint").mark(
             "about-weights-note"
         )
@@ -124,9 +147,18 @@ class SettingsDialog:
             ui.label("").classes("sf-fineprint sf-field-error").mark("about-files-error")
         )
         self._licence_error.visible = False
+        self._licence_error_code = (
+            ui.label("").classes("sf-notice-detail").mark("about-files-error-code")
+        )
+        self._licence_error_code.visible = False
         if files.missing:
             copy = formatting.copy_for(errors.LICENSING_FILES_MISSING)
-            self._show_error(f"{copy.headline} {copy.action}")
+            self._show_error(f"{copy.headline} {copy.action}", code=errors.LICENSING_FILES_MISSING)
+
+    def _copy_diagnostics(self) -> None:
+        if self._diagnostics is None:
+            return
+        open_diagnostics_modal(self._diagnostics(None), self._clipboard)
 
     def _row(self, label: str, value: str, *, marker: str) -> None:
         with (
@@ -164,7 +196,7 @@ class SettingsDialog:
             text = path.read_text(encoding="utf-8")
         except OSError:
             copy = formatting.copy_for(errors.LICENSING_FILES_MISSING)
-            self._show_error(f"{copy.headline} {copy.action}")
+            self._show_error(f"{copy.headline} {copy.action}", code=errors.LICENSING_FILES_MISSING)
             return
         with (
             ui.dialog() as dialog,
@@ -189,29 +221,32 @@ class SettingsDialog:
         files = self._service.licence_files()
         if not files.complete:
             copy = formatting.copy_for(errors.LICENSING_FILES_MISSING)
-            self._show_error(f"{copy.headline} {copy.action}")
+            self._show_error(f"{copy.headline} {copy.action}", code=errors.LICENSING_FILES_MISSING)
             return
         opener = self._open_path
         if opener is None:
             # Production always supplies SystemPathOpener. A missing seam is a
             # coded failure rather than an accidental OS launch in a test.
             copy = formatting.copy_for(errors.LICENSING_OPEN_FAILED)
-            self._show_error(f"{copy.headline} {copy.action}")
+            self._show_error(f"{copy.headline} {copy.action}", code=errors.LICENSING_OPEN_FAILED)
             return
         try:
             opener.open_path(files.licenses_dir)
         except StemForgeError as error:
             copy = formatting.copy_for(error.code)
-            self._show_error(f"{copy.headline} {copy.action}")
+            self._show_error(f"{copy.headline} {copy.action}", code=error.code)
         except OSError:
             copy = formatting.copy_for(errors.LICENSING_OPEN_FAILED)
-            self._show_error(f"{copy.headline} {copy.action}")
+            self._show_error(f"{copy.headline} {copy.action}", code=errors.LICENSING_OPEN_FAILED)
 
-    def _show_error(self, message: str) -> None:
+    def _show_error(self, message: str, *, code: str) -> None:
         if self._licence_error is None:
             return
         self._licence_error.set_text(message)
         self._licence_error.visible = True
+        if self._licence_error_code is not None:
+            self._licence_error_code.set_text(code)
+            self._licence_error_code.visible = True
 
     # -- Storage -----------------------------------------------------------
 

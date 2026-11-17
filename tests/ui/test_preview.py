@@ -461,6 +461,47 @@ async def test_playback_stays_enabled_while_second_job_actions_disable(
         await user.should_see("Later")
 
 
+async def test_resource_warnings_are_a_dismissible_banner_and_never_block(
+    tmp_path: Path,
+) -> None:
+    report = preflight.PreflightReport(
+        checks=(
+            preflight.CheckResult(
+                name=preflight.CHECK_RESOURCES,
+                status=preflight.STATUS_WARN,
+                message=(
+                    "This computer has 4.0 GB of RAM. Separation needs about 3 GB free; "
+                    "long tracks may be slow."
+                ),
+                fatal=False,
+            ),
+        ),
+        fail_on_degraded=False,
+    )
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(),
+        dialog=FakeDialog(),
+        preflight_report=report,
+    )
+    harness.runner.start()
+    try:
+        async for user, workspace_page in _open_page(harness):
+            await user.should_see(marker="resource-banner")
+            await user.should_see("This computer has 4.0 GB of RAM.")
+            assert _enabled(user, "add-audio") is True
+
+            user.find(marker="resource-dismiss").click()
+            await asyncio.sleep(0.05)
+            await user.should_not_see(marker="resource-banner")
+
+            (track_id,) = await _import(harness, user, workspace_page, "Still.wav")
+            assert track_id
+            assert _enabled(user, "add-audio") is True
+    finally:
+        harness.runner.stop(timeout=10)
+
+
 async def test_deleting_the_playing_preview_stops_and_reports_unavailable(
     harness: Harness,
 ) -> None:

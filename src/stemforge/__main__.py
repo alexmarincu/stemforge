@@ -21,7 +21,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from stemforge import __version__
 from stemforge.platform import preflight
 
 if TYPE_CHECKING:
@@ -68,7 +67,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--report",
         metavar="PATH",
         type=Path,
-        help="write the JSON report to PATH",
+        help="write a JSON report, or the diagnostics report with --diagnostics",
+    )
+    parser.add_argument(
+        "--diagnostics",
+        action="store_true",
+        help="print the copy-only diagnostics report, then exit",
     )
     parser.add_argument(
         "--import",
@@ -123,6 +127,8 @@ def _configuration_failure(args: argparse.Namespace, error: OSError) -> int:
         fail_on_degraded=False,
     )
     diagnostics = _diagnostics_text(report, paths)
+    if args.report is not None:
+        preflight.write_report(args.report, report)
     if args.import_path is not None:
         from stemforge import errors
 
@@ -134,9 +140,7 @@ def _configuration_failure(args: argparse.Namespace, error: OSError) -> int:
         print(f"error {errors.PREFLIGHT_STORAGE_UNWRITABLE}: {_one_line(str(error))}")
         return 1
     if args.preflight:
-        if args.report is not None:
-            preflight.write_report(args.report, report)
-        _show_fatal(report, paths, report_path=args.report, diagnostics=diagnostics)
+        _show_fatal(report, paths, diagnostics=diagnostics)
         if args.json:
             print(report.to_json())
         elif not args.quiet:
@@ -146,7 +150,7 @@ def _configuration_failure(args: argparse.Namespace, error: OSError) -> int:
             print(headline)
             print(action)
     else:
-        _show_fatal(report, paths, report_path=args.report, diagnostics=diagnostics)
+        _show_fatal(report, paths, diagnostics=diagnostics)
     return report.exit_code
 
 
@@ -168,7 +172,7 @@ def _run_preflight(paths: AppPaths, args: argparse.Namespace) -> int:
     if args.report is not None:
         preflight.write_report(args.report, report)
     if report.fatal:
-        _show_fatal(report, paths, report_path=args.report, diagnostics=diagnostics)
+        _show_fatal(report, paths, diagnostics=diagnostics)
     if args.json:
         print(report_json)
     elif not args.quiet:
@@ -182,17 +186,23 @@ def _run_preflight(paths: AppPaths, args: argparse.Namespace) -> int:
 
 
 def _diagnostics_text(report: preflight.PreflightReport, paths: AppPaths) -> str:
-    """The text ``Copy details`` falls back to when no report file was written."""
-    lines = [
-        f"StemForge {__version__} preflight",
-        f"data={paths.data}",
-        f"cache={paths.cache}",
-        f"logs={paths.logs}",
-        f"models={paths.models}",
-        f"config={paths.config}",
-        preflight.format_human(report),
-    ]
-    return "\n".join(lines)
+    """The full copy-only diagnostics report (ticket 14 §10)."""
+    from stemforge.integration import diagnostics
+
+    return diagnostics.collect_diagnostics(paths, report=report)
+
+
+def _run_diagnostics(paths: AppPaths, args: argparse.Namespace) -> int:
+    """Write or print the copy-only diagnostics report and exit cleanly."""
+    from stemforge.integration import diagnostics
+
+    report = preflight.run_preflight(paths, fail_on_degraded=False)
+    text = diagnostics.collect_diagnostics(paths, report=report)
+    if args.report is not None:
+        diagnostics.write_report(args.report, text)
+    elif not args.quiet:
+        print(text, end="")
+    return 0
 
 
 def _browser_mode() -> bool:
@@ -239,6 +249,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     from stemforge.application import ServiceEngines, WorkspaceService
     from stemforge.engines.media import FfmpegTool
     from stemforge.engines.pitch import RubberBandEngine
+    from stemforge.integration import diagnostics
     from stemforge.integration.dialogs import NativeOpenDialog, NativeSaveDialog
     from stemforge.integration.media import register_media_route
     from stemforge.integration.shell import SystemPathOpener
@@ -247,6 +258,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     from stemforge.platform import resources
     from stemforge.settings import SettingsStore
     from stemforge.ui import page
+    from stemforge.ui.components.diagnostics import BrowserClipboard
 
     settings = SettingsStore(paths)
     configure_logging(paths)
@@ -259,6 +271,18 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     # Ticket 07 §7: the sweep runs once behind the single-instance lock, before
     # the Workspace is built; its residue alone triggers the recovery banner.
     sweep = service.sweep_stale()
+
+    def diagnostics_text(job_id: str | None) -> str:
+        return diagnostics.collect_diagnostics(
+            paths,
+            report=report,
+            settings=settings,
+            artifacts=service.artifacts,
+            models=service.models,
+            jobs=service.runner.jobs(),
+            job_id=job_id,
+        )
+
     page.configure(
         page.UiContext(
             service=service,
@@ -267,6 +291,8 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
             open_path=SystemPathOpener(),
             show_recovery=sweep.deleted_anything,
             preflight=report,
+            diagnostics=diagnostics_text,
+            clipboard=BrowserClipboard(),
         )
     )
     configure_window(paths)
@@ -503,21 +529,17 @@ def _show_fatal(
     report: preflight.PreflightReport,
     paths: AppPaths,
     *,
-    report_path: Path | None,
     diagnostics: str,
 ) -> None:
     code = _fatal_code(report)
     sentence, fix_line = _fatal_copy(report, code)
     log_path = paths.logs / "stemforge.log"
-    copy_text = diagnostics
-    if report_path is not None and report_path.is_file():
-        copy_text = report_path.read_text(encoding="utf-8")
     message = preflight.build_fatal_message(
         code=code,
         sentence=sentence,
         fix_line=fix_line,
         log_path=log_path if log_path.is_file() else None,
-        copy_text=copy_text,
+        copy_text=diagnostics,
     )
     preflight.show_fatal_message(message)
 
@@ -556,6 +578,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_import(args.import_path, paths)
     if args.install_model:
         return _run_install_model(args, paths)
+    if args.diagnostics or (
+        args.report is not None
+        and not (args.self_test or args.smoke_test or args.smoke_separation or args.preflight)
+    ):
+        return _run_diagnostics(paths, args)
 
     if args.self_test or args.smoke_test or args.smoke_separation:
         from stemforge import smoke
@@ -583,7 +610,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             _show_fatal(
                 report,
                 paths,
-                report_path=args.report,
                 diagnostics=_diagnostics_text(report, paths),
             )
             return report.exit_code

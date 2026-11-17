@@ -240,6 +240,7 @@ def _output_invalid(path: Path, detail: str) -> StemForgeError:
     return StemForgeError(
         errors.PITCH_OUTPUT_INVALID,
         "the pitch render did not pass validation",
+        retryable=True,
         detail=_tail(detail) or None,
         context={"path": str(path)},
     )

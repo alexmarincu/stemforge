@@ -476,6 +476,7 @@ class YtDlpImporter:
             raise StemForgeError(
                 code,
                 f"could not create the yt-dlp cache directory: {exc}",
+                retryable=True,
                 detail=str(exc),
                 context={"path": str(self._cache_root), "errno": exc.errno},
             ) from exc

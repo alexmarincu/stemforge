@@ -665,7 +665,7 @@ async def test_a_write_failure_is_inline_with_retry_and_leaves_no_file_or_partia
         await user.should_see(marker="export-failure")
         error_code = _only(user, "export-error-code").text
         assert "export.write_failed" in error_code
-        assert "permission" in error_code
+        assert error_code.startswith("export.write_failed · job ")
         await user.should_see("Couldn't save the file.")
         await user.should_see("Choose another folder, or check its permissions.")
         assert _enabled(user, "export-retry") is True

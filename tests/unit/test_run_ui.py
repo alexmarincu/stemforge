@@ -74,6 +74,8 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     assert isinstance(context, page.UiContext)
     assert context.show_recovery is False
     assert context.preflight is report
+    assert context.diagnostics is not None
+    assert context.clipboard is not None
     assert len(startup) == 1
     assert len(shutdown) == 1
 

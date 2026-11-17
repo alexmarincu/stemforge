@@ -497,7 +497,7 @@ def _protocol_error(error: ProtocolError, stderr_text: str, returncode: int) -> 
     return StemForgeError(
         errors.SEPARATION_PROTOCOL_MISMATCH,
         "the separation worker broke its protocol",
-        retryable=True,
+        retryable=False,
         detail=_tail(detail),
         context={"returncode": returncode, "reason": str(error)},
     )
@@ -511,7 +511,11 @@ def _worker_error(event: WorkerEvent, stderr_text: str) -> StemForgeError:
     return StemForgeError(
         code,
         event.message or "the separation worker reported an error",
-        retryable=event.retryable,
+        retryable=(
+            True
+            if code in {errors.SEPARATION_ENGINE_ERROR, errors.SEPARATION_OUTPUT_INVALID}
+            else event.retryable
+        ),
         detail=_tail(detail) if detail else None,
         context={"worker_code": event.code},
     )

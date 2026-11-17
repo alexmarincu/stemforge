@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from nicegui import ui
@@ -22,7 +23,13 @@ from nicegui import ui
 from stemforge import errors
 from stemforge.domain.models import RenderScope, Track
 from stemforge.errors import StemForgeError
+from stemforge.integration.shell import PathOpener
 from stemforge.ui import formatting
+from stemforge.ui.components.diagnostics import (
+    ClipboardWriter,
+    DiagnosticsProvider,
+    error_details,
+)
 
 if TYPE_CHECKING:
     from stemforge.application import PitchSet, WorkspaceService
@@ -42,6 +49,8 @@ class PitchFailure:
     detail: str | None
     semitones: int
     scope: RenderScope
+    job_id: str | None = None
+    log_path: Path | None = None
 
 
 class PitchCard:
@@ -53,10 +62,16 @@ class PitchCard:
         *,
         on_select: SelectCallback,
         on_job_started: JobCallback,
+        diagnostics: DiagnosticsProvider | None = None,
+        clipboard: ClipboardWriter | None = None,
+        open_path: PathOpener | None = None,
     ) -> None:
         self._service = service
         self._on_select = on_select
         self._on_job_started = on_job_started
+        self._diagnostics = diagnostics
+        self._clipboard = clipboard
+        self._open_path = open_path
         self._requested: dict[str, int] = {}
         self._failures: dict[str, PitchFailure] = {}
         self._current_track_id: str | None = None
@@ -269,12 +284,19 @@ class PitchCard:
         failure = self._failures.get(track.track_id)
         if failure is None:
             return
-        copy = formatting.copy_for(failure.code)
-        detail = f"{failure.code} · {failure.detail}" if failure.detail else failure.code
+        copy = formatting.copy_for(failure.code, _reason(failure.detail))
         with ui.element("div").classes("sf-notice").mark("pitch-error"):
             ui.label(copy.headline).classes("sf-notice-headline")
             ui.label(copy.action).classes("sf-notice-action")
-            ui.label(detail).classes("sf-notice-detail").mark("pitch-error-code")
+            error_details(
+                code=failure.code,
+                marker="pitch-error",
+                job_id=failure.job_id,
+                log_path=failure.log_path,
+                diagnostics=self._diagnostics,
+                clipboard=self._clipboard,
+                open_path=self._open_path,
+            )
             retry = (
                 ui.button(
                     formatting.PITCH_RETRY,
@@ -331,6 +353,9 @@ class PitchCard:
         detail: str | None,
         semitones: int,
         scope: RenderScope,
+        *,
+        job_id: str | None = None,
+        log_path: Path | None = None,
     ) -> None:
         """Show one failed Render inline without touching the active version."""
         self._failures[track_id] = PitchFailure(
@@ -338,6 +363,8 @@ class PitchCard:
             detail=detail,
             semitones=semitones,
             scope=scope,
+            job_id=job_id,
+            log_path=log_path,
         )
         if track_id == self._current_track_id:
             self.build.refresh()
@@ -345,3 +372,13 @@ class PitchCard:
     def clear_failure(self, track_id: str) -> None:
         if self._failures.pop(track_id, None) is not None and track_id == self._current_track_id:
             self.build.refresh()
+
+
+def _reason(detail: str | None) -> str | None:
+    text = (detail or "").strip()
+    if not text:
+        return None
+    for part in text.replace("\n", " ").split():
+        if part.startswith("reason="):
+            return part.removeprefix("reason=")
+    return text if " " not in text else None
