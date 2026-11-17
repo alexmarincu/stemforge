@@ -65,6 +65,19 @@ has no weights.
 | `mypy src/stemforge` | clean |
 | `lint-imports` | 2 contracts kept |
 
+A real end-to-end run used the production service wiring, the installed
+`htdemucs` weights, and a synthetic one-second 44.1 kHz stereo WAV:
+
+```text
+import: succeeded
+tracks: 1
+separation: succeeded progress=1.00
+sets: 1
+```
+
+The committed set contained `vocals`, `drums`, `bass`, `other`, and
+`instrumental` as both WAV and MP3 previews.
+
 The running app from before the merge still has the old service in memory and
 must be restarted. After restart, Separation submits a normal `separate` Job;
 the model is already installed and verified, so it should proceed to the worker.
