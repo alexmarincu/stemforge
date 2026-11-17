@@ -24,12 +24,13 @@ from nicegui.events import NativeEventArguments
 
 from stemforge import __version__, errors
 from stemforge.application import PreviewTarget, WorkspaceService
-from stemforge.domain.models import OriginKind, Track
+from stemforge.domain.models import OriginKind, RenderScope, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import AudioFileDialog, filter_drop_paths
 from stemforge.platform.preflight import PreflightReport
 from stemforge.ui import formatting
 from stemforge.ui.components.about import SettingsDialog
+from stemforge.ui.components.pitch import PitchCard
 from stemforge.ui.components.youtube import YouTubeRow
 
 TITLE: Final = "StemForge"
@@ -161,6 +162,24 @@ SHELL_CSS: Final = """
 .sf-ab { display: inline-flex; border: 1px solid #2a3240; border-radius: 8px; overflow: hidden; }
 .sf-ab .q-btn { border-radius: 0; font-size: 10.5px; }
 .sf-ab .q-btn.is-active { background: #3a2c14; color: #f0a83a; }
+.sf-stepper { display: inline-flex; align-items: center; gap: 8px; }
+.sf-semi { min-width: 86px; text-align: center; display: flex; flex-direction: column;
+  gap: 1px; padding: 4px 10px; border: 1px solid #2a3240; border-radius: 10px;
+  background: #12161d; }
+.sf-semi-value { font-size: 20px; font-weight: 650; line-height: 1.15;
+  font-family: ui-monospace, monospace; }
+.sf-semi-unit { font-size: 9.5px; color: #7c8798; text-transform: uppercase;
+  letter-spacing: 0.08em; }
+.sf-pitch-status { font-size: 11.5px; color: #9aa6b7; margin: 8px 0 2px; }
+.sf-versions { display: flex; flex-direction: column; gap: 5px; margin-top: 12px; }
+.sf-versions-label { font-size: 10px; color: #7c8798; text-transform: uppercase;
+  letter-spacing: 0.08em; font-weight: 600; }
+.sf-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sf-version-tab { border: 1px solid #2a3240; border-radius: 999px; font-size: 10.5px;
+  color: #9aa6b7; padding: 2px 10px; }
+.sf-version-tab.is-active { background: #3a2c14; border-color: #5b4520; color: #f0a83a; }
+.sf-version-tab.is-stale { border-style: dashed; color: #b9a77c; }
+.sf-version-tab.is-stale.is-active { background: #3a2c14; color: #f0a83a; }
 .sf-output-row { display: flex; align-items: center; gap: 9px; padding: 4px 0;
   border-top: 1px solid #1d222c; }
 .sf-output-row:first-of-type { border-top: 0; }
@@ -187,6 +206,15 @@ class UiContext:
     def playback_available(self) -> bool:
         """False only for the preflight's degraded preview stack (ticket 14 §3)."""
         return self.preflight is None or not self.preflight.degraded
+
+
+@dataclass(frozen=True, slots=True)
+class PitchJobSpec:
+    """What one submitted Render asked for, so a finished Job routes by kind."""
+
+    track_id: str
+    semitones: int
+    scope: RenderScope
 
 
 class RecentEntry(Protocol):
@@ -312,7 +340,14 @@ class WorkspacePage:
         self._is_playing = False
         self._position_s = 0.0
         self._active_key: dict[str, str] = {}
+        self._ab_alternate: dict[str, str] = {}
         self._unavailable_preview: set[str] = set()
+        self._pitch = PitchCard(
+            self.service,
+            on_select=self._select_pitch_set,
+            on_job_started=self._pitch_job_started,
+        )
+        self._pitch_jobs: dict[str, PitchJobSpec] = {}
 
     # -- composition --------------------------------------------------------
 
@@ -536,6 +571,7 @@ class WorkspacePage:
             self._signal_path(track)
             targets = self._targets(track)
             self._transport(track, targets)
+            self._pitch_card(track)
             self._outputs(track, targets)
             self._actions(track)
             with ui.element("section").classes("sf-card"):
@@ -587,6 +623,13 @@ class WorkspacePage:
     def _targets(self, track: Track) -> tuple[PreviewTarget, ...]:
         return self.service.preview_targets(track.track_id)
 
+    def _pitch_card(self, track: Track) -> None:
+        self._pitch.build(
+            track,
+            active_key=self._active_key.get(track.track_id, "original"),
+            busy=self._busy(),
+        )
+
     def _active_target(
         self, track: Track, targets: Sequence[PreviewTarget] | None = None
     ) -> PreviewTarget | None:
@@ -595,10 +638,12 @@ class WorkspacePage:
         if not targets:
             return None
         key = self._active_key.get(track.track_id)
+        if key is None:
+            return targets[0]
         for target in targets:
             if target.key == key:
                 return target
-        return targets[0]
+        return None
 
     def _ab_pair(
         self, track: Track, targets: Sequence[PreviewTarget] | None = None
@@ -606,6 +651,11 @@ class WorkspacePage:
         if targets is None:
             targets = self._targets(track)
         original = next((target for target in targets if target.key == "original"), None)
+        remembered = self._ab_alternate.get(track.track_id)
+        if remembered is not None:
+            alternate = next((target for target in targets if target.key == remembered), None)
+            if alternate is not None:
+                return original, alternate
         alternate = next(
             (target for target in reversed(targets) if target.key != "original"),
             None,
@@ -735,7 +785,7 @@ class WorkspacePage:
     def _actions(self, track: Track) -> None:
         del track
         with ui.element("section").classes("sf-card").mark("track-actions"):
-            ui.label("Pitch and Separation").classes("sf-card-title")
+            ui.label("Separation").classes("sf-card-title")
             with ui.element("div").classes("sf-actions"):
                 separation = (
                     ui.button(
@@ -746,17 +796,7 @@ class WorkspacePage:
                     .props("flat no-caps")
                     .mark("separation-action")
                 )
-                pitch = (
-                    ui.button(
-                        "Render pitch",
-                        icon="tune",
-                        on_click=lambda _=None: self._not_yet("Pitch"),
-                    )
-                    .props("flat no-caps")
-                    .mark("pitch-action")
-                )
                 separation.set_enabled(not self._busy())
-                pitch.set_enabled(not self._busy())
 
     def _play_from_row(self, track_id: str) -> None:
         track = next(
@@ -813,21 +853,51 @@ class WorkspacePage:
         target = original if side == "original" else alternate
         if target is None or not self._playback_allowed():
             return
-        was_playing = self._playing_track_id == track.track_id and self._is_playing
-        player = self._player
-        if player is None:
+        self._activate_version(track.track_id, target.key, autoplay=False)
+
+    def _select_pitch_set(self, track_id: str, render_key: str) -> None:
+        """A version tab is a listening choice: select it and preview its set."""
+        if render_key != "original":
+            self._ab_alternate[track_id] = render_key
+        self._activate_version(track_id, render_key, autoplay=True)
+
+    def _activate_version(self, track_id: str, key: str, *, autoplay: bool) -> None:
+        """Switch one Track's active version without ever creating a second player.
+
+        A version switch resets playback position (ticket 08 §7). When the host's
+        preview stack is degraded the view still changes; only the audio stays
+        disabled, so the Pitch card remains usable (ticket 14 §3).
+        """
+        track = next(
+            (item for item in self.service.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
+        if track is None:
             return
-        player.pause()
-        self._unavailable_preview.discard(track.track_id)
-        self._active_key[track.track_id] = target.key
-        player.set_source(target.url)
-        if self._position_s > 0:
-            player.seek(self._position_s)
-        if was_playing:
-            player.play()
-        self._playing_track_id = track.track_id if was_playing else None
-        self._playing_key = target.key if was_playing else None
-        self._is_playing = was_playing
+        targets = self._targets(track)
+        target = next((item for item in targets if item.key == key), None)
+        was_playing = self._playing_track_id == track_id and self._is_playing
+        player = self._player
+        if player is not None:
+            player.pause()
+        self._active_key[track_id] = key
+        self._position_s = 0.0
+        if target is not None and self._playback_allowed() and player is not None:
+            self._unavailable_preview.discard(track_id)
+            player.set_source(target.url)
+            if was_playing or autoplay:
+                player.play()
+                self._playing_track_id = track_id
+                self._playing_key = key
+                self._is_playing = True
+            else:
+                self._playing_track_id = None
+                self._playing_key = None
+                self._is_playing = False
+        else:
+            self._playing_track_id = None
+            self._playing_key = None
+            self._is_playing = False
         self._refresh_playback()
 
     def _pause(self) -> None:
@@ -973,6 +1043,26 @@ class WorkspacePage:
         self._job_bar.refresh()
         self._sync_actions()
 
+    def _pitch_job_started(
+        self,
+        job_id: str,
+        track_id: str,
+        semitones: int,
+        scope: RenderScope,
+    ) -> None:
+        """Record which Track and request a Render Job belongs to."""
+        self._pitch_jobs[job_id] = PitchJobSpec(
+            track_id=track_id,
+            semitones=semitones,
+            scope=scope,
+        )
+        self._pitch.clear_failure(track_id)
+        self._watch_job(job_id)
+        self._job_signature = None
+        self._job_bar_visible = True
+        self._job_bar.refresh()
+        self._refresh_all()
+
     def _open_recent(self, entry: RecentEntry) -> None:
         if self._busy():
             return
@@ -1032,6 +1122,7 @@ class WorkspacePage:
                 snapshot = self.service.runner.snapshot(job_id)
             except KeyError:
                 self._watched_jobs.discard(job_id)
+                self._pitch_jobs.pop(job_id, None)
                 continue
             if not snapshot.finished:
                 continue
@@ -1039,6 +1130,9 @@ class WorkspacePage:
             if job_id in self._reported_jobs:
                 continue
             self._reported_jobs.add(job_id)
+            if snapshot.kind.value == "render_pitch":
+                self._finish_pitch_job(snapshot)
+                continue
             if snapshot.state.value == "succeeded":
                 self._on_import_success(snapshot)
             elif snapshot.state.value == "failed":
@@ -1046,6 +1140,38 @@ class WorkspacePage:
             elif snapshot.state.value == "cancelled":
                 ui.notify("Import cancelled.", type="info")
                 self._refresh_all()
+
+    def _finish_pitch_job(self, snapshot: JobView) -> None:
+        """Route a Render outcome to the Pitch card; the view only moves on success."""
+        spec = self._pitch_jobs.pop(snapshot.job_id, None)
+        if spec is None:
+            return
+        if snapshot.state.value == "failed":
+            self._pitch.record_failure(
+                spec.track_id,
+                snapshot.error_code or errors.INTERNAL_UNEXPECTED,
+                snapshot.error_detail,
+                spec.semitones,
+                spec.scope,
+            )
+            self._refresh_all()
+            return
+        if snapshot.state.value == "cancelled":
+            self._refresh_all()
+            return
+        self._pitch.clear_failure(spec.track_id)
+        render_key = snapshot.result_keys.get("render_key")
+        if render_key:
+            self._active_key[spec.track_id] = render_key
+            self._ab_alternate[spec.track_id] = render_key
+            playing_this_track = (
+                self._selected_id == spec.track_id
+                and self._playing_track_id == spec.track_id
+                and self._is_playing
+            )
+            if playing_this_track:
+                self._activate_version(spec.track_id, render_key, autoplay=False)
+        self._refresh_all()
 
     def _on_import_success(self, snapshot: JobView) -> None:
         track_id = snapshot.result_keys.get("track_id")
@@ -1128,6 +1254,7 @@ class WorkspacePage:
             remaining = self.service.snapshot().tracks
             self._selected_id = remaining[0].track_id if remaining else None
         self._active_key.pop(track.track_id, None)
+        self._ab_alternate.pop(track.track_id, None)
         self._unavailable_preview.discard(track.track_id)
         self._refresh_all()
 
