@@ -41,13 +41,13 @@ bash packaging/linux/build.sh                    # release mode, licence tree re
 
 | Phase | Wall time |
 |---|---:|
-| `uv sync` + torch `+cpu` assert + PyInstaller + strip | ~3 min |
-| Bundle root assembly, vendor copy, pre-compression verify | ~1 min |
+| `uv sync` + torch `+cpu` assert + PyInstaller + strip | ~2 min 50 s |
+| Bundle root assembly, vendor copy, pre-compression verify | ~1 min 20 s |
 | `tar.gz` (gzip -9n) | ~1 min |
-| `tar.zst` (`zstd --ultra -22 -T0`) | ~5 min 50 s |
-| AppDir + AppImage (`appimagetool --comp zstd`) | ~1 min 35 s |
+| `tar.zst` (`zstd --ultra -22 -T0`) | ~6 min 20 s |
+| AppDir + AppImage (`appimagetool --comp zstd`) | ~1 min 45 s |
 | Final `verify_bundle.py` (Bundle + 3 archives) | ~10 s |
-| **Total `build.sh`** | **775 s (12 min 55 s)** |
+| **Total `build.sh`** | **787 s (13 min 07 s)** |
 
 Against ticket 10's ≤20 min Linux build target and 45 min job timeout. The
 release CI job will add the vendor fetch/cache restore and Ubuntu install time.
@@ -64,10 +64,10 @@ Ticket 20's budgets are enforced as hard limits by
 
 | Asset | Measured | Budget | Used | Result |
 |---|---:|---:|---:|---|
-| Linux onedir | 1,080,077,566 B (1.080 GB) | 1,150,000,000 B | 93.9 % | PASS |
-| `tar.gz` | 406,260,368 B (406.3 MB) | 450,000,000 B | 90.3 % | PASS |
-| `tar.zst` | 314,319,602 B (314.3 MB) | 320,000,000 B | 98.2 % | PASS |
-| AppImage | 346,401,272 B (346.4 MB) | 350,000,000 B | 99.0 % | PASS |
+| Linux onedir | 1,080,077,710 B (1.080 GB) | 1,150,000,000 B | 93.9 % | PASS |
+| `tar.gz` | 406,281,842 B (406.3 MB) | 450,000,000 B | 90.3 % | PASS |
+| `tar.zst` | 314,315,157 B (314.3 MB) | 320,000,000 B | 98.2 % | PASS |
+| AppImage | 346,397,176 B (346.4 MB) | 350,000,000 B | 99.0 % | PASS |
 
 The `tar.zst` and AppImage margins are thin (1.8 % and 1.0 %). They are recorded
 openly; if a later dependency bump pushes either past the budget, the verifier
@@ -77,9 +77,9 @@ Artifact hashes (this host, glibc 2.44; not release hashes):
 
 | Artifact | SHA-256 |
 |---|---|
-| `StemForge-0.1.0-linux-x86_64.tar.gz` | `3d60c6e0f46d53881042471f85e894c4b11d4015864e0162616fd3dbd1cd118b` |
-| `StemForge-0.1.0-linux-x86_64.tar.zst` | `335d645b045422b5ee82c05d0ea900bad0707bc078577313fd967224e55342d4` |
-| `StemForge-0.1.0-linux-x86_64.AppImage` | `cd82f190a123f9086e2b8b430c2de64dd811748839ae743371a3ee8622c11435` |
+| `StemForge-0.1.0-linux-x86_64.tar.gz` | `bf90927c44261619bafbb2bc7dac68fb374eff05499a8ac2a46b2575df802d72` |
+| `StemForge-0.1.0-linux-x86_64.tar.zst` | `600067f23c187ed2b54c37844c47f3c3d339b2fbb21fab61728e2c0955fcb259` |
+| `StemForge-0.1.0-linux-x86_64.AppImage` | `2bef18254a833c70f906fdc6d8fec03e455fab97d2adbc2f3cf63dd83948930b` |
 
 ## Verifier
 
@@ -97,11 +97,11 @@ PASS  bundle.licences     LICENSE, notices, source offer, LICENSES/
 PASS  bundle.weights      no model weights or unexpected model data
 PASS  bundle.torch        torch/test and torch/bin trimmed to torch_shm_manager; no torchaudio
 PASS  bundle.vendor       5 files match vendor.lock.json for linux-x86_64
-PASS  budget.bundle       1,080,077,566 B of 1,150,000,000 B
-PASS  budget.tar.gz       406,260,368 B of 450,000,000 B
+PASS  budget.bundle       1,080,077,710 B of 1,150,000,000 B
+PASS  budget.tar.gz       406,281,842 B of 450,000,000 B
 PASS  archive.tar.gz.contents  licence tree present; no weights
-PASS  budget.tar.zst      314,319,602 B of 320,000,000 B
-PASS  budget.appimage     346,401,272 B of 350,000,000 B
+PASS  budget.tar.zst      314,315,157 B of 320,000,000 B
+PASS  budget.appimage     346,397,176 B of 350,000,000 B
 ```
 
 `verify_bundle.py --self-check` passes (it proves the synthetic passing bundle
@@ -128,11 +128,11 @@ bash packaging/linux/smoke-test.sh \
 |---|---|---|
 | `--self-test` with `STEMFORGE_REQUIRE_VENDOR=1` | exit 0 | 19 ok, 0 failed |
 | `--smoke-test` | exit 0 | 20 ok, 0 failed; server polled HTTP 200 |
-| `--smoke-separation` | exit 0 | 6.946 s wall, 1,112,965,120 B peak RSS; four stems + instrumental |
+| `--smoke-separation` | exit 0 | 7.008 s wall, 1,096,839,168 B peak RSS; four stems + instrumental |
 | AppImage `--appimage-extract-and-run --self-test` | exit 0 | 19 ok, 0 failed |
-| Whole smoke script | exit 0 | **17 s** |
+| Whole smoke script | exit 0 | **19 s** |
 
-`--smoke-separation` is well inside the <60 s / <2 GB gate (peak RSS 1.113 GB).
+`--smoke-separation` is well inside the <60 s / <2 GB gate (peak RSS 1.097 GB).
 
 `--preflight` on this host exits **3** only because PyGObject/GTK is absent;
 the bundle check itself is green:
@@ -145,6 +145,7 @@ bundle   ok   ffmpeg, ffprobe, rubberband, and deno match vendor.lock.json;
               models.lock.json is readable.
 storage  ok   All application folders are writable.
 preview  ok   GStreamer elements available via gst-inspect.
+resources warn Disk/memory below the warning floors on this host.
 ```
 
 ## Native window / browser fallback
@@ -225,7 +226,7 @@ blocks, zstd level 22, and `-no-xattrs`; all files are owned by uid/gid 0 and
 | `shellcheck -x packaging/linux/*.sh scripts/*.sh` | pass |
 | `generate_notices.py --check` | 201 files match |
 | `generate_notices.py --check-release` | `release.toml: ok` |
-| `pytest -m "unit or ui"` | 783 passed, 1 skipped |
+| `pytest -m "unit or ui"` | 827 passed, 1 skipped |
 | `pytest -m "integration and not slow"` | 128 passed |
 | `pytest -m "integration and slow"` | 9 passed |
 | Frozen `--self-test` / `--smoke-test` / `--smoke-separation` | pass |
