@@ -1,0 +1,7 @@
+#!/bin/sh
+# AppImage entry point: the payload is the same onedir Bundle as the tarball
+# (ADR 0011). No host GUI libraries are captured here; run.sh probes them.
+set -eu
+
+here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+exec "$here/usr/lib/stemforge/run.sh" "$@"

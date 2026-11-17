@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=StemForge
+GenericName=Stem Separator
+Comment=Local stem separation, pitch shifting, and export
+Exec=stemforge
+Icon=stemforge
+Terminal=false
+Categories=AudioVideo;Audio;
+StartupWMClass=StemForge

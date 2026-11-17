@@ -60,3 +60,29 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     assert context.preflight is report
     assert len(startup) == 1
     assert len(shutdown) == 1
+
+
+def test_run_ui_browser_mode_opens_the_web_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nicegui import app, ui
+
+    from stemforge.ui import page
+
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setenv("STEMFORGE_BROWSER", "1")
+    monkeypatch.setattr(ui, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(app, "on_startup", lambda callback: None)
+    monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
+    monkeypatch.setattr(page, "configure", lambda context: None)
+
+    report = PreflightReport(checks=())
+    assert __main__._run_ui(paths, report) == 0
+
+    assert captured["native"] is False
+    assert captured["show"] is True
+    assert captured["host"] == "127.0.0.1"
+    assert captured["reload"] is False
+    assert "window_size" not in captured

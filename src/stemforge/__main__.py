@@ -17,6 +17,7 @@ import multiprocessing
 import os
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -194,6 +195,43 @@ def _diagnostics_text(report: preflight.PreflightReport, paths: AppPaths) -> str
     return "\n".join(lines)
 
 
+def _browser_mode() -> bool:
+    """Whether ``STEMFORGE_BROWSER`` asks for the web UI instead of a window."""
+    return os.environ.get("STEMFORGE_BROWSER", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _browser_preflight(report: preflight.PreflightReport) -> preflight.PreflightReport:
+    """A missing native window is expected in browser mode, not fatal.
+
+    The rest of the report is unchanged: a damaged Bundle or unwritable storage
+    still stops the launch, so a broken installation cannot hide behind the
+    browser fallback.
+    """
+    if not _browser_mode():
+        return report
+    checks = tuple(
+        replace(
+            result,
+            status=preflight.STATUS_WARN,
+            fatal=False,
+            message=f"Browser mode requested (STEMFORGE_BROWSER): {result.message}",
+        )
+        if result.name == preflight.CHECK_WINDOW and result.status == preflight.STATUS_FAIL
+        else result
+        for result in report.checks
+    )
+    return preflight.PreflightReport(
+        checks=checks,
+        system=report.system,
+        fail_on_degraded=report.fail_on_degraded,
+    )
+
+
 def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     """Open the native workspace window and run the app until it closes."""
     from nicegui import app, ui
@@ -245,6 +283,27 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     app.on_startup(runner.start)
     app.on_shutdown(shutdown)
     favicon = resources.assets_dir() / "stemforge-512.png"
+    if _browser_mode():
+        print(
+            "StemForge: browser mode is on; opening http://127.0.0.1:8080",
+            file=sys.stderr,
+        )
+        try:
+            ui.run(
+                native=False,
+                reload=False,
+                show=True,
+                host="127.0.0.1",
+                title=page.TITLE,
+                favicon=favicon if favicon.is_file() else None,
+                fastapi_docs=False,
+                endpoint_documentation="none",
+                show_welcome_message=False,
+                uvicorn_logging_level="warning",
+            )
+        finally:
+            runner.stop()
+        return 0
     try:
         ui.run(
             native=True,
@@ -515,7 +574,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         preflight.show_already_running()
         return 0
     try:
-        report = preflight.run_preflight(paths, fail_on_degraded=False)
+        report = _browser_preflight(preflight.run_preflight(paths, fail_on_degraded=False))
         if args.report is not None:
             preflight.write_report(args.report, report)
         if report.fatal:
