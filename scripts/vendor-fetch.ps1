@@ -273,10 +273,23 @@ function Invoke-Logged([string]$Tool, [string[]]$Arguments) {
     # Stream each native line. Out-Host buffers a native process's output until
     # it exits on the Windows runner; ForEach-Object/Write-Host keeps the log
     # live so a hang is visible in the canceled-step evidence.
+    #
+    # Native stderr becomes an ErrorRecord when merged with 2>&1. With
+    # $ErrorActionPreference='Stop' that turned CMake's deprecation warning into
+    # a fatal PowerShell error before CMake could even finish configuring, so
+    # relax the preference only around the child process.
     Write-Note "run  $Tool $($Arguments -join ' ')"
-    & $Tool @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Tool failed with exit code $LASTEXITCODE"
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Tool @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($code -ne 0) {
+        throw "$Tool failed with exit code $code"
     }
 }
 
