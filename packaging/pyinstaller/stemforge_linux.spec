@@ -18,6 +18,8 @@ SRC = ROOT / "src" / "stemforge"
 datas = [
     (str(SRC / "assets"), "assets"),
     (str(SRC / "models" / "models.lock.json"), "models"),
+    # The frozen preflight verifies vendor/ against this lock (ticket 19).
+    (str(ROOT / "packaging" / "vendor.lock.json"), "."),
     *collect_data_files("nicegui"),
     # demucs/remote/files.txt is read by the legacy repo fallback; the HF path
     # used by the worker needs no network data but the package is tiny.
