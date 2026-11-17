@@ -1,7 +1,10 @@
 # Ticket 24 — failure-mode and error-copy audit
 
 Audited in the `ticket/24-failure-audit` worktree on 2026-11-17, based on
-`integration/v1` (`f9d0beb`; tickets #1–#23 closed). The coordinator merges this
+`integration/v1` (`f9d0beb`; tickets #1–#23 closed, merged again after the audit
+with no incoming changes). The branch commits are `03e62bf` (WAV comment),
+`ac95b26` (no automatic model retries plus Remove cancellation), and `65c7a1b`
+(diagnostics, Details, catalogue, drills, docs). The coordinator merges this
 branch after the report; nothing here changes `.github/workflows/release.yml`.
 
 The audit treats ticket 14 as the contract: one stable code, one headline of at
@@ -178,6 +181,12 @@ Separation resubmit.
   also proves later polls do not chain another Separation.
 - yt-dlp keeps its own internal `retries`/`fragment_retries`/`extractor_retries`
   as ticket 09 §4 allows; that is not an app-level retry loop.
+- `test_retry_flags_are_owned_by_the_raising_code` checks the exception-owned
+  flags: `separation.protocol_mismatch` is not retryable, while
+  `separation.engine_error`, `separation.output_invalid`,
+  `pitch.output_invalid`, `media.validation_failed`, and the storage failures
+  are. The UI never guesses a retry from the headline; it uses the flag (with
+  the documented separation code allowlist for older pipeline raises).
 
 ## Preflight, degraded mode, resources, and the sweep
 
@@ -237,13 +246,13 @@ re-run):
 | `ruff check .` | pass |
 | `mypy src/stemforge` (strict) | pass, 61 files |
 | `lint-imports` | 2 contracts kept |
-| `pytest -m "unit or ui"` | pass (970 passed, 2 skipped) |
+| `pytest -m "unit or ui"` | pass (971 passed, 2 skipped) |
 | `pytest -m "integration and not slow"` | pass (128 passed) |
 | `pytest -m "integration and slow"` | pass (2 passed, 7 skipped) |
 | `generate_notices.py --check` | 201 files match |
 | `--self-test` / `--smoke-test` | pass |
 | `--diagnostics` / `--diagnostics --report` | pass; text structure verified |
-| `scripts/check.sh` | see final report |
+| `scripts/check.sh` | pass (integration layer 130 passed, 7 skipped) |
 
 ## Deviations and remaining manual items
 

@@ -347,6 +347,7 @@ class FfmpegTool:
             raise StemForgeError(
                 errors.MEDIA_ENCODE_FAILED,
                 "ffmpeg could not extract the embedded cover",
+                retryable=True,
                 detail=_tail(run.stderr) or None,
                 context={"path": str(src)},
             )
@@ -386,6 +387,7 @@ class FfmpegTool:
                 raise StemForgeError(
                     errors.DECODE_FAILED,
                     "ffmpeg could not decode the source",
+                    retryable=True,
                     detail=_tail(run.stderr) or None,
                     context={"path": str(src)},
                 )
@@ -480,6 +482,7 @@ class FfmpegTool:
             raise StemForgeError(
                 errors.MEDIA_ENCODE_FAILED,
                 "the cover art file does not exist",
+                retryable=True,
                 context={"path": str(cover)},
             )
         embed_cover = cover if fmt is not ExportFormat.WAV24 else None
@@ -529,6 +532,7 @@ class FfmpegTool:
                 raise StemForgeError(
                     errors.MEDIA_ENCODE_FAILED,
                     f"ffmpeg could not encode the {operation}",
+                    retryable=True,
                     detail=_tail(run.stderr) or None,
                     context={"path": str(dst)},
                 )
@@ -868,6 +872,7 @@ def _validation_error(path: Path, operation: str, detail: str) -> StemForgeError
     return StemForgeError(
         errors.MEDIA_VALIDATION_FAILED,
         f"{operation} produced an invalid file",
+        retryable=True,
         detail=detail,
         context={"path": str(path)},
     )

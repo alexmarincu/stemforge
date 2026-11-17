@@ -516,6 +516,27 @@ def test_the_independent_taxonomy_copies_stay_in_sync() -> None:
     assert errors.ALL_CODES == TICKET_14_CODES == EXPECTED_CODES
 
 
+def test_retry_flags_are_owned_by_the_raising_code() -> None:
+    assert separation._protocol_error(ProtocolError("bad"), "", 0).retryable is False
+    assert (
+        separation._worker_error(
+            WorkerEvent("error", code=errors.SEPARATION_ENGINE_ERROR), ""
+        ).retryable
+        is True
+    )
+    assert (
+        separation._worker_error(
+            WorkerEvent("error", code=errors.SEPARATION_OUTPUT_INVALID), ""
+        ).retryable
+        is True
+    )
+    assert pitch._output_invalid(Path("render.wav"), "bad").retryable is True
+    assert media._validation_error(Path("out.wav"), "decode", "bad").retryable is True
+    with pytest.raises(StemForgeError) as raised:
+        artifact_module._raise_wrapped(OSError(errno.ENOSPC, "full"), "write")
+    assert raised.value.retryable is True
+
+
 def test_internal_unexpected_is_only_the_unknown_fallback() -> None:
     fallback = formatting.COPY_BY_CODE[errors.INTERNAL_UNEXPECTED]
     assert fallback.headline == "Something went wrong."
