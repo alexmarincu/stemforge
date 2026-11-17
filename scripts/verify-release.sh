@@ -102,11 +102,8 @@ version=$(python3 "$repo_root/scripts/release_assets.py" version --repo-root "$r
 [ -n "$version" ] || fail "the release version is empty"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/stemforge-release.XXXXXX")
-# shellcheck disable=SC2329  # invoked by the trap below
-cleanup() {
-    rm -rf "$work"
-}
-trap cleanup EXIT HUP INT TERM
+# Single quotes so $work resolves when the trap fires, not when it is set.
+trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 appimage="$assets/StemForge-$version-linux-x86_64.AppImage"
 appimage_root=""
