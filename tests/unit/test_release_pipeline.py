@@ -15,6 +15,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,7 @@ import yaml
 from scripts import fetch_sources, release_assets, release_notes, vendor_unpack
 
 pytestmark = pytest.mark.unit
+POSIX_ONLY = pytest.mark.skipif(os.name == "nt", reason="POSIX shell verifier")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
@@ -491,6 +493,7 @@ def repo_root(tmp_path: Path) -> Path:
     return _make_repo_root(tmp_path)
 
 
+@POSIX_ONLY
 def test_verify_release_accepts_the_exact_asset_set(tmp_path: Path, repo_root: Path) -> None:
     assets, lock = _make_assets(tmp_path)
     result = _run_verify(repo_root, assets, lock)
@@ -499,6 +502,7 @@ def test_verify_release_accepts_the_exact_asset_set(tmp_path: Path, repo_root: P
     assert "PASS  sums.coverage" in result.stdout
 
 
+@POSIX_ONLY
 def test_verify_release_rejects_a_missing_licence_tree(tmp_path: Path, repo_root: Path) -> None:
     assets, lock = _make_assets(tmp_path, licence_tree=False)
     result = _run_verify(repo_root, assets, lock)
@@ -506,6 +510,7 @@ def test_verify_release_rejects_a_missing_licence_tree(tmp_path: Path, repo_root
     assert "FAIL  licences." in result.stdout
 
 
+@POSIX_ONLY
 def test_verify_release_rejects_an_extra_binary(tmp_path: Path, repo_root: Path) -> None:
     assets, lock = _make_assets(tmp_path, extra_asset=True)
     result = _run_verify(repo_root, assets, lock)
@@ -513,6 +518,7 @@ def test_verify_release_rejects_an_extra_binary(tmp_path: Path, repo_root: Path)
     assert "FAIL  assets.exact" in result.stdout
 
 
+@POSIX_ONLY
 def test_verify_release_rejects_model_weights(tmp_path: Path, repo_root: Path) -> None:
     assets, lock = _make_assets(tmp_path, weights=True)
     result = _run_verify(repo_root, assets, lock)
@@ -520,6 +526,7 @@ def test_verify_release_rejects_model_weights(tmp_path: Path, repo_root: Path) -
     assert "FAIL  weights." in result.stdout
 
 
+@POSIX_ONLY
 def test_verify_release_rejects_a_bad_checksum(tmp_path: Path, repo_root: Path) -> None:
     assets, lock = _make_assets(tmp_path, bad_checksum=True)
     result = _run_verify(repo_root, assets, lock)
@@ -527,6 +534,7 @@ def test_verify_release_rejects_a_bad_checksum(tmp_path: Path, repo_root: Path) 
     assert "FAIL  sums.match" in result.stdout
 
 
+@POSIX_ONLY
 def test_verify_release_rejects_a_missing_sha256sums(tmp_path: Path, repo_root: Path) -> None:
     assets, lock = _make_assets(tmp_path, missing_sums=True)
     result = _run_verify(repo_root, assets, lock)
@@ -534,6 +542,7 @@ def test_verify_release_rejects_a_missing_sha256sums(tmp_path: Path, repo_root: 
     assert "FAIL  assets.exact" in result.stdout or "FAIL  sums.present" in result.stdout
 
 
+@POSIX_ONLY
 def test_verify_release_rejects_a_placeholder_url(tmp_path: Path) -> None:
     repo = _make_repo_root(tmp_path, placeholder=True)
     assets, lock = _make_assets(tmp_path)
@@ -542,6 +551,7 @@ def test_verify_release_rejects_a_placeholder_url(tmp_path: Path) -> None:
     assert "placeholder" in (result.stdout + result.stderr).lower()
 
 
+@POSIX_ONLY
 def test_verify_release_rejects_a_tag_mismatch(tmp_path: Path, repo_root: Path) -> None:
     assets, lock = _make_assets(tmp_path)
     result = _run_verify(repo_root, assets, lock, tag="v9.9.8")
@@ -549,6 +559,7 @@ def test_verify_release_rejects_a_tag_mismatch(tmp_path: Path, repo_root: Path) 
     assert "FAIL  version.tag" in result.stdout
 
 
+@POSIX_ONLY
 def test_verify_release_rejects_a_vendor_hash_mismatch(tmp_path: Path, repo_root: Path) -> None:
     assets, lock = _make_assets(tmp_path, bad_vendor=True)
     result = _run_verify(repo_root, assets, lock)
@@ -556,6 +567,7 @@ def test_verify_release_rejects_a_vendor_hash_mismatch(tmp_path: Path, repo_root
     assert "FAIL  vendor." in result.stdout
 
 
+@POSIX_ONLY
 def test_verify_release_records_an_unreadable_inno_setup_as_a_skip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -574,6 +586,7 @@ def test_verify_release_records_an_unreadable_inno_setup_as_a_skip(
     assert "innoextract could not read" in by_name["setup.licences"].detail
 
 
+@POSIX_ONLY
 def test_setup_extraction_checks_the_same_licence_and_vendor_tree(tmp_path: Path) -> None:
     assets, lock_path = _make_assets(tmp_path)
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
