@@ -33,8 +33,6 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     env:
-      BUNDLE: dist/StemForge-0.1.0-linux-x86_64
-      APPIMAGE: dist/StemForge-0.1.0-linux-x86_64.AppImage
       STEMFORGE_HOME: ${{ github.workspace }}/build/smoke-home
     steps:
       - uses: actions/checkout@v7
@@ -69,6 +67,11 @@ jobs:
             librsvg2-dev
       - name: Install uv dependencies
         run: uv sync --frozen --group build
+      - name: Resolve the artifact names from the single version source
+        run: |
+          version=$(uv run python -c 'import stemforge; print(stemforge.__version__)')
+          echo "BUNDLE=dist/StemForge-${version}-linux-x86_64" >> "$GITHUB_ENV"
+          echo "APPIMAGE=dist/StemForge-${version}-linux-x86_64.AppImage" >> "$GITHUB_ENV"
       - name: Cache the pinned vendor set
         uses: actions/cache@v4
         with:
