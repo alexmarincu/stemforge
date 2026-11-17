@@ -25,6 +25,9 @@ MODELS_DIRNAME: Final = "models"
 MODELS_LOCK_FILENAME: Final = "models.lock.json"
 VENDOR_DIRNAME: Final = "vendor"
 LICENSES_DIRNAME: Final = "LICENSES"
+LICENSE_FILENAME: Final = "LICENSE"
+NOTICES_FILENAME: Final = "THIRD_PARTY_NOTICES.md"
+SOURCE_OFFER_FILENAME: Final = "SOURCE_OFFER.md"
 
 
 def is_frozen() -> bool:
@@ -69,3 +72,18 @@ def vendor_dir() -> Path:
 def licenses_dir() -> Path:
     """The Bundle-root licence tree."""
     return bundle_root() / LICENSES_DIRNAME
+
+
+def license_path() -> Path:
+    """The project's GPL-3.0-only licence file at the Bundle root."""
+    return bundle_root() / LICENSE_FILENAME
+
+
+def notices_path() -> Path:
+    """The generated third-party notices at the Bundle root."""
+    return bundle_root() / NOTICES_FILENAME
+
+
+def source_offer_path() -> Path:
+    """The generated GPL source offer at the Bundle root."""
+    return bundle_root() / SOURCE_OFFER_FILENAME

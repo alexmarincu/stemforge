@@ -91,6 +91,8 @@ EXPECTED_CODES = frozenset(
         "preflight.storage_unwritable",
         "preflight.preview_unavailable",
         "playback.unavailable",
+        "licensing.files_missing",
+        "licensing.open_failed",
         "cancelled",
     }
 )
@@ -101,6 +103,7 @@ EXPECTED_NAMESPACES = frozenset(
         "export",
         "import",
         "internal",
+        "licensing",
         "media",
         "pitch",
         "playback",

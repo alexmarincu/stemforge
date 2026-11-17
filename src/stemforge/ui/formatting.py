@@ -59,9 +59,26 @@ YOUTUBE_SETTING_HINT: Final = (
     "Off hides the YouTube row. Local files, tracks, playback, and exports are unaffected."
 )
 SETTINGS_TITLE: Final = "Settings & About"
+SETTINGS_APP: Final = "App"
 SETTINGS_BEHAVIOUR: Final = "Behaviour"
 SETTINGS_STORAGE: Final = "Storage"
 SETTINGS_CLOSE: Final = "Close"
+SETTINGS_VERSION_LABEL: Final = "Version"
+SETTINGS_LICENCE_LABEL: Final = "Licence"
+SETTINGS_NOTICES_LABEL: Final = "Third-party notices"
+SETTINGS_SOURCE_LABEL: Final = "Corresponding source"
+SETTINGS_LICENCES_LABEL: Final = "Licence files"
+SETTINGS_OPEN_LICENCES: Final = "Open licences folder"
+SETTINGS_VIEW: Final = "View"
+SETTINGS_CACHE_LABEL: Final = "Cached audio"
+SETTINGS_CACHE_CLEAR: Final = "Clear cached audio"
+SETTINGS_RECENT_CLEAR: Final = "Clear recent files"
+SETTINGS_RECENT_CLEARED: Final = "Recent files cleared."
+SETTINGS_CACHE_CLEARED: Final = "Cleared {size} of cached audio. Live tracks are kept."
+SETTINGS_WEIGHTS_NOTE: Final = (
+    "htdemucs weights are downloaded from Hugging Face at runtime and are not "
+    "covered by StemForge's licence."
+)
 YOUTUBE_CACHE_LABEL: Final = "YouTube cache"
 YOUTUBE_CACHE_HINT: Final = (
     "yt-dlp's temporary download cache. Cached audio, the model, and recent files are not affected."
@@ -322,6 +339,14 @@ COPY_BY_CODE: Final[Mapping[str, ErrorCopy]] = MappingProxyType(
         errors.PLAYBACK_UNAVAILABLE: ErrorCopy(
             "Couldn't play this file. It may have been cleared from the cache.",
             "Re-import, re-separate, or re-render the file to rebuild it.",
+        ),
+        errors.LICENSING_FILES_MISSING: ErrorCopy(
+            "The licence files are missing from this installation.",
+            "Reinstall StemForge, or open the notices in the repository.",
+        ),
+        errors.LICENSING_OPEN_FAILED: ErrorCopy(
+            "Couldn't open the licences folder.",
+            "Open the LICENSES folder in your file manager from the StemForge folder.",
         ),
         errors.CANCELLED: ErrorCopy(
             "Cancelled.",
