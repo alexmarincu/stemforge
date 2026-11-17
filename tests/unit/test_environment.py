@@ -58,6 +58,7 @@ def test_configure_creates_paths_and_sets_the_pre_import_environment(
     assert (paths.config / "nicegui").is_dir()
     assert (paths.cache / "tmp").is_dir()
     assert (paths.cache / "deno").is_dir()
+    assert (paths.cache / "yt-dlp").is_dir()
 
 
 @pytest.mark.unit

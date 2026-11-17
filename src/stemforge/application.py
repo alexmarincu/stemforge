@@ -9,7 +9,8 @@ wired here; Separation, Render, and Export follow in their tickets.
 from __future__ import annotations
 
 import threading
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -41,7 +42,7 @@ from stemforge.engines.pitch import (
     PitchEngine,
     validate_semitones,
 )
-from stemforge.engines.youtube import YouTubeVideo, parse_youtube_url
+from stemforge.engines.youtube import YouTubeTool, YouTubeVideo, YtDlpImporter, parse_youtube_url
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import Job, JobContext, JobRun
 from stemforge.jobs.runner import JobRunner
@@ -54,6 +55,7 @@ from stemforge.pipeline.model_job import (
     require_model_consent,
 )
 from stemforge.pipeline.pitch_job import STEM_ROLES, find_pitch_render, run_pitch_job
+from stemforge.pipeline.youtube_job import run_youtube_import
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
 
@@ -65,7 +67,7 @@ class ServiceEngines:
     separation: object | None = None
     pitch: object | None = None
     media: MediaTool | None = None
-    youtube: object | None = None
+    youtube: YouTubeTool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +124,7 @@ class WorkspaceService:
         runner: JobRunner | None = None,
         engines: ServiceEngines | None = None,
         models: ModelStore | None = None,
+        youtube_delay: Callable[[float], None] = time.sleep,
     ) -> None:
         self._settings = settings
         self._paths = paths if paths is not None else settings.paths
@@ -133,6 +136,7 @@ class WorkspaceService:
         self._runner = runner if runner is not None else JobRunner(paths=self._paths)
         self._engines = engines if engines is not None else ServiceEngines()
         self._models = models if models is not None else ModelStore(self._paths)
+        self._youtube_delay = youtube_delay
         self._workspace = Workspace()
         self._lock = threading.Lock()
 
@@ -186,17 +190,18 @@ class WorkspaceService:
         return Path(entry.origin).is_file()
 
     def open_recent(self, source_id: str) -> str | None:
-        """Re-import one local recent entry and return its Job id.
+        """Re-import one recent entry and return its Job id.
 
-        A missing file raises the coded ``import.file_unavailable`` before any Job
-        starts (ticket 07 §5: nothing starts until the user acts). YouTube entries
-        return ``None`` until ticket 09 wires their import Job.
+        A missing local file raises the coded ``import.file_unavailable`` before
+        any Job starts (ticket 07 §5: nothing starts until the user acts). A
+        YouTube entry goes back through ``submit_youtube``, so a cached video
+        opens without a network call and a missing one re-downloads.
         """
         entry = next((item for item in self.recent_files() if item.source_id == source_id), None)
         if entry is None:
             raise KeyError(source_id)
         if entry.origin_kind is OriginKind.YOUTUBE:
-            return None
+            return self.submit_youtube(entry.origin)
         path = Path(entry.origin)
         if not path.is_file():
             raise StemForgeError(
@@ -222,6 +227,14 @@ class WorkspaceService:
     def sweep_stale(self) -> SweepReport:
         """Run the startup sweep once; the UI shows recovery copy when it deleted work."""
         return self._artifacts.sweep_stale()
+
+    def youtube_cache_bytes(self) -> int:
+        """The size of ``<cache>/yt-dlp/`` shown in Settings & About."""
+        return self._artifacts.youtube_cache_bytes()
+
+    def clear_youtube_cache(self) -> int:
+        """Delete only ``<cache>/yt-dlp/`` and return the bytes freed."""
+        return self._artifacts.clear_youtube_cache()
 
     # -- Preview -----------------------------------------------------------
 
@@ -538,14 +551,52 @@ class WorkspaceService:
         """
         return parse_youtube_url(url)
 
-    def submit_youtube(self, url: str) -> YouTubeVideo:
-        """Validate one YouTube URL synchronously and return the video.
+    def submit_youtube(self, url: str) -> str:
+        """Validate one YouTube URL synchronously, then submit its import Job.
 
-        Ticket 15 deliberately starts no Job: this seam is filled by ticket 16's
-        ``import_youtube`` submission. Rejected shapes raise the field-level code
-        before the caller reaches any service state, so no Job can exist.
+        The field-level parser runs first, so a playlist, channel, search, or
+        foreign host never creates a Job (ticket 09 §1). The runner dedupes the
+        Job identity, so a second submit while any ``import_youtube`` Job is
+        active returns that Job's id (ticket 09 §3).
         """
-        return parse_youtube_url(url)
+        video = parse_youtube_url(url)
+        youtube = self._youtube_tool()
+        job = Job(
+            kind=JobKind.IMPORT_YOUTUBE,
+            identity=(JobKind.IMPORT_YOUTUBE.value,),
+            title=video.canonical_url,
+            run=self._youtube_run(video, youtube),
+        )
+        return self._runner.submit(job)
+
+    def _youtube_tool(self) -> YouTubeTool:
+        if self._engines.youtube is not None:
+            return self._engines.youtube
+        return YtDlpImporter(cache_root=self._paths.cache)
+
+    def _youtube_run(self, video: YouTubeVideo, youtube: YouTubeTool) -> JobRun:
+        def run(ctx: JobContext) -> Mapping[str, str]:
+            media = self._engines.media
+            if media is None:
+                raise StemForgeError(
+                    errors.INTERNAL_UNEXPECTED,
+                    "no media engine is configured for YouTube import",
+                )
+            result = run_youtube_import(
+                ctx,
+                video,
+                artifacts=self._artifacts,
+                media=media,
+                youtube=youtube,
+                finalize=self._accept_source,
+                sleep=self._youtube_delay,
+            )
+            return {
+                "source_id": result.source.source_id,
+                "track_id": result.track.track_id,
+            }
+
+        return run
 
     def import_local(self, path: str | Path) -> str:
         """Submit a local import Job and return its id (deduped while active)."""
