@@ -12,7 +12,8 @@
 param(
     [string]$Bundle,
     [switch]$WithSeparation,
-    [switch]$KeepHome
+    [switch]$KeepHome,
+    [string]$HomePath
 )
 
 Set-StrictMode -Version Latest
@@ -30,7 +31,14 @@ if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) {
 }
 New-Item -ItemType Directory -Force -Path $Reports | Out-Null
 
-$HomeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("stemforge-smoke-" + [guid]::NewGuid().ToString('N'))
+if ($HomePath) {
+    # The release workflow restores and saves the pinned weights cache here.
+    # It is a scratch directory inside the checkout, never a real profile.
+    $HomeRoot = [System.IO.Path]::GetFullPath($HomePath)
+}
+else {
+    $HomeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("stemforge-smoke-" + [guid]::NewGuid().ToString('N'))
+}
 New-Item -ItemType Directory -Force -Path $HomeRoot | Out-Null
 $env:STEMFORGE_HOME = $HomeRoot
 $status = 0
