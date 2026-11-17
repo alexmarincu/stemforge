@@ -29,8 +29,8 @@ from stemforge.ui import formatting
 
 if TYPE_CHECKING:
     from stemforge.application import (
+        ExportTarget,
         PreviewTarget,
-        SeparationExportTarget,
         SeparationSet,
         WorkspaceService,
     )
@@ -55,7 +55,7 @@ _RETRYABLE_CODES = frozenset(
 
 JobStarted = Callable[[str, str, str | None], None]
 PlayTarget = Callable[[Track, "PreviewTarget"], None]
-SelectExport = Callable[[Track, "SeparationExportTarget"], None]
+SelectExport = Callable[[Track, "ExportTarget"], None]
 CancelJob = Callable[[], None]
 
 
@@ -354,8 +354,8 @@ class SeparationCard:
     ) -> None:
         exports = {
             target.role: target
-            for target in self._service.separation_export_targets(track)
-            if target.set_key == item.set_key
+            for target in self._service.export_targets(track)
+            if target.scope == "separation" and target.role in PRIMARY_ROLES + SECONDARY_ROLES
         }
         for role in PRIMARY_ROLES:
             self._row(track, item, role, exports.get(role), export_key)
@@ -389,7 +389,7 @@ class SeparationCard:
         track: Track,
         item: SeparationSet,
         role: str,
-        export: SeparationExportTarget | None,
+        export: ExportTarget | None,
         export_key: str | None,
     ) -> None:
         preview = self._service.separation_preview_target(track, item.set_key, role)

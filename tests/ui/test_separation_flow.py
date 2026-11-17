@@ -24,7 +24,6 @@ from nicegui.testing.user_simulation import user_simulation
 from stemforge import errors
 from stemforge.application import (
     PreviewTarget,
-    SeparationExportTarget,
     SeparationSet,
     ServiceEngines,
     WorkspaceService,
@@ -774,7 +773,9 @@ async def test_primary_rows_are_visible_secondary_hidden_and_every_row_plays(
             assert len(user.find(marker="player").elements) == 1
 
         targets = {
-            target.role: target for target in harness.service.separation_export_targets(track)
+            target.role: target
+            for target in harness.service.export_targets(track)
+            if target.scope == "separation"
         }
         assert set(targets) == {"vocals", "instrumental", "drums", "bass", "other"}
         user.find(marker="stem-export-drums").click()
@@ -837,20 +838,6 @@ async def test_older_sets_are_labelled_selectable_and_the_newest_is_default(
                 key=f"{set_key}:{stem}",
                 label=stem.title(),
                 url=f"/media/fake/{set_key}/{stem}.mp3",
-            ),
-        )
-        monkeypatch.setattr(
-            harness.service,
-            "separation_export_targets",
-            lambda _track, views=views: tuple(
-                SeparationExportTarget(
-                    key=f"{view.set_key}:{role}",
-                    set_key=view.set_key,
-                    role=role,
-                    label=role.title(),
-                )
-                for view in views
-                for role in ("vocals", "instrumental", "drums", "bass", "other")
             ),
         )
         with user:

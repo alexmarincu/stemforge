@@ -221,26 +221,28 @@ def test_export_targets_cover_vocals_instrumental_and_the_three_secondary_stems(
     _commit_source(store)
     _commit_separation(store)
     track = _track()
+    service._workspace.add_track(track)
     (item,) = service.separation_sets(track)
 
-    targets = service.separation_export_targets(track)
+    targets = [target for target in service.export_targets(track) if target.scope == "separation"]
 
-    assert [target.role for target in targets] == [
+    assert {target.role for target in targets} == {
         "vocals",
         "instrumental",
         "drums",
         "bass",
         "other",
-    ]
-    assert [target.label for target in targets] == [
-        "Vocals",
-        "Instrumental",
-        "Drums",
-        "Bass",
-        "Other",
-    ]
-    assert all(target.set_key == item.set_key for target in targets)
+    }
+    assert {target.role: target.label for target in targets} == {
+        "vocals": "Vocals",
+        "instrumental": "Instrumental",
+        "drums": "Drums",
+        "bass": "Bass",
+        "other": "Other",
+    }
+    assert all(target.source_id == SOURCE_ID for target in targets)
     assert len({target.key for target in targets}) == 5
+    assert item.set_key  # set enumeration and export enumeration agree on the source
 
 
 # ---------------------------------------------------------------------------

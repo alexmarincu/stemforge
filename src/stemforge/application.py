@@ -2,15 +2,17 @@
 
 The service owns the Workspace and orchestrates Jobs on behalf of the UI. It is
 constructible headless: no NiceGUI, no torch, and injectable placeholders for the
-ArtifactStore, JobRunner, and engine adapters (ticket 06 §13). Local import is
-wired here; Separation, Render, and Export follow in their tickets.
+ArtifactStore, JobRunner, and engine adapters (ticket 06 §13). Local import and
+Export are wired here; Separation and Render follow in their tickets.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import threading
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +30,7 @@ from stemforge.artifacts import (
 )
 from stemforge.domain.models import (
     JobKind,
+    JobState,
     ModelConsent,
     OriginKind,
     RenderScope,
@@ -35,7 +38,7 @@ from stemforge.domain.models import (
     Track,
 )
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
-from stemforge.engines.media import MediaTool
+from stemforge.engines.media import ExportFormat, MediaTool
 from stemforge.engines.pitch import (
     MAX_SEMITONES,
     MIN_SEMITONES,
@@ -43,11 +46,22 @@ from stemforge.engines.pitch import (
     validate_semitones,
 )
 from stemforge.engines.separation import SeparationEngine
-from stemforge.engines.youtube import YouTubeVideo, parse_youtube_url
+from stemforge.engines.youtube import YouTubeTool, YouTubeVideo, YtDlpImporter, parse_youtube_url
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import Job, JobContext, JobRun
 from stemforge.jobs.runner import JobRunner
 from stemforge.models import ModelSpec, ModelStatus, ModelStore
+from stemforge.pipeline.export_job import (
+    ExportTarget as ExportTarget,
+)
+from stemforge.pipeline.export_job import (
+    export_targets as enumerate_export_targets,
+)
+from stemforge.pipeline.export_job import (
+    resolve_export_target,
+    run_export_job,
+)
+from stemforge.pipeline.export_names import unique_export_path
 from stemforge.pipeline.import_job import run_local_import
 from stemforge.pipeline.model_job import (
     DEFAULT_RETRY_DELAY_S,
@@ -64,6 +78,7 @@ from stemforge.pipeline.separation_job import (
 from stemforge.pipeline.separation_job import (
     STEM_ROLES as SEPARATION_STEM_ROLES,
 )
+from stemforge.pipeline.youtube_job import run_youtube_import
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
 
@@ -75,7 +90,7 @@ class ServiceEngines:
     separation: object | None = None
     pitch: object | None = None
     media: MediaTool | None = None
-    youtube: object | None = None
+    youtube: YouTubeTool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +118,18 @@ class PreviewTarget:
 
 
 @dataclass(frozen=True, slots=True)
+class ExportedFile:
+    """The file one finished Export Job produced, for the toast and its actions."""
+
+    job_id: str
+    path: Path
+    format: ExportFormat
+    size_bytes: int
+    duration_s: float
+    gain_db: float
+
+
+@dataclass(frozen=True, slots=True)
 class PitchSet:
     """One immutable Render set as version tabs and A/B see it (ticket 11).
 
@@ -127,7 +154,7 @@ class SeparationSet:
     The v1 artifact store keeps one Stems set per Source: a re-separation
     replaces it (ticket 05). The view is still a list so the UI contract does
     not have to change when an archived set appears; ``set_key`` is the stable
-    identity used by preview and export lookups.
+    identity used by preview lookups.
     """
 
     set_key: str
@@ -135,16 +162,6 @@ class SeparationSet:
     label: str
     stem_roles: tuple[str, ...]
     based_on_earlier_separation: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class SeparationExportTarget:
-    """One Separation artifact the Export flow can offer (ticket 08 §9)."""
-
-    key: str
-    set_key: str
-    role: str
-    label: str
 
 
 _STEM_LABELS: Mapping[str, str] = {
@@ -178,6 +195,7 @@ class WorkspaceService:
         models: ModelStore | None = None,
         model_transport: Transport | None = None,
         model_retry_delay_s: float = DEFAULT_RETRY_DELAY_S,
+        youtube_delay: Callable[[float], None] = time.sleep,
     ) -> None:
         self._settings = settings
         self._paths = paths if paths is not None else settings.paths
@@ -191,6 +209,7 @@ class WorkspaceService:
         self._models = models if models is not None else ModelStore(self._paths)
         self._model_transport = model_transport
         self._model_retry_delay_s = max(0.0, float(model_retry_delay_s))
+        self._youtube_delay = youtube_delay
         self._workspace = Workspace()
         self._lock = threading.Lock()
         self._pending_separation_track_id: str | None = None
@@ -245,17 +264,18 @@ class WorkspaceService:
         return Path(entry.origin).is_file()
 
     def open_recent(self, source_id: str) -> str | None:
-        """Re-import one local recent entry and return its Job id.
+        """Re-import one recent entry and return its Job id.
 
-        A missing file raises the coded ``import.file_unavailable`` before any Job
-        starts (ticket 07 §5: nothing starts until the user acts). YouTube entries
-        return ``None`` until ticket 09 wires their import Job.
+        A missing local file raises the coded ``import.file_unavailable`` before
+        any Job starts (ticket 07 §5: nothing starts until the user acts). A
+        YouTube entry goes back through ``submit_youtube``, so a cached video
+        opens without a network call and a missing one re-downloads.
         """
         entry = next((item for item in self.recent_files() if item.source_id == source_id), None)
         if entry is None:
             raise KeyError(source_id)
         if entry.origin_kind is OriginKind.YOUTUBE:
-            return None
+            return self.submit_youtube(entry.origin)
         path = Path(entry.origin)
         if not path.is_file():
             raise StemForgeError(
@@ -281,6 +301,14 @@ class WorkspaceService:
     def sweep_stale(self) -> SweepReport:
         """Run the startup sweep once; the UI shows recovery copy when it deleted work."""
         return self._artifacts.sweep_stale()
+
+    def youtube_cache_bytes(self) -> int:
+        """The size of ``<cache>/yt-dlp/`` shown in Settings & About."""
+        return self._artifacts.youtube_cache_bytes()
+
+    def clear_youtube_cache(self) -> int:
+        """Delete only ``<cache>/yt-dlp/`` and return the bytes freed."""
+        return self._artifacts.clear_youtube_cache()
 
     # -- Preview -----------------------------------------------------------
 
@@ -553,25 +581,6 @@ class WorkspaceService:
             url=url,
         )
 
-    def separation_export_targets(self, track: Track) -> tuple[SeparationExportTarget, ...]:
-        """Every Separation row Export can offer, in card order (ticket 08 §7).
-
-        This is the additive seam ticket 17 consumes: a stem target names its
-        role and set, never a path or a preview URL.
-        """
-        targets: list[SeparationExportTarget] = []
-        for item in self.separation_sets(track):
-            for role in _SEPARATION_ROLES:
-                targets.append(
-                    SeparationExportTarget(
-                        key=f"{item.set_key}:{role}",
-                        set_key=item.set_key,
-                        role=role,
-                        label=_STEM_LABELS[role],
-                    )
-                )
-        return tuple(targets)
-
     def separate(self, track: Track) -> str:
         """Submit one Separation Job, or raise ``separation.model_missing``.
 
@@ -671,6 +680,186 @@ class WorkspaceService:
             self._pending_separation_track_id = None
         return self._submit_separation(track)
 
+    # -- Export ------------------------------------------------------------
+
+    def export_targets(self, track: Track | str) -> tuple[ExportTarget, ...]:
+        """Every existing, valid export selection for one Track.
+
+        The master, the unshifted Stems and Instrumental, and every member of
+        each committed pitch render set. Missing artifacts and invalid manifests
+        are omitted rather than offered as a failing action (ticket 05 §7).
+        """
+        found = self._find_track(track)
+        if found is None:
+            return ()
+        return enumerate_export_targets(
+            self._artifacts,
+            source_id=found.source_id,
+            title=found.title,
+        )
+
+    def submit_export(
+        self,
+        track: Track | str,
+        target: ExportTarget | str,
+        fmt: ExportFormat | str,
+        destination_dir: Path | str,
+    ) -> str:
+        """Submit one Export Job and return its id.
+
+        ``target`` is a value from :meth:`export_targets` or its stable key. The
+        Job re-resolves the key against the committed manifests, so a queued
+        Export follows a re-separation instead of a stale path. The native save
+        dialog and format sheet (#18) own the file name and overwrite consent.
+        """
+        found = self._find_track(track)
+        if found is None:
+            raise KeyError(track.track_id if isinstance(track, Track) else track)
+        media = self._engines.media
+        if media is None:
+            raise StemForgeError(
+                errors.INTERNAL_UNEXPECTED,
+                "no media engine is configured for export",
+            )
+
+        export_format = ExportFormat(fmt)
+        target_key = target.key if isinstance(target, ExportTarget) else str(target)
+        if isinstance(target, ExportTarget) and target.source_id != found.source_id:
+            raise StemForgeError(
+                errors.MEDIA_PROBE_FAILED,
+                "the selected export target belongs to another source",
+                detail="target",
+                context={"source_id": found.source_id, "target": target_key},
+            )
+        resolved = resolve_export_target(
+            self._artifacts,
+            source_id=found.source_id,
+            key=target_key,
+            title=found.title,
+        )
+        if resolved is None:
+            raise StemForgeError(
+                errors.MEDIA_PROBE_FAILED,
+                "the selected export target is no longer available",
+                detail="target",
+                context={"source_id": found.source_id, "target": target_key},
+            )
+
+        destination = Path(destination_dir).expanduser().absolute()
+        job = Job(
+            kind=JobKind.EXPORT,
+            identity=(
+                JobKind.EXPORT.value,
+                found.track_id,
+                resolved.key,
+                export_format.value,
+                str(destination),
+            ),
+            title=found.title,
+            run=self._export_run(resolved, export_format, destination, media),
+        )
+        return self._runner.submit(job)
+
+    def export_result(self, job_id: str) -> ExportedFile | None:
+        """Return the finished file's facts, or ``None`` before success."""
+        try:
+            snapshot = self._runner.snapshot(job_id)
+        except KeyError:
+            return None
+        if snapshot.state is not JobState.SUCCEEDED:
+            return None
+        keys = snapshot.result_keys
+        try:
+            return ExportedFile(
+                job_id=job_id,
+                path=Path(keys["path"]),
+                format=ExportFormat(keys["format"]),
+                size_bytes=int(keys["size"]),
+                duration_s=float(keys["duration_s"]),
+                gain_db=float(keys["gain_db"]),
+            )
+        except (KeyError, ValueError):
+            return None
+
+    def preview_export(
+        self,
+        track: Track | str,
+        target: ExportTarget | str,
+        fmt: ExportFormat | str,
+        destination_dir: Path | str,
+    ) -> Path:
+        """The filename the Job would write, without creating anything.
+
+        The format sheet uses this for its size/name summary; the Job uses the
+        same collision sequence when it commits (ticket 08 §9).
+        """
+        found = self._find_track(track)
+        if found is None:
+            raise KeyError(track.track_id if isinstance(track, Track) else track)
+        target_key = target.key if isinstance(target, ExportTarget) else str(target)
+        if isinstance(target, ExportTarget) and target.source_id != found.source_id:
+            raise StemForgeError(
+                errors.MEDIA_PROBE_FAILED,
+                "the selected export target belongs to another source",
+                detail="target",
+                context={"source_id": found.source_id, "target": target_key},
+            )
+        resolved = resolve_export_target(
+            self._artifacts,
+            source_id=found.source_id,
+            key=target_key,
+            title=found.title,
+        )
+        if resolved is None:
+            raise StemForgeError(
+                errors.MEDIA_PROBE_FAILED,
+                "the selected export target is no longer available",
+                detail="target",
+                context={"source_id": found.source_id, "target": target_key},
+            )
+        destination = Path(destination_dir).expanduser().absolute()
+        return unique_export_path(
+            destination,
+            resolved.base_name,
+            ExportFormat(fmt).suffix,
+        )
+
+    def _export_run(
+        self,
+        target: ExportTarget,
+        fmt: ExportFormat,
+        destination: Path,
+        media: MediaTool,
+    ) -> JobRun:
+        def run(ctx: JobContext) -> Mapping[str, str]:
+            result = run_export_job(
+                ctx,
+                artifacts=self._artifacts,
+                media=media,
+                source_id=target.source_id,
+                target=target,
+                fmt=fmt,
+                destination_dir=destination,
+            )
+            return {
+                "path": str(result.path),
+                "format": result.fmt.value,
+                "size": str(result.size_bytes),
+                "duration_s": f"{result.duration_s:.6f}",
+                "gain_db": f"{result.gain_db:.6f}",
+                "sha256": result.sha256,
+                "manifest": json.dumps(result.manifest, sort_keys=True, ensure_ascii=False),
+            }
+
+        return run
+
+    def _find_track(self, track: Track | str) -> Track | None:
+        track_id = track.track_id if isinstance(track, Track) else str(track)
+        return next(
+            (item for item in self.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
+
     # -- Model -------------------------------------------------------------
 
     def model_spec(self) -> ModelSpec:
@@ -763,14 +952,52 @@ class WorkspaceService:
         """
         return parse_youtube_url(url)
 
-    def submit_youtube(self, url: str) -> YouTubeVideo:
-        """Validate one YouTube URL synchronously and return the video.
+    def submit_youtube(self, url: str) -> str:
+        """Validate one YouTube URL synchronously, then submit its import Job.
 
-        Ticket 15 deliberately starts no Job: this seam is filled by ticket 16's
-        ``import_youtube`` submission. Rejected shapes raise the field-level code
-        before the caller reaches any service state, so no Job can exist.
+        The field-level parser runs first, so a playlist, channel, search, or
+        foreign host never creates a Job (ticket 09 §1). The runner dedupes the
+        Job identity, so a second submit while any ``import_youtube`` Job is
+        active returns that Job's id (ticket 09 §3).
         """
-        return parse_youtube_url(url)
+        video = parse_youtube_url(url)
+        youtube = self._youtube_tool()
+        job = Job(
+            kind=JobKind.IMPORT_YOUTUBE,
+            identity=(JobKind.IMPORT_YOUTUBE.value,),
+            title=video.canonical_url,
+            run=self._youtube_run(video, youtube),
+        )
+        return self._runner.submit(job)
+
+    def _youtube_tool(self) -> YouTubeTool:
+        if self._engines.youtube is not None:
+            return self._engines.youtube
+        return YtDlpImporter(cache_root=self._paths.cache)
+
+    def _youtube_run(self, video: YouTubeVideo, youtube: YouTubeTool) -> JobRun:
+        def run(ctx: JobContext) -> Mapping[str, str]:
+            media = self._engines.media
+            if media is None:
+                raise StemForgeError(
+                    errors.INTERNAL_UNEXPECTED,
+                    "no media engine is configured for YouTube import",
+                )
+            result = run_youtube_import(
+                ctx,
+                video,
+                artifacts=self._artifacts,
+                media=media,
+                youtube=youtube,
+                finalize=self._accept_source,
+                sleep=self._youtube_delay,
+            )
+            return {
+                "source_id": result.source.source_id,
+                "track_id": result.track.track_id,
+            }
+
+        return run
 
     def import_local(self, path: str | Path) -> str:
         """Submit a local import Job and return its id (deduped while active)."""
@@ -843,17 +1070,17 @@ class _RenderView:
     based_on_earlier_separation: bool
 
 
-def _semitone_label(semitones: int) -> str:
-    """The tab text for one shift: ``+3``, or a minus-sign prefix when negative."""
-    return f"+{semitones}" if semitones > 0 else f"\u2212{abs(semitones)}"
-
-
 def _separation_key(artifact: SeparationArtifact) -> str:
     """A stable, path-safe identity for one committed Separation set."""
     digest = hashlib.sha256(
         f"{artifact.source_id}:{artifact.created_at.isoformat()}".encode()
     ).hexdigest()
     return f"sep-{digest[:16]}"
+
+
+def _semitone_label(semitones: int) -> str:
+    """The tab text for one shift: ``+3``, or a minus-sign prefix when negative."""
+    return f"+{semitones}" if semitones > 0 else f"\u2212{abs(semitones)}"
 
 
 def _render_scope(artifact: RenderArtifact) -> RenderScope | None:

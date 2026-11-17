@@ -56,8 +56,8 @@ deferred to real Linux and Windows hosts.
 - `tests/ui/test_preview.py` and `tests/ui/test_pitch_flow.py` still pass;
   playback/A-B stay enabled during Jobs, and the Separation card's model gate
   is the disabled second-Job action while an import runs.
-- `uv run pytest -m "unit or ui"`: 583 passed, 110 deselected.
-- `uv run pytest -m "integration and not slow"`: 108 passed, 585 deselected.
+- `uv run pytest -m "unit or ui"`: 638 passed, 129 deselected.
+- `uv run pytest -m "integration and not slow"`: 127 passed, 640 deselected.
 - `uv run python -m stemforge --self-test`: exit 0.
 - `uv run python -m stemforge --smoke-test`: exit 0, HTTP 200 on `/`.
 - `ruff format --check .`, `ruff check .`, `mypy src/stemforge`,
@@ -108,11 +108,11 @@ stand-ins under `tmp_path`, and the model transport reads bytes from memory.
   test with injected set views, while the service test pins the real
   single-set replacement. Older Pitch render sets built from an earlier
   separation remain labelled and selectable in the Pitch card (ticket 11).
-- Ticket 17 had no `export_targets` implementation on `integration/v1` when
-  this ticket merged. The additive seam is
-  `WorkspaceService.separation_export_targets(track)`, returning
-  `SeparationExportTarget(key, set_key, role, label)` for the five rows. Ticket
-  17 should consume or alias it rather than re-derive stem paths in the UI.
+- Ticket 17's `export_targets` merged before this branch reported. The card
+  consumes `WorkspaceService.export_targets(track)` and filters
+  `scope == "separation"`; the selected row's stable key is what a later format
+  sheet / Export Job should pass to `submit_export`. No stem path is derived in
+  the UI.
 - Retry is shown when the failed Job's snapshot is retryable, plus the
   Separation codes ticket 14 §4.4 marks retryable (`output_invalid`,
   `media.validation_failed`, storage). `separation.protocol_mismatch` and
