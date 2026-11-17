@@ -1,0 +1,118 @@
+name: Linux bundle
+
+# Full Linux packaging: onedir, tar.gz, tar.zst, and the thin AppImage. This is
+# too expensive for every PR (ticket 11 keeps the PR job to frozen-linux), so it
+# runs on demand and on a packaging change merged to integration/v0.1.0. The tag
+# path lands in release.yml (ticket 23).
+on:
+  workflow_dispatch:
+    inputs:
+      separation:
+        description: Run the real one-second separation (downloads the pinned weights)
+        type: boolean
+        default: true
+  push:
+    branches: [integration/v0.1.0]
+    paths:
+      - packaging/linux/**
+      - packaging/pyinstaller/**
+      - packaging/vendor.lock.json
+      - scripts/vendor-fetch.sh
+      - .github/workflows/linux-bundle.yml
+
+concurrency:
+  group: linux-bundle-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: linux bundle (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      BUNDLE: dist/StemForge-0.1.0-linux-x86_64
+      APPIMAGE: dist/StemForge-0.1.0-linux-x86_64.AppImage
+      STEMFORGE_HOME: ${{ github.workspace }}/build/smoke-home
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libgtk-3-0 \
+            libwebkit2gtk-4.1-0 \
+            gir1.2-webkit2-4.1 \
+            libgirepository1.0-dev \
+            libcairo2-dev \
+            pkg-config \
+            patchelf \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            meson \
+            ninja-build \
+            cmake \
+            xz-utils \
+            unzip \
+            zstd \
+            file \
+            binutils \
+            libfuse2 \
+            fuse \
+            desktop-file-utils \
+            librsvg2-dev
+      - name: Install uv dependencies
+        run: uv sync --frozen --group build
+      - name: Cache the pinned vendor set
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ffmpeg
+            vendor/deno
+            vendor/rubberband
+            vendor/PROVENANCE.txt
+          key: vendor-${{ runner.os }}-${{ hashFiles('packaging/vendor.lock.json') }}
+      - name: Fetch the pinned vendor set
+        run: bash scripts/vendor-fetch.sh
+      - name: Build and verify the Bundle, archives, and AppImage
+        run: |
+          started=$SECONDS
+          bash packaging/linux/build.sh
+          echo "packaging wall time: $((SECONDS - started))s"
+      - name: Smoke-test the frozen bundle
+        run: bash packaging/linux/smoke-test.sh --bundle "$BUNDLE"
+      - name: Install the pinned model for the separation gate
+        if: github.event_name != 'push' && inputs.separation
+        run: |
+          mkdir -p "$STEMFORGE_HOME"
+          "$BUNDLE/StemForge" --install-model --accept-model-licence \
+            --report build/reports/model-install.json
+      - name: Run the real separation gate
+        if: github.event_name != 'push' && inputs.separation
+        run: |
+          "$BUNDLE/StemForge" --smoke-separation --report build/reports/smoke-separation.json
+      - name: AppImage extraction self-test
+        run: |
+          APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE" --appimage-extract-and-run \
+            --self-test --report build/reports/appimage-self-test.json
+      - name: Show the budget table
+        if: always()
+        run: |
+          du -sh "$BUNDLE" || true
+          ls -lh "$BUNDLE".tar.gz "$BUNDLE".tar.zst "$APPIMAGE" || true
+          python3 packaging/linux/verify_bundle.py --bundle "$BUNDLE" --json || true
+      - name: Upload reports and build logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-bundle-reports
+          path: |
+            build/reports/
+            build/pyinstaller/**/warn-*.txt
+          if-no-files-found: warn
