@@ -11,11 +11,11 @@ on `integration/v0.1.0` `ca3ac74`. The vendor tree is absent in this checkout, s
 |---|---|---:|
 | `LICENSE` | `packaging/licenses/texts/GPL-3.0-only.txt` | 34,674 |
 | `THIRD_PARTY_NOTICES.md` | lock + dist-info + `native.toml` | 16,375 |
-| `SOURCE_OFFER.md` | `release.toml` + `vendor.lock.json` | 5,312 |
-| `LICENSES/` (198 files) | generated | 846,585 |
+| `SOURCE_OFFER.md` | `release.toml` + `vendor.lock.json` | 5,389 |
+| `LICENSES/` (198 files) | generated | 846,563 |
 | `LICENSES/python/DEPENDENCIES.md` | every `uv.lock` package | 24,039 |
 | `LICENSES/common/` (13 texts) | `packaging/licenses/texts/` | 150,952 |
-| `LICENSES/texts/` (157 pooled files) | deduplicated wheel licences | 643,533 |
+| `LICENSES/texts/` (157 pooled files) | deduplicated wheel licences | 643,511 |
 
 The pooled `LICENSES/texts/` directory is content-addressed
 (`<name>-<sha256:12>.txt`): identical upstream licence files appear once and

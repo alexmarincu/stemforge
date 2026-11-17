@@ -16,7 +16,8 @@ release page as the binaries: https://github.com/alexmarincu/stemforge/releases/
 
 The first asset is the exact tagged source tree, including `packaging/`,
 the PyInstaller specs, the licence generator, and the build scripts. The
-second contains the third-party sources listed below.
+second contains the third-party sources listed below. The committed
+human-readable vendor record is `packaging/vendor/SOURCES.md`.
 
 ## Written offer (GPL-3.0-only section 6(b))
 
