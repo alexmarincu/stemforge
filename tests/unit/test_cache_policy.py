@@ -130,6 +130,28 @@ def test_a_zero_cap_evicts_every_non_live_entry() -> None:
 
 
 @pytest.mark.unit
+def test_reserved_room_is_evicted_even_when_usage_is_under_the_cap() -> None:
+    entries = [_entry("old", size=60, used_at=1.0), _entry("new", size=40, used_at=2.0)]
+
+    plan = plan_evictions(entries, cap_bytes=100, live_keys=set(), needed_bytes=50)
+
+    assert [entry.key for entry in plan.evicted] == ["old"]
+    assert plan.remaining_bytes == 40
+    assert plan.over_cap is False
+
+
+@pytest.mark.unit
+def test_reserved_room_with_everything_live_reports_over_cap() -> None:
+    entries = [_entry("live", size=100)]
+
+    plan = plan_evictions(entries, cap_bytes=100, live_keys={"live"}, needed_bytes=1)
+
+    assert plan.evicted == ()
+    assert plan.remaining_bytes == 100
+    assert plan.over_cap is True
+
+
+@pytest.mark.unit
 def test_disk_estimate_math_matches_ticket_07_section_8() -> None:
     from math import ceil
 

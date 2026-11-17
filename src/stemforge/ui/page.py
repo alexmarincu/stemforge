@@ -227,6 +227,8 @@ SHELL_CSS: Final = """
 .sf-gate { display: flex; flex-direction: column; gap: 6px; padding: 12px;
   border: 1px solid #2a3240; border-radius: 10px; background: #12161d; margin: 4px 0 10px; }
 .sf-gate-title { font-size: 13px; font-weight: 600; }
+.sf-model-card { padding: 10px 12px; border: 1px solid #2a3240; border-radius: 10px;
+  background: #12161d; font-size: 11.5px; color: #b9c4d3; line-height: 1.45; }
 .sf-gate-summary { font-size: 11.5px; color: #b9c4d3; }
 .sf-gate-meta { font-size: 10.5px; color: #8994a4; font-family: ui-monospace, monospace; }
 .sf-gate-notice { font-size: 11px; color: #b9a77c; line-height: 1.45; }
@@ -649,7 +651,7 @@ class WorkspacePage:
     def _footer(self) -> None:
         used = self.service.artifacts.usage_bytes()
         cap = self.service.artifacts.cap_bytes
-        percent = 0 if cap <= 0 else min(100, round(used * 100 / cap))
+        percent = formatting.cache_percent(used, cap)
         with ui.element("div").classes("sf-cache-line"):
             ui.label("Cache")
             ui.label(f"{formatting.format_bytes(used)} / {formatting.format_bytes(cap)}")
@@ -762,6 +764,8 @@ class WorkspacePage:
                 channels = formatting.format_channels(track.source.metadata.channels)
                 if channels:
                     self._fact("Channels", channels)
+                if track.source.downmixed:
+                    ui.label(formatting.DOWNMIX_NOTE).classes("sf-fineprint").mark("downmix-note")
                 self._fact("Status", "No stems yet")
 
     def _empty_state(self) -> None:
@@ -798,6 +802,12 @@ class WorkspacePage:
                 self._youtube_row.build()
             else:
                 self._youtube_row = None
+            # Ticket 08 §2: informational only; the download gate stays in the
+            # Separation card where the action is invoked.
+            if not self.service.model_status().installed:
+                ui.label(formatting.EMPTY_MODEL_CARD).classes("sf-model-card").mark(
+                    "empty-model-card"
+                )
 
     # -- preview player -----------------------------------------------------
 
@@ -1397,7 +1407,9 @@ class WorkspacePage:
                 log_path=snapshot.log_path,
             )
             reason = (
-                "export" if code == errors.STORAGE_DISK_FULL else _reason(snapshot.error_detail)
+                "export"
+                if code == errors.STORAGE_DISK_FULL
+                else formatting.reason_from_detail(snapshot.error_detail)
             )
             ui.notify(formatting.copy_for(code, reason).headline, type="negative")
         elif snapshot.state.value == "cancelled":
@@ -1634,7 +1646,7 @@ class WorkspacePage:
 
     def _on_import_failure(self, snapshot: JobView) -> None:
         code = snapshot.error_code or errors.INTERNAL_UNEXPECTED
-        copy = formatting.copy_for(code, _reason(snapshot.error_detail))
+        copy = formatting.copy_for(code, formatting.reason_from_detail(snapshot.error_detail))
         ui.notify(copy.headline, type="negative")
         self._notice = Notice(
             code=code,
@@ -1647,7 +1659,7 @@ class WorkspacePage:
         self._refresh_all()
 
     def _show_error(self, error: StemForgeError) -> None:
-        copy = formatting.copy_for(error.code, _reason(error.detail))
+        copy = formatting.copy_for(error.code, formatting.reason_from_detail(error.detail))
         ui.notify(copy.headline, type="negative")
         self._notice = Notice(
             code=error.code,
@@ -1870,17 +1882,6 @@ class WorkspacePage:
             "model_install": "Downloading model",
         }
         return labels.get(kind, "Working")
-
-
-def _reason(detail: str | None) -> str | None:
-    """Pick the stable copy reason out of a log-only detail string."""
-    text = (detail or "").strip()
-    if not text:
-        return None
-    for part in text.replace("\n", " ").split():
-        if part.startswith("reason="):
-            return part.removeprefix("reason=")
-    return text if " " not in text else None
 
 
 def _dispatch_drop(event: NativeEventArguments) -> None:

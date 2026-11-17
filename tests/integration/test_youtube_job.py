@@ -90,6 +90,33 @@ def source_wav(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
     return target
 
 
+@pytest.fixture(scope="session")
+def surround_wav(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
+    target = tmp_path_factory.mktemp("youtube-surround-fixtures") / "surround.wav"
+    result = subprocess.run(
+        [
+            str(ffmpeg),
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "aevalsrc=sin(2*PI*440*t)|sin(2*PI*440*t)|sin(2*PI*440*t)|"
+            "sin(2*PI*440*t)|sin(2*PI*440*t)|sin(2*PI*440*t):s=48000:d=3:c=5.1",
+            "-c:a",
+            "pcm_s16le",
+            str(target),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return target
+
+
 def _info() -> dict[str, object]:
     return {
         "_type": "video",
@@ -264,6 +291,7 @@ def test_a_youtube_import_commits_a_source_track_and_recent_file(
     assert manifest["origin_url"] == f"https://www.youtube.com/watch?v={VIDEO_ID}"
     assert manifest["origin"] == manifest["origin_url"]
     assert manifest["video_id"] == VIDEO_ID
+    assert manifest["downmixed"] is False
     assert manifest["content_hash"] == manifest["native_sha256"]
     assert manifest["native_bytes"] > 0
     assert manifest["format_id"] == "251"
@@ -382,6 +410,34 @@ def test_a_valid_native_file_repairs_missing_derived_files_locally(
         assert repaired.path_for("preview") is not None
         assert repaired.path_for("preview").is_file()
         assert second.service.snapshot().tracks[0].title == TITLE
+
+
+def test_a_six_channel_youtube_source_records_the_downmix(
+    tmp_path: Path, ffmpeg: Path, ffprobe: Path, surround_wav: Path
+) -> None:
+    StubYoutubeDL.source_wav = surround_wav
+    StubYoutubeDL.stop = None
+    StubYoutubeDL.started = None
+    StubYoutubeDL.constructed = []
+
+    with Harness(
+        root=tmp_path,
+        ffmpeg=ffmpeg,
+        ffprobe=ffprobe,
+        source_wav=surround_wav,
+        factory=StubYoutubeDL,
+    ) as harness:
+        job_id = harness.service.submit_youtube(URL)
+        assert harness.runner.wait_idle(timeout=120) is True
+        snapshot = harness.runner.snapshot(job_id)
+        assert snapshot.state is JobState.SUCCEEDED, snapshot
+
+        source_dir = harness.paths.cache / "sources" / f"yt-{VIDEO_ID}"
+        manifest = json.loads((source_dir / "source.json").read_text(encoding="utf-8"))
+        assert manifest["downmixed"] is True
+        track = harness.service.snapshot().tracks[0]
+        assert track.source.downmixed is True
+        assert track.source.metadata.channels == 2
 
 
 def test_a_second_import_of_the_same_link_constructs_no_youtube_dl(

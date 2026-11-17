@@ -284,7 +284,7 @@ class PitchCard:
         failure = self._failures.get(track.track_id)
         if failure is None:
             return
-        copy = formatting.copy_for(failure.code, _reason(failure.detail))
+        copy = formatting.copy_for(failure.code, formatting.reason_from_detail(failure.detail))
         with ui.element("div").classes("sf-notice").mark("pitch-error"):
             ui.label(copy.headline).classes("sf-notice-headline")
             ui.label(copy.action).classes("sf-notice-action")
@@ -372,13 +372,3 @@ class PitchCard:
     def clear_failure(self, track_id: str) -> None:
         if self._failures.pop(track_id, None) is not None and track_id == self._current_track_id:
             self.build.refresh()
-
-
-def _reason(detail: str | None) -> str | None:
-    text = (detail or "").strip()
-    if not text:
-        return None
-    for part in text.replace("\n", " ").split():
-        if part.startswith("reason="):
-            return part.removeprefix("reason=")
-    return text if " " not in text else None

@@ -89,6 +89,13 @@ EMPTY_LEDE_YOUTUBE: Final = (
     "Drop a local file or pull audio from YouTube. Everything runs on this machine."
 )
 
+# Ticket 05 §1 and ticket 08 §2: the multichannel decode note and empty-state card.
+DOWNMIX_NOTE: Final = "Multichannel source downmixed to stereo."
+EMPTY_MODEL_CARD: Final = (
+    "Separation model not installed yet · 84 MB — you can load and preview now; "
+    "Separation asks for the download the first time you use it."
+)
+
 # Ticket 14 §9-§10: the shared Details disclosure and the copy-only report.
 DETAILS_LABEL: Final = "Details"
 OPEN_LOG_LABEL: Final = "Open log"
@@ -452,6 +459,22 @@ def copy_for(code: str, reason: str | None = None) -> ErrorCopy:
     return COPY_BY_CODE.get(code, COPY_BY_CODE[errors.INTERNAL_UNEXPECTED])
 
 
+def reason_from_detail(detail: str | None) -> str | None:
+    """Pick the stable copy reason out of a log-only detail string.
+
+    Details are log text, not copy: prefer the explicit ``reason=`` token. A
+    single-token detail is already a stable classifier and is used as-is; a
+    sentence is not a reason.
+    """
+    text = (detail or "").strip()
+    if not text:
+        return None
+    for part in text.replace("\n", " ").split():
+        if part.startswith("reason="):
+            return part.removeprefix("reason=")
+    return text if " " not in text else None
+
+
 def fatal_copy(code: str, *, path: str | None = None) -> ErrorCopy:
     """Return the exact preflight fatal sentence and fix line.
 
@@ -514,6 +537,13 @@ def format_bytes(size: int) -> str:
     if size < _GIB:
         return f"{size / _MIB:.1f} MB"
     return f"{size / _GIB:.1f} GB"
+
+
+def cache_percent(used: int, cap: int) -> int:
+    """The footer meter's width: 0 to 100, never above a full bar."""
+    if cap <= 0 or used <= 0:
+        return 0
+    return min(100, max(0, round(used * 100 / cap)))
 
 
 def format_relative_time(when: datetime, *, now: datetime | None = None) -> str:
