@@ -296,6 +296,21 @@ def test_tar_content_is_checked_for_weights_and_the_licence_tree(tmp_path: Path)
     )
 
 
+def test_archive_licence_gate_can_be_skipped_only_for_debug_builds(tmp_path: Path) -> None:
+    root, lock = _make_bundle(tmp_path)
+    tarball = tmp_path / f"{root.name}.tar.gz"
+    with tarfile.open(tarball, "w:gz") as archive:
+        for name, data in (("StemForge", b"launcher"), ("run.sh", b"#!/bin/sh\n")):
+            info = tarfile.TarInfo(f"{root.name}/{name}")
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+
+    assert not _verify(root, lock, archives=[tarball]).ok
+    result = _verify(root, lock, archives=[tarball], allow_missing_licences=True)
+    assert result.ok
+    assert _checks(result)["archive.tar.gz.contents"] == "pass"
+
+
 def test_the_cli_prints_json_and_uses_the_exit_code(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
