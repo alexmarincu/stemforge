@@ -84,15 +84,23 @@ def suggest_base_name(title: str, *, role: str | None = None, semitones: int = 0
 
     ``title`` for the original; ``title - Vocals`` for an unshifted output;
     ``title +3st`` for a shifted original; ``title - Vocals +3st`` for a shifted
-    stem. The title is sanitized first, so no later stage has to repair it.
+    stem. The title is sanitized first and shortened so the complete base stays
+    within :data:`MAX_BASE_CHARS`; the role and semitone suffix is never cut.
     """
-    base = sanitize_base_name(title)
+    suffix = ""
     if role is not None and role != "original":
         label = ROLE_LABELS.get(role, role.replace("_", " ").title())
-        base = f"{base} - {label}"
+        suffix += f" - {label}"
     if semitones:
-        base = f"{base} {semitones:+d}st"
-    return base
+        suffix += f" {semitones:+d}st"
+
+    budget = MAX_BASE_CHARS - len(suffix)
+    base = sanitize_base_name(title)
+    if budget < 1:
+        base = _FALLBACK_NAME
+    elif len(base) > budget:
+        base = base[:budget].rstrip(" .") or _FALLBACK_NAME
+    return f"{base}{suffix}"
 
 
 def export_filename(base: str, suffix: str, *, collision: int = 1) -> str:

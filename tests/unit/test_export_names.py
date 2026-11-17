@@ -83,6 +83,13 @@ def test_suggested_names_follow_the_ticket_05_pattern() -> None:
     assert suggest_base_name("Song", semitones=-2) == "Song -2st"
 
 
+def test_a_long_title_keeps_the_role_suffix_and_the_base_cap() -> None:
+    base = suggest_base_name("a" * 300, role="instrumental", semitones=12)
+
+    assert len(base) == MAX_BASE_CHARS
+    assert base.endswith(" - Instrumental +12st")
+
+
 def test_export_filename_adds_the_extension_and_collision_suffix() -> None:
     assert export_filename("Song", ".wav") == "Song.wav"
     assert export_filename("Song", ".flac", collision=2) == "Song (2).flac"
