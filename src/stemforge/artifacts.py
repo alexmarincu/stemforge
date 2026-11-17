@@ -848,6 +848,7 @@ class ArtifactStore:
                 raise StemForgeError(
                     errors.STORAGE_CACHE_FULL,
                     "cache is full and everything left is in use",
+                    retryable=True,
                     context={
                         "usage": usage_after,
                         "cap": self._cap_bytes,

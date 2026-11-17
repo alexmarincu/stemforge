@@ -660,6 +660,7 @@ def test_cache_full_is_raised_when_everything_left_is_live(store: ArtifactStore)
         store.enforce_cap(set())
 
     assert caught.value.code == "storage.cache_full"
+    assert caught.value.retryable is True
     assert first.directory.is_dir()
     assert second.directory.is_dir()
 
