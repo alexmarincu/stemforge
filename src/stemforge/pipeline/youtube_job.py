@@ -16,13 +16,15 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import json
 import math
 import os
+import shutil
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Final, cast
 
 from stemforge import __version__, errors
@@ -42,7 +44,7 @@ from stemforge.engines.youtube import (
     YouTubeTool,
     YouTubeVideo,
 )
-from stemforge.errors import StemForgeError
+from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.jobs.job import JobContext
 from stemforge.pipeline.import_job import CANONICAL_NAME, PREVIEW_NAME
 
@@ -95,6 +97,12 @@ def run_youtube_import(
     cached = artifacts.find_source(video.source_id)
     if cached is not None:
         return _finish_cached(ctx, artifacts, cached, video, finalize)
+
+    # Ticket 09 §5 case 2: a valid native file repairs a missing or invalid
+    # canonical/preview without touching the network.
+    recovered = _recover_from_native(ctx, artifacts, media, video, finalize)
+    if recovered is not None:
+        return recovered
 
     ctx.cancel.check()
     metadata = youtube.resolve(video, cancel=ctx.cancel, log=ctx.log)
@@ -234,6 +242,222 @@ def _finish_cached(
         artifact=artifact,
         cached=True,
     )
+
+
+def _recover_from_native(
+    ctx: JobContext,
+    artifacts: ArtifactStore,
+    media: MediaTool,
+    video: YouTubeVideo,
+    finalize: FinalizeSource,
+) -> YouTubeImportResult | None:
+    """Re-decode a Source whose native file is intact but derived files are not.
+
+    Returns ``None`` when there is nothing to repair, when the native file fails
+    its recorded hash (the subtree is deleted so the caller downloads again), or
+    when the native file cannot be decoded after all. No network is used here.
+    """
+    source_id = video.source_id
+    directory = artifacts.sources_dir / source_id
+    try:
+        payload = json.loads((directory / "source.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    manifest = cast("Mapping[str, object]", payload)
+    if (
+        manifest.get("schema_version") != 1
+        or manifest.get("kind") != "source"
+        or manifest.get("source_id") != source_id
+    ):
+        return None
+
+    native = _manifest_native(directory, manifest)
+    if native is None:
+        return None
+    native_path, native_bytes, native_sha256 = native
+    if _sha256_file(native_path) != native_sha256:
+        # Ticket 09 §5 case 3: the native file no longer matches its hash.
+        _discard_broken_source(ctx, artifacts, source_id)
+        return None
+
+    metadata = _metadata_from_manifest(manifest, source_id, video)
+    tools = _tools_from_manifest(manifest)
+    downloaded = DownloadedAudio(
+        path=native_path,
+        format_id=_as_str(manifest.get("format_id")) or None,
+        extractor=_as_str(manifest.get("extractor")) or None,
+        extractor_version=_as_str(manifest.get("extractor_version")) or None,
+    )
+
+    ctx.progress(0.75, stage=STAGE_DECODING, detail="Repairing cached audio")
+    staging = artifacts.stage(ctx.job_id)
+    try:
+        native_target = staging / f"native{native_path.suffix.lower() or '.bin'}"
+        _copy_native(native_path, native_target)
+        decoded = media.decode_canonical(
+            native_target,
+            staging / CANONICAL_NAME,
+            cancel=ctx.cancel,
+            log=ctx.log,
+        )
+        ctx.progress(0.86, stage=STAGE_DECODING)
+        peak_dbfs = media.peak_dbfs(decoded.path, cancel=ctx.cancel, log=ctx.log)
+        gain_db = 0.0 if peak_dbfs <= 0.0 else -1.0 - peak_dbfs
+        ctx.cancel.check()
+
+        ctx.progress(0.90, stage=STAGE_FINISHING, detail="Encoding preview")
+        preview_path = staging / PREVIEW_NAME
+        media.encode_preview(
+            decoded.path,
+            preview_path,
+            gain_db=gain_db,
+            title=metadata.title,
+            artist=metadata.artist,
+            cancel=ctx.cancel,
+            log=ctx.log,
+        )
+        ctx.cancel.check()
+
+        ctx.progress(0.95, stage=STAGE_FINISHING, detail="Writing manifest")
+        rebuilt = _source_manifest(
+            source_id=source_id,
+            metadata=metadata,
+            downloaded=downloaded,
+            native_path=native_target,
+            canonical_path=decoded.path,
+            preview_path=preview_path,
+            duration_s=decoded.duration_s,
+            sample_rate=decoded.sample_rate,
+            channels=decoded.channels,
+            native_bytes=native_bytes,
+            native_sha256=native_sha256,
+            gain_db=gain_db,
+            tools=tools,
+        )
+        artifact = artifacts.commit_source(staging, source_id, rebuilt)
+    except JobCancelled:
+        artifacts.discard_staging(ctx.job_id)
+        raise
+    except StemForgeError as exc:
+        artifacts.discard_staging(ctx.job_id)
+        if exc.code in (
+            errors.MEDIA_PROBE_FAILED,
+            errors.MEDIA_VALIDATION_FAILED,
+            errors.DECODE_FAILED,
+            errors.IMPORT_NO_AUDIO_STREAM,
+        ):
+            ctx.log.warning("cached native audio could not be decoded: %s", exc.code)
+            _discard_broken_source(ctx, artifacts, source_id)
+            return None
+        raise
+    except BaseException:
+        artifacts.discard_staging(ctx.job_id)
+        raise
+
+    source = _source_from_artifact(artifact, fallback_origin=metadata.canonical_url)
+    ctx.progress(0.99, stage=STAGE_FINISHING, detail="Track added")
+    track = finalize(source)
+    ctx.progress(1.0, stage=STAGE_FINISHING)
+    return YouTubeImportResult(
+        source=source,
+        track=track,
+        artifact=artifact,
+        cached=True,
+    )
+
+
+def _manifest_native(
+    directory: Path, manifest: Mapping[str, object]
+) -> tuple[Path, int, str] | None:
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        return None
+    for raw_entry in files:
+        if not isinstance(raw_entry, Mapping):
+            continue
+        entry = cast("Mapping[str, object]", raw_entry)
+        if entry.get("role") != "native":
+            continue
+        relative = entry.get("path")
+        sha256 = entry.get("sha256")
+        size = entry.get("size")
+        if not isinstance(relative, str) or not relative:
+            return None
+        if not isinstance(sha256, str) or len(sha256) != 64:
+            return None
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+            return None
+        pure = PurePosixPath(relative)
+        if (
+            pure.is_absolute()
+            or not pure.parts
+            or any(part in {"", ".", ".."} for part in pure.parts)
+            or "\\" in relative
+            or ":" in relative
+        ):
+            return None
+        target = directory.joinpath(*pure.parts)
+        try:
+            if target.is_symlink() or not target.is_file():
+                return None
+            if target.stat().st_size != size:
+                return None
+        except OSError:
+            return None
+        return target, size, sha256.lower()
+    return None
+
+
+def _metadata_from_manifest(
+    manifest: Mapping[str, object], source_id: str, video: YouTubeVideo
+) -> YouTubeMetadata:
+    record = _metadata_mapping(manifest)
+    origin = _as_str(manifest.get("origin_url")) or _as_str(manifest.get("origin"))
+    return YouTubeMetadata(
+        video_id=_as_str(manifest.get("video_id")) or video.video_id,
+        title=_as_str(record.get("title")) or f"YouTube {source_id.removeprefix('yt-')}",
+        artist=_as_str(record.get("artist")),
+        canonical_url=origin or video.canonical_url,
+        duration_s=_as_float(record.get("duration_s")),
+        upload_date=_as_str(record.get("date")),
+    )
+
+
+def _tools_from_manifest(manifest: Mapping[str, object]) -> Mapping[str, str]:
+    raw = manifest.get("tools")
+    if not isinstance(raw, Mapping):
+        return {}
+    return {
+        str(name): str(value)
+        for name, value in cast("Mapping[object, object]", raw).items()
+        if isinstance(name, str)
+    }
+
+
+def _discard_broken_source(ctx: JobContext, artifacts: ArtifactStore, source_id: str) -> None:
+    try:
+        artifacts.remove_source(source_id)
+    except (OSError, ValueError, StemForgeError):
+        ctx.log.warning("could not delete the broken cached source %s", source_id, exc_info=True)
+
+
+def _copy_native(source: Path, target: Path) -> None:
+    try:
+        shutil.copyfile(source, target)
+    except OSError as exc:
+        code = (
+            errors.STORAGE_DISK_FULL
+            if exc.errno == errno.ENOSPC
+            else errors.STORAGE_PERMISSION_DENIED
+        )
+        raise StemForgeError(
+            code,
+            f"could not copy the cached native audio: {exc}",
+            detail=str(exc),
+            context={"source": str(source), "path": str(target), "errno": exc.errno},
+        ) from exc
 
 
 # --- pacing and validation -------------------------------------------------

@@ -15,9 +15,11 @@ run while implementing this ticket.
   generated WAV; the real FFmpeg decodes it, builds the preview, records the
   native hash, and commits `sources/yt-<id>/`. A second import over the same
   home with a `YoutubeDL` factory that raises on construction succeeds with zero
-  network calls and zero pacing waits. Cancel mid-download leaves no staging or
-  `.part` file. "Clear YouTube cache" removes only `<cache>/yt-dlp/`; sources,
-  renders, the model store, the Deno cache, and recent files survive.
+  network calls and zero pacing waits. A valid native file with a deleted
+  canonical/preview is repaired locally, also without network. Cancel
+  mid-download leaves no staging or `.part` file. "Clear YouTube cache" removes
+  only `<cache>/yt-dlp/`; sources, renders, the model store, the Deno cache, and
+  recent files survive.
 - `tests/ui/test_youtube_job.py` — a valid URL submits, reports in the single
   Job bar (`Checking video` / `Waiting for YouTube · N s` / `Downloading audio` /
   `Decoding audio` / `Finishing`), disables the row while it runs, selects the
