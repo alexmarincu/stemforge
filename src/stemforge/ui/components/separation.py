@@ -80,6 +80,9 @@ class SeparationJobView(Protocol):
     def stage(self) -> str: ...
 
     @property
+    def detail(self) -> str | None: ...
+
+    @property
     def active(self) -> bool: ...
 
 
@@ -212,10 +215,20 @@ class SeparationCard:
             if self._download_failure is not None and not download:
                 self._download_error(self._download_failure, busy=busy)
             elif download:
-                percent = round(max(0.0, min(1.0, self._job.progress)) * 100) if self._job else 0
-                ui.label(f"{formatting.SEPARATION_MODEL_DOWNLOADING} {percent}%").classes(
+                assert self._job is not None
+                percent = round(max(0.0, min(1.0, self._job.progress)) * 100)
+                detail = f" · {self._job.detail}" if self._job.detail else ""
+                ui.label(f"{formatting.SEPARATION_MODEL_DOWNLOADING}{detail} · {percent}%").classes(
                     "sf-separation-status"
                 ).mark("model-download-progress")
+                (
+                    ui.button(
+                        formatting.SEPARATION_CANCEL,
+                        on_click=lambda _=None: self._on_cancel(),
+                    )
+                    .props("flat no-caps size=sm")
+                    .mark("model-download-cancel")
+                )
             else:
                 button = (
                     ui.button(

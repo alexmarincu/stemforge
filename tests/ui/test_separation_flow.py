@@ -222,20 +222,26 @@ class MemoryResponse:
         *,
         gate: threading.Event | None = None,
         chunk_size: int = 1024,
+        gate_after: int = 1,
     ) -> None:
         self._data = data
         self._offset = 0
         self._chunk_size = chunk_size
         self._gate = gate
+        self._gate_after = gate_after
+        self._reads = 0
         self.read_started = threading.Event()
+        self.blocked = threading.Event()
         self.headers: Mapping[str, str] = {"Content-Length": str(len(data))}
         self.closed = False
 
     def read(self, size: int = -1, /) -> bytes:
-        if self._offset == 0:
+        self._reads += 1
+        if self._reads == 1:
             self.read_started.set()
-            if self._gate is not None:
-                self._gate.wait(timeout=10)
+        if self._reads == self._gate_after and self._gate is not None:
+            self.blocked.set()
+            self._gate.wait(timeout=10)
         limit = self._chunk_size if size < 0 else min(size, self._chunk_size)
         chunk = self._data[self._offset : self._offset + limit]
         self._offset += len(chunk)
@@ -481,7 +487,7 @@ async def test_download_progress_reaches_the_job_bar_and_cancel_returns_the_gate
     tmp_path: Path,
 ) -> None:
     gate = threading.Event()
-    response = MemoryResponse(PAYLOAD, gate=gate)
+    response = MemoryResponse(PAYLOAD, gate=gate, gate_after=2)
     harness = Harness(
         root=tmp_path,
         media=FakeMedia(),
@@ -495,7 +501,7 @@ async def test_download_progress_reaches_the_job_bar_and_cancel_returns_the_gate
         async for user, workspace_page in _open_page(harness):
             await _import(harness, user, workspace_page)
             user.find(marker="model-download").click()
-            assert await asyncio.to_thread(response.read_started.wait, 5)
+            assert await asyncio.to_thread(response.blocked.wait, 5)
             await _poll(harness, user, workspace_page)
 
             await user.should_see(marker="job-bar")
@@ -504,6 +510,8 @@ async def test_download_progress_reaches_the_job_bar_and_cancel_returns_the_gate
             assert "Download" in _only(user, "job-stage").text
             assert _only(user, "job-percent").text != "0%"
             assert _only(user, "model-download-progress").text.endswith("%")
+            assert "MB" in _only(user, "model-download-progress").text
+            assert _enabled(user, "model-download-cancel") is True
 
             user.find(marker="cancel-job").click()
             gate.set()
