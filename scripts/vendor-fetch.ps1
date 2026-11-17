@@ -350,6 +350,9 @@ try {
     }
 
     if ($VerifyOnly) {
+        if (-not (Test-Path -LiteralPath $Vendor -PathType Container)) {
+            throw 'vendor/ is missing; run scripts/vendor-fetch.ps1 first'
+        }
         Test-Tree $Vendor $Lock
         Show-Summary $Lock
         exit 0
