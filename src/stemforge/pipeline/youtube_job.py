@@ -455,6 +455,7 @@ def _copy_native(source: Path, target: Path) -> None:
         raise StemForgeError(
             code,
             f"could not copy the cached native audio: {exc}",
+            retryable=True,
             detail=str(exc),
             context={"source": str(source), "path": str(target), "errno": exc.errno},
         ) from exc
@@ -528,6 +529,7 @@ def _move_native(downloaded: Path, staging: Path) -> Path:
         raise StemForgeError(
             code,
             f"could not move the downloaded audio into staging: {exc}",
+            retryable=True,
             detail=str(exc),
             context={"source": str(downloaded), "path": str(target), "errno": exc.errno},
         ) from exc

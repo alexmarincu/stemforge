@@ -89,6 +89,20 @@ EMPTY_LEDE_YOUTUBE: Final = (
     "Drop a local file or pull audio from YouTube. Everything runs on this machine."
 )
 
+# Ticket 14 §9-§10: the shared Details disclosure and the copy-only report.
+DETAILS_LABEL: Final = "Details"
+OPEN_LOG_LABEL: Final = "Open log"
+COPY_DIAGNOSTICS_LABEL: Final = "Copy diagnostics"
+DIAGNOSTICS_TITLE: Final = "Diagnostics"
+DIAGNOSTICS_NOTICE: Final = "Contains local file paths. Review before sharing."
+DIAGNOSTICS_COPY: Final = "Copy"
+DIAGNOSTICS_CLOSE: Final = "Close"
+DIAGNOSTICS_COPIED: Final = "Copied."
+DIAGNOSTICS_COPY_FAILED: Final = "Copy failed. Select the text and copy it manually."
+DIAGNOSTICS_UNAVAILABLE: Final = "Diagnostics aren't available in this window."
+RESOURCE_WARNING_DISMISS: Final = "Dismiss"
+REMOVING: Final = "Removing…"
+
 # Ticket 08 §5 and ticket 11: the Pitch card's exact working copy.
 PITCH_TITLE: Final = "Pitch"
 PITCH_VERSIONS: Final = "Versions"
@@ -396,6 +410,10 @@ REASON_COPY: Final[Mapping[tuple[str, str], ErrorCopy]] = MappingProxyType(
         (errors.EXPORT_WRITE_FAILED, "other"): ErrorCopy(
             "Couldn't save the file.",
             "Try another folder; the details are in the job log.",
+        ),
+        (errors.LICENSING_OPEN_FAILED, "log"): ErrorCopy(
+            "Couldn't open the log file.",
+            "Open it from the logs folder.",
         ),
         # Export owns this reason so its disk-full action is "choose another
         # location" rather than the cache's "clear cached audio" (14 §4.6).

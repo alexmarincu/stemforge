@@ -1033,6 +1033,11 @@ def _existing_ancestor(path: Path) -> Path:
     return candidate
 
 
+def total_ram_bytes() -> int | None:
+    """The machine's total physical RAM, for the diagnostics report."""
+    return _total_ram_bytes()
+
+
 def _total_ram_bytes() -> int | None:
     if sys.platform.startswith("win"):
         import ctypes
