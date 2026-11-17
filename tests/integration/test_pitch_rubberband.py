@@ -722,6 +722,9 @@ def test_a_missing_rubberband_fails_the_job_without_staging(
 def test_a_broken_binary_override_is_coded_as_engine_missing(
     monkeypatch: pytest.MonkeyPatch, media: FfmpegTool, tone: Path, tmp_path: Path
 ) -> None:
+    # The override is the fallback when the Bundle has no vendor tree. Ticket 19
+    # makes vendor/ the first choice, so simulate a checkout without one.
+    monkeypatch.setattr(binaries, "bundle_root", lambda: tmp_path / "no-vendor")
     monkeypatch.setenv(binaries.RUBBERBAND_ENV, str(tmp_path / "gone"))
     engine = RubberBandEngine(media=media)
 

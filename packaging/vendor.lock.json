@@ -1,0 +1,476 @@
+{
+  "schema": 1,
+  "vendor_root": "vendor",
+  "description": "The pinned vendor set for StemForge v1 (ticket 19). Read by scripts/vendor-fetch.sh, scripts/vendor-fetch.ps1, platform/binaries.py, platform/preflight.py, and the CI cache key. Binaries are never committed; only this lock and its provenance record are.",
+  "targets": {
+    "linux-x86_64": {
+      "system": "linux",
+      "arch": "x86_64"
+    },
+    "windows-x64": {
+      "system": "win32",
+      "arch": "amd64"
+    }
+  },
+  "components": {
+    "ffmpeg": {
+      "version": "n9.0.2-57-gd838f9f9ae",
+      "version_flag": "-version",
+      "license": "GPL-3.0-or-later",
+      "license_texts": [
+        "LICENSE.txt"
+      ],
+      "provenance": {
+        "project": "FFmpeg",
+        "homepage": "https://ffmpeg.org/",
+        "build_project": "BtbN/FFmpeg-Builds",
+        "build_repository": "https://github.com/BtbN/FFmpeg-Builds",
+        "build_scripts_url": "https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-11-15-12-40",
+        "release_tag": "autobuild-2026-11-15-12-40",
+        "version_commit": "d838f9f9ae",
+        "build": "GPL static, --enable-gpl --enable-version3 --disable-debug",
+        "buildinfo": "The shipped `ffmpeg -buildconf` is recorded in LICENSES/ffmpeg/BUILDINFO.txt."
+      },
+      "targets": {
+        "linux-x86_64": {
+          "kind": "archive",
+          "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/ffmpeg-n9.0.2-57-gd838f9f9ae-linux64-gpl-9.0.tar.xz",
+          "filename": "ffmpeg-n9.0.2-57-gd838f9f9ae-linux64-gpl-9.0.tar.xz",
+          "size": 152700372,
+          "sha256": "72836132863e0d40e2af74a8ef59c32b10771aed0c8540b634fb77db2e6e3ae2",
+          "archive_format": "tar.xz",
+          "install": [
+            {
+              "from": "bin/ffmpeg",
+              "to": "ffmpeg/ffmpeg",
+              "executable": true,
+              "sha256": "3bfd3efb3208bcd1d7600bdd3f2bdc8b3ee0964265364414204a50b8bad9be25"
+            },
+            {
+              "from": "bin/ffprobe",
+              "to": "ffmpeg/ffprobe",
+              "executable": true,
+              "sha256": "d9717831fbc178cc64232c944aa372cc726a5c1077f8b31e1e234a89ca534c9d"
+            }
+          ]
+        },
+        "windows-x64": {
+          "kind": "archive",
+          "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip",
+          "filename": "ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip",
+          "size": 194990151,
+          "sha256": "11b387a88ad24ee6d78bae7d24a2417834737e6ac00f0a36ca67fead1e924eff",
+          "archive_format": "zip",
+          "install": [
+            {
+              "from": "bin/ffmpeg.exe",
+              "to": "ffmpeg/ffmpeg.exe",
+              "executable": true,
+              "sha256": "9886c618fcbb33d42df41f3cc102d495a90473e66b7180a63e02b0c3015d93d6"
+            },
+            {
+              "from": "bin/ffprobe.exe",
+              "to": "ffmpeg/ffprobe.exe",
+              "executable": true,
+              "sha256": "482155f54c6a578e28ad173e9cebc973de63b32eaf4403e0abc9a4779405c4d9"
+            }
+          ]
+        }
+      }
+    },
+    "ffprobe": {
+      "version": "n9.0.2-57-gd838f9f9ae",
+      "version_flag": "-version",
+      "license": "GPL-3.0-or-later",
+      "license_texts": [
+        "LICENSE.txt"
+      ],
+      "provenance": {
+        "project": "FFmpeg",
+        "homepage": "https://ffmpeg.org/",
+        "build_project": "BtbN/FFmpeg-Builds",
+        "build_repository": "https://github.com/BtbN/FFmpeg-Builds",
+        "build_scripts_url": "https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-11-15-12-40",
+        "release_tag": "autobuild-2026-11-15-12-40",
+        "version_commit": "d838f9f9ae",
+        "build": "GPL static, --enable-gpl --enable-version3 --disable-debug",
+        "buildinfo": "The shipped `ffprobe -buildconf` is recorded in LICENSES/ffmpeg/BUILDINFO.txt."
+      },
+      "targets": {
+        "linux-x86_64": {
+          "kind": "archive",
+          "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/ffmpeg-n9.0.2-57-gd838f9f9ae-linux64-gpl-9.0.tar.xz",
+          "filename": "ffmpeg-n9.0.2-57-gd838f9f9ae-linux64-gpl-9.0.tar.xz",
+          "size": 152700372,
+          "sha256": "72836132863e0d40e2af74a8ef59c32b10771aed0c8540b634fb77db2e6e3ae2",
+          "archive_format": "tar.xz",
+          "install": [
+            {
+              "from": "bin/ffprobe",
+              "to": "ffmpeg/ffprobe",
+              "executable": true,
+              "sha256": "d9717831fbc178cc64232c944aa372cc726a5c1077f8b31e1e234a89ca534c9d"
+            }
+          ]
+        },
+        "windows-x64": {
+          "kind": "archive",
+          "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip",
+          "filename": "ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip",
+          "size": 194990151,
+          "sha256": "11b387a88ad24ee6d78bae7d24a2417834737e6ac00f0a36ca67fead1e924eff",
+          "archive_format": "zip",
+          "install": [
+            {
+              "from": "bin/ffprobe.exe",
+              "to": "ffmpeg/ffprobe.exe",
+              "executable": true,
+              "sha256": "482155f54c6a578e28ad173e9cebc973de63b32eaf4403e0abc9a4779405c4d9"
+            }
+          ]
+        }
+      }
+    },
+    "deno": {
+      "version": "2.9.8",
+      "version_flag": "--version",
+      "license": "MIT",
+      "license_texts": [
+        "LICENSE"
+      ],
+      "provenance": {
+        "project": "Deno",
+        "homepage": "https://deno.com/",
+        "source_repository": "https://github.com/denoland/deno",
+        "release": "v2.9.8"
+      },
+      "targets": {
+        "linux-x86_64": {
+          "kind": "archive",
+          "url": "https://github.com/denoland/deno/releases/download/v2.9.8/deno-x86_64-unknown-linux-gnu.zip",
+          "filename": "deno-x86_64-unknown-linux-gnu.zip",
+          "size": 41963064,
+          "sha256": "e890975bc2549807bbcc0b584ffafda72cc7c93349dd99c80483dd784f6c4609",
+          "archive_format": "zip",
+          "install": [
+            {
+              "from": "deno",
+              "to": "deno/deno",
+              "executable": true,
+              "sha256": "368bca08999e02c6911b8f248167b582276b1f547db5712b6e736d7eda1dbda7"
+            }
+          ]
+        },
+        "windows-x64": {
+          "kind": "archive",
+          "url": "https://github.com/denoland/deno/releases/download/v2.9.8/deno-x86_64-pc-windows-msvc.zip",
+          "filename": "deno-x86_64-pc-windows-msvc.zip",
+          "size": 42917472,
+          "sha256": "cba84b26e0df5ae7f74fc66b86a95b866872a86292ebd84fa1e959927edd93bf",
+          "archive_format": "zip",
+          "install": [
+            {
+              "from": "deno.exe",
+              "to": "deno/deno.exe",
+              "executable": true,
+              "sha256": "924397800533d3eb0ed0c889b20ad70e18b970d93acd8135bc043f425e528266"
+            }
+          ]
+        }
+      }
+    },
+    "rubberband": {
+      "version": "4.0.0",
+      "version_flag": "--version",
+      "license": "GPL-2.0-or-later",
+      "license_texts": [
+        "COPYING"
+      ],
+      "provenance": {
+        "project": "Rubber Band Library",
+        "homepage": "https://breakfastquay.com/rubberband/",
+        "source_repository": "https://github.com/breakfastquay/rubberband",
+        "tag": "v4.0.0",
+        "commit": "1d95888bec3ae0a17c0c4af791810d5a63f6bc35",
+        "build": "Meson release build, builtin FFT/resampler, static librubberband, CLI only, no LV2/VST/LADSPA/Vamp/JNI."
+      },
+      "targets": {
+        "linux-x86_64": {
+          "kind": "built",
+          "source": {
+            "url": "https://github.com/breakfastquay/rubberband/archive/refs/tags/v4.0.0.tar.gz",
+            "filename": "rubberband-4.0.0.tar.gz",
+            "size": 290305,
+            "sha256": "24300f48a8014b7c863b573a9647e61b1b19b37875e2cdd92005e64c6424d266"
+          },
+          "build": {
+            "system": "meson",
+            "archive_format": "tar.gz",
+            "configure": [
+              "meson",
+              "setup",
+              "build",
+              "<source>",
+              "--buildtype=release",
+              "--default-library=static",
+              "-Dfft=builtin",
+              "-Dresampler=builtin",
+              "-Dvamp=disabled",
+              "-Dlv2=disabled",
+              "-Dladspa=disabled",
+              "-Djni=disabled",
+              "-Dcmdline=enabled",
+              "-Dtests=disabled",
+              "-Dcpp_link_args=-Wl,-rpath,$ORIGIN",
+              "-Dc_link_args=-Wl,-rpath,$ORIGIN"
+            ],
+            "post_build": [
+              "ninja -C build",
+              "strip --strip-unneeded build/rubberband",
+              "patchelf --set-rpath $ORIGIN vendor/rubberband/rubberband"
+            ],
+            "notes": "Built after libsndfile 1.2.2, with PKG_CONFIG_PATH pointing at the libsndfile prefix. The CLI statically contains librubberband and dynamically links only libsndfile.so.1, libstdc++, libm, libgcc_s, and glibc."
+          },
+          "install": [
+            {
+              "from": "build/rubberband",
+              "to": "rubberband/rubberband",
+              "executable": true,
+              "sha256": null
+            }
+          ]
+        },
+        "windows-x64": {
+          "kind": "built",
+          "source": {
+            "url": "https://github.com/breakfastquay/rubberband/archive/refs/tags/v4.0.0.tar.gz",
+            "filename": "rubberband-4.0.0.tar.gz",
+            "size": 290305,
+            "sha256": "24300f48a8014b7c863b573a9647e61b1b19b37875e2cdd92005e64c6424d266"
+          },
+          "build": {
+            "system": "meson-msvc",
+            "archive_format": "tar.gz",
+            "configure": [
+              "meson",
+              "setup",
+              "build",
+              "<source>",
+              "--buildtype=release",
+              "--default-library=static",
+              "-Dfft=builtin",
+              "-Dresampler=builtin",
+              "-Dvamp=disabled",
+              "-Dlv2=disabled",
+              "-Dladspa=disabled",
+              "-Djni=disabled",
+              "-Dcmdline=enabled",
+              "-Dtests=disabled",
+              "-Dextra_lib_dirs=<libsndfile-build>",
+              "-Dextra_include_dirs=<libsndfile-source>/include"
+            ],
+            "post_build": [
+              "meson compile -C build",
+              "copy build/rubberband.exe and the libsndfile sndfile.dll beside it"
+            ],
+            "notes": "Ticket 10 §8 builds this with MSVC on windows-2022 after libsndfile 1.2.2. No public prebuilt Rubber Band archive is named by the decision record; scripts/vendor-fetch.ps1 therefore accepts a prebuilt pinned directory with -RubberBandPrebuilt when Meson/MSVC are unavailable, and verifies rubberband.exe --version 4.0.0 plus the co-located sndfile.dll."
+          },
+          "install": [
+            {
+              "from": "build/rubberband.exe",
+              "to": "rubberband/rubberband.exe",
+              "executable": true,
+              "sha256": null
+            }
+          ]
+        }
+      }
+    },
+    "libsndfile": {
+      "version": "1.2.2",
+      "version_flag": null,
+      "license": "LGPL-2.1-or-later",
+      "license_texts": [
+        "COPYING"
+      ],
+      "provenance": {
+        "project": "libsndfile",
+        "homepage": "https://libsndfile.github.io/libsndfile/",
+        "source_repository": "https://github.com/libsndfile/libsndfile",
+        "tag": "1.2.2",
+        "build": "CMake release build, shared library, WAV-only (external codecs and MPEG off), programs/examples/tests off, dynamic linking preserves the LGPL relink right."
+      },
+      "targets": {
+        "linux-x86_64": {
+          "kind": "built",
+          "source": {
+            "url": "https://github.com/libsndfile/libsndfile/releases/download/1.2.2/libsndfile-1.2.2.tar.xz",
+            "filename": "libsndfile-1.2.2.tar.xz",
+            "size": 730760,
+            "sha256": "3799ca9924d3125038880367bf1468e53a1b7e3686a934f098b7e1d286cdb80e"
+          },
+          "build": {
+            "system": "cmake",
+            "archive_format": "tar.xz",
+            "configure": [
+              "cmake",
+              "-S",
+              "<source>",
+              "-B",
+              "build",
+              "-DCMAKE_BUILD_TYPE=Release",
+              "-DCMAKE_INSTALL_PREFIX=<prefix>",
+              "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+              "-DBUILD_SHARED_LIBS=ON",
+              "-DBUILD_PROGRAMS=OFF",
+              "-DBUILD_EXAMPLES=OFF",
+              "-DBUILD_TESTING=OFF",
+              "-DENABLE_EXTERNAL_LIBS=OFF",
+              "-DENABLE_MPEG=OFF",
+              "-DENABLE_CPACK=OFF",
+              "-DINSTALL_PKGCONFIG_MODULE=ON",
+              "-DINSTALL_MANPAGES=OFF"
+            ],
+            "post_build": [
+              "cmake --build build --parallel",
+              "cmake --install build",
+              "strip --strip-unneeded libsndfile.so.1"
+            ],
+            "notes": "The versioned libsndfile.so.1.0.37 is copied to vendor/rubberband/libsndfile.so.1 so the Rubber Band CLI's $ORIGIN rpath finds it. The file remains separately replaceable for the LGPL relink right."
+          },
+          "install": [
+            {
+              "from": "libsndfile.so.1",
+              "to": "rubberband/libsndfile.so.1",
+              "executable": false,
+              "sha256": null
+            }
+          ]
+        },
+        "windows-x64": {
+          "kind": "built",
+          "source": {
+            "url": "https://github.com/libsndfile/libsndfile/releases/download/1.2.2/libsndfile-1.2.2.tar.xz",
+            "filename": "libsndfile-1.2.2.tar.xz",
+            "size": 730760,
+            "sha256": "3799ca9924d3125038880367bf1468e53a1b7e3686a934f098b7e1d286cdb80e"
+          },
+          "build": {
+            "system": "cmake-msvc",
+            "archive_format": "tar.xz",
+            "configure": [
+              "cmake",
+              "-S",
+              "<source>",
+              "-B",
+              "build",
+              "-A",
+              "x64",
+              "-DCMAKE_BUILD_TYPE=Release",
+              "-DBUILD_SHARED_LIBS=ON",
+              "-DBUILD_PROGRAMS=OFF",
+              "-DBUILD_EXAMPLES=OFF",
+              "-DBUILD_TESTING=OFF",
+              "-DENABLE_EXTERNAL_LIBS=OFF",
+              "-DENABLE_MPEG=OFF",
+              "-DENABLE_CPACK=OFF",
+              "-DINSTALL_PKGCONFIG_MODULE=ON",
+              "-DINSTALL_MANPAGES=OFF"
+            ],
+            "post_build": [
+              "cmake --build build --config Release --parallel",
+              "copy the Release sndfile.dll beside rubberband.exe"
+            ],
+            "notes": "Windows resolves sndfile.dll from the executable's own directory, so it is co-located with rubberband.exe. scripts/vendor-fetch.ps1 accepts the pair from -RubberBandPrebuilt when the MSVC build is unavailable."
+          },
+          "install": [
+            {
+              "from": "sndfile.dll",
+              "to": "rubberband/sndfile.dll",
+              "executable": false,
+              "sha256": null
+            }
+          ]
+        }
+      }
+    }
+  },
+  "source_offer": {
+    "obligation": "GPL-3.0-only section 6: the corresponding source for every GPL-licensed binary ships in the same place as the binary, or a written offer supplies it.",
+    "written_offer": "StemForge offers, under GPL-3.0-only section 6(b), the complete corresponding source for every GPL-licensed binary it ships. This written offer is valid for three years from the release date and is fulfilled from the release page. Send requests to the contact URL below.",
+    "offer_years": 3,
+    "contact": "https://github.com/alexmarincu/stemforge/issues",
+    "release_page": "https://github.com/alexmarincu/stemforge/releases",
+    "sources": [
+      {
+        "component": "ffmpeg",
+        "version": "n9.0.2-57-gd838f9f9ae",
+        "license": "GPL-3.0-or-later",
+        "targets": [
+          "linux-x86_64"
+        ],
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/ffmpeg-n9.0.2-57-gd838f9f9ae-linux64-gpl-9.0.tar.xz",
+        "sha256": "72836132863e0d40e2af74a8ef59c32b10771aed0c8540b634fb77db2e6e3ae2",
+        "source": "ffmpeg -buildconf is shipped in LICENSES/ffmpeg/BUILDINFO.txt; BtbN build scripts and every external library at SCRIPT_COMMIT"
+      },
+      {
+        "component": "ffmpeg",
+        "version": "n9.0.2-57-gd838f9f9ae",
+        "license": "GPL-3.0-or-later",
+        "targets": [
+          "windows-x64"
+        ],
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip",
+        "sha256": "11b387a88ad24ee6d78bae7d24a2417834737e6ac00f0a36ca67fead1e924eff",
+        "source": "ffmpeg -buildconf is shipped in LICENSES/ffmpeg/BUILDINFO.txt; BtbN build scripts and every external library at SCRIPT_COMMIT"
+      },
+      {
+        "component": "deno",
+        "version": "2.9.8",
+        "license": "MIT",
+        "targets": [
+          "linux-x86_64"
+        ],
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.8/deno-x86_64-unknown-linux-gnu.zip",
+        "sha256": "e890975bc2549807bbcc0b584ffafda72cc7c93349dd99c80483dd784f6c4609",
+        "source": "Deno release source at v2.9.8 (MIT); no relink obligation"
+      },
+      {
+        "component": "deno",
+        "version": "2.9.8",
+        "license": "MIT",
+        "targets": [
+          "windows-x64"
+        ],
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.8/deno-x86_64-pc-windows-msvc.zip",
+        "sha256": "cba84b26e0df5ae7f74fc66b86a95b866872a86292ebd84fa1e959927edd93bf",
+        "source": "Deno release source at v2.9.8 (MIT); no relink obligation"
+      },
+      {
+        "component": "rubberband",
+        "version": "4.0.0",
+        "license": "GPL-2.0-or-later",
+        "targets": [
+          "linux-x86_64",
+          "windows-x64"
+        ],
+        "url": "https://github.com/breakfastquay/rubberband/archive/refs/tags/v4.0.0.tar.gz",
+        "sha256": "24300f48a8014b7c863b573a9647e61b1b19b37875e2cdd92005e64c6424d266",
+        "source": "The exact tag archive is built from commit 1d95888bec3ae0a17c0c4af791810d5a63f6bc35 with the configure line recorded in this lock"
+      },
+      {
+        "component": "libsndfile",
+        "version": "1.2.2",
+        "license": "LGPL-2.1-or-later",
+        "targets": [
+          "linux-x86_64",
+          "windows-x64"
+        ],
+        "url": "https://github.com/libsndfile/libsndfile/releases/download/1.2.2/libsndfile-1.2.2.tar.xz",
+        "sha256": "3799ca9924d3125038880367bf1468e53a1b7e3686a934f098b7e1d286cdb80e",
+        "source": "The exact tarball is built with the configure line recorded in this lock; libsndfile remains a separately replaceable shared library"
+      }
+    ],
+    "notes": "packaging/vendor/SOURCES.md is the human-readable form for ticket 22. The release sources job also ships the corresponding source archives beside the binaries."
+  }
+}

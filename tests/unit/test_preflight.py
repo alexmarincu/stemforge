@@ -551,6 +551,170 @@ def test_bundle_check_reports_a_non_executable_tool(
     assert "not executable: ffmpeg" in result.message
 
 
+def _real_lock() -> dict[str, object]:
+    root = Path(__file__).resolve().parents[2]
+    payload = json.loads((root / "packaging" / "vendor.lock.json").read_text(encoding="utf-8"))
+    assert isinstance(payload, dict)
+    return payload
+
+
+def _build_vendor_from_lock(
+    tmp_path: Path, target: str, *, skip: tuple[str, ...] = ()
+) -> tuple[Path, Path, dict[str, str]]:
+    """Lay out every file the lock names, without executing the real tools."""
+    bundle = tmp_path / "bundle"
+    internal = bundle / "_internal"
+    internal.mkdir(parents=True)
+    (internal / "models").mkdir()
+    (internal / "models" / "models.lock.json").write_text("{}", encoding="utf-8")
+    (internal / "vendor.lock.json").write_text(
+        (Path(__file__).resolve().parents[2] / "packaging" / "vendor.lock.json").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+
+    lock = _real_lock()
+    components = lock["components"]
+    assert isinstance(components, dict)
+    versions: dict[str, str] = {}
+    for name, record in components.items():
+        assert isinstance(record, dict)
+        versions[name] = str(record["version"])
+        targets = record["targets"]
+        assert isinstance(targets, dict)
+        entry = targets[target]
+        assert isinstance(entry, dict)
+        for item in entry["install"]:
+            assert isinstance(item, dict)
+            destination = str(item["to"])
+            if destination in skip:
+                continue
+            path = bundle / "vendor" / destination
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("", encoding="utf-8")
+            if item["executable"]:
+                path.chmod(0o755)
+    return bundle, internal, versions
+
+
+@pytest.mark.unit
+def test_bundle_check_verifies_the_real_lock_and_shared_library(tmp_path: Path) -> None:
+    bundle, internal, versions = _build_vendor_from_lock(tmp_path, "linux-x86_64")
+
+    result = preflight.check_bundle(
+        bundle_root=bundle,
+        data_root=internal,
+        frozen=True,
+        system="linux",
+        target="linux-x86_64",
+        version_of=lambda path, name: f"{name} {versions[name]}",
+    )
+
+    assert result.status == preflight.STATUS_OK
+    assert result.fatal is False
+    assert "vendor.lock.json" in result.message
+
+
+@pytest.mark.unit
+def test_bundle_check_names_a_missing_shared_library(tmp_path: Path) -> None:
+    bundle, internal, versions = _build_vendor_from_lock(
+        tmp_path, "linux-x86_64", skip=("rubberband/libsndfile.so.1",)
+    )
+
+    result = preflight.check_bundle(
+        bundle_root=bundle,
+        data_root=internal,
+        frozen=True,
+        system="linux",
+        target="linux-x86_64",
+        version_of=lambda path, name: f"{name} {versions[name]}",
+    )
+
+    assert result.status == preflight.STATUS_FAIL
+    assert result.fatal is True
+    assert "vendor/rubberband/libsndfile.so.1" in result.message
+    assert "missing" in result.message
+
+
+@pytest.mark.unit
+def test_bundle_check_applies_the_windows_exe_rule(tmp_path: Path) -> None:
+    bundle, internal, versions = _build_vendor_from_lock(tmp_path, "windows-x64")
+    # The lock names only .exe files for Windows; a suffix-less tool must fail
+    # the executable rule even on a filesystem that thinks chmod did something.
+    (bundle / "vendor" / "deno" / "deno.exe").rename(bundle / "vendor" / "deno" / "deno")
+
+    result = preflight.check_bundle(
+        bundle_root=bundle,
+        data_root=internal,
+        frozen=True,
+        system="win32",
+        target="windows-x64",
+        version_of=lambda path, name: f"{name} {versions[name]}",
+    )
+
+    assert result.status == preflight.STATUS_FAIL
+    assert "missing: vendor/deno/deno.exe" in result.message
+
+
+@pytest.mark.unit
+def test_bundle_check_reports_a_real_lock_version_mismatch(tmp_path: Path) -> None:
+    bundle, internal, _versions = _build_vendor_from_lock(tmp_path, "linux-x86_64")
+
+    result = preflight.check_bundle(
+        bundle_root=bundle,
+        data_root=internal,
+        frozen=True,
+        system="linux",
+        target="linux-x86_64",
+        version_of=lambda path, name: (
+            "Rubber Band 3.3.0" if name == "rubberband" else "deno 2.9.8 (stable)"
+        ),
+    )
+
+    assert result.status == preflight.STATUS_FAIL
+    assert "version mismatch: rubberband" in result.message
+    assert "3.3.0" not in result.message
+
+
+@pytest.mark.unit
+def test_bundle_check_reports_a_version_probe_failure(tmp_path: Path) -> None:
+    bundle, internal, _versions = _build_vendor_from_lock(tmp_path, "linux-x86_64")
+
+    result = preflight.check_bundle(
+        bundle_root=bundle,
+        data_root=internal,
+        frozen=True,
+        system="linux",
+        target="linux-x86_64",
+        version_of=lambda path, name: None,
+    )
+
+    assert result.status == preflight.STATUS_FAIL
+    assert "--version failed: ffmpeg" in result.message
+
+
+@pytest.mark.unit
+def test_shared_library_name_lookup_is_platform_specific() -> None:
+    assert preflight.shared_library_name("rubberband", system="linux") == "libsndfile.so.1"
+    assert preflight.shared_library_name("rubberband", system="win32") == "sndfile.dll"
+    assert preflight.shared_library_name("deno", system="linux") is None
+
+
+@pytest.mark.unit
+def test_read_vendor_lock_versions_reads_the_packaged_lock() -> None:
+    versions = preflight.read_vendor_lock_versions(
+        Path(__file__).resolve().parents[2] / "packaging" / "vendor.lock.json"
+    )
+
+    assert versions == {
+        "ffmpeg": "n9.0.2-57-gd838f9f9ae",
+        "ffprobe": "n9.0.2-57-gd838f9f9ae",
+        "rubberband": "4.0.0",
+        "deno": "2.9.8",
+    }
+
+
 @pytest.mark.unit
 def test_storage_check_probes_every_root(app_paths: AppPaths) -> None:
     result = preflight.check_storage(app_paths, home_override=None)

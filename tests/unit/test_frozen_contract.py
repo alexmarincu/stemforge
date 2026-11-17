@@ -214,12 +214,15 @@ def test_development_binary_prefers_an_env_override(
 
 @pytest.mark.unit
 def test_development_missing_binary_falls_back_to_path(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def fake_which(name: str) -> str | None:
         return "/usr/bin/ffmpeg" if name == "ffmpeg" else None
 
     monkeypatch.delenv("STEMFORGE_TEST_FFMPEG", raising=False)
+    # Ticket 19 gives a developer checkout an optional vendor/ tree; this test
+    # is about the fallback when that tree is absent.
+    monkeypatch.setattr(binaries, "bundle_root", lambda: tmp_path)
     monkeypatch.setattr(binaries.shutil, "which", fake_which)
 
     assert binaries.find_vendor("ffmpeg/ffmpeg") == Path("/usr/bin/ffmpeg")
