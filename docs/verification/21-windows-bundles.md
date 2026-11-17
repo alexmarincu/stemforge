@@ -145,6 +145,13 @@ If GitHub refuses the dispatch because the workflow is not yet on the default
 branch, run it from the merge commit's branch once the workflow is present, or
 run the same steps manually on a `windows-2022` host:
 
+> Attempted from `ticket/21-windows-bundles` on 2026-11-17 after pushing the
+> branch: `gh workflow run windows-bundle.yml --ref ticket/21-windows-bundles ...`
+> returned **HTTP 404: workflow windows-bundle.yml not found on the default
+> branch**. GitHub requires `workflow_dispatch` workflows to exist on the
+> default branch. Once this file lands on `main` (via #23 / the integration
+> merge), re-run the dispatch; no code change is needed.
+
 ```powershell
 uv sync --frozen --group build
 uv pip install --python .venv\Scripts\python.exe meson ninja
