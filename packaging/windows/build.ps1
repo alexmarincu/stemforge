@@ -74,6 +74,71 @@ function Assert-File([string]$Path, [string]$Label) {
     }
 }
 
+function Add-RuntimeBuildInfo([string]$BundleRoot) {
+    $licences = Join-Path $BundleRoot 'LICENSES'
+    if (-not (Test-Path -LiteralPath $licences -PathType Container)) {
+        return
+    }
+    $ffmpeg = Join-Path $BundleRoot 'vendor\ffmpeg\ffmpeg.exe'
+    $ffmpegInfo = Join-Path $licences 'ffmpeg\BUILDINFO.txt'
+    if ((Test-Path -LiteralPath $ffmpeg -PathType Leaf) -and (Test-Path -LiteralPath $ffmpegInfo -PathType Leaf)) {
+        $version = (& $ffmpeg -version 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            throw 'shipped ffmpeg.exe -version failed; the vendor tree is damaged'
+        }
+        $configure = (& $ffmpeg -buildconf 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            throw 'shipped ffmpeg.exe -buildconf failed; the vendor tree is damaged'
+        }
+        Add-Content -LiteralPath $ffmpegInfo -Encoding UTF8 -Value @(
+            '',
+            '## Shipped runtime output',
+            '',
+            'Recorded by packaging/windows/build.ps1 from the bundled executable.',
+            '',
+            '$ ffmpeg -version',
+            $version,
+            '',
+            '$ ffmpeg -buildconf',
+            $configure
+        )
+    }
+
+    $rubberband = Join-Path $BundleRoot 'vendor\rubberband\rubberband.exe'
+    $rubberbandInfo = Join-Path $licences 'rubberband\BUILDINFO.txt'
+    if ((Test-Path -LiteralPath $rubberband -PathType Leaf) -and (Test-Path -LiteralPath $rubberbandInfo -PathType Leaf)) {
+        $version = (& $rubberband --version 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            throw 'shipped rubberband.exe --version failed; the vendor tree is damaged'
+        }
+        Add-Content -LiteralPath $rubberbandInfo -Encoding UTF8 -Value @(
+            '',
+            '## Shipped runtime output',
+            '',
+            'Recorded by packaging/windows/build.ps1 from the bundled executable.',
+            '',
+            '$ rubberband --version',
+            $version
+        )
+    }
+
+    $sndfile = Join-Path $BundleRoot 'vendor\rubberband\sndfile.dll'
+    $sndfileInfo = Join-Path $licences 'libsndfile\BUILDINFO.txt'
+    if ((Test-Path -LiteralPath $sndfile -PathType Leaf) -and (Test-Path -LiteralPath $sndfileInfo -PathType Leaf)) {
+        $hash = (Get-FileHash -LiteralPath $sndfile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $size = (Get-Item -LiteralPath $sndfile).Length
+        Add-Content -LiteralPath $sndfileInfo -Encoding UTF8 -Value @(
+            '',
+            '## Shipped library',
+            '',
+            'Recorded by packaging/windows/build.ps1 from the bundled file.',
+            "path: vendor/rubberband/sndfile.dll",
+            "size: $size",
+            "sha256: $hash"
+        )
+    }
+}
+
 function Get-MissingVendor {
     $required = @(
         'vendor\ffmpeg\ffmpeg.exe',
@@ -191,6 +256,7 @@ else {
         Copy-Item -LiteralPath (Join-Path $RepoRoot $name) -Destination $Bundle -Force
     }
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'LICENSES') -Destination $Bundle -Recurse -Force
+    Add-RuntimeBuildInfo $Bundle
 }
 
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'packaging\windows\README.txt') -Destination (Join-Path $Bundle 'README.txt') -Force

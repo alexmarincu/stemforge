@@ -105,6 +105,13 @@ public prebuilt Rubber Band archive is named by the decision record, so none is
 invented. The CI job installs Meson/Ninja with `uv pip` and `pkgconfiglite` with
 Chocolatey; Inno Setup is installed if the image lacks it.
 
+After copying the licence tree, `build.ps1` appends the shipped executables'
+own output to `LICENSES/ffmpeg/BUILDINFO.txt` (`ffmpeg -version` and
+`ffmpeg -buildconf`), `LICENSES/rubberband/BUILDINFO.txt` (`rubberband
+--version`), and the `sndfile.dll` hash/size to
+`LICENSES/libsndfile/BUILDINFO.txt`. The committed ticket-22 files are the
+reproducible pin record; the appended section is the actual shipped build.
+
 ## 5. Static verification run here (Linux only)
 
 Commands and results from this worktree:
