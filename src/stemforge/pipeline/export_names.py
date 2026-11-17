@@ -21,6 +21,7 @@ __all__ = [
     "MAX_FILENAME_BYTES",
     "RESERVED_DEVICE_NAMES",
     "ROLE_LABELS",
+    "destination_base_name",
     "export_filename",
     "required_export_space",
     "sanitize_base_name",
@@ -102,6 +103,22 @@ def suggest_base_name(title: str, *, role: str | None = None, semitones: int = 0
     elif len(base) > budget:
         base = base[:budget].rstrip(" .") or _FALLBACK_NAME
     return f"{base}{suffix}"
+
+
+def destination_base_name(name: str, suffix: str) -> str:
+    """Turn a dialog-chosen filename into a safe base for the selected format.
+
+    ``name`` may include the selected extension in any case; it is removed and
+    the base is sanitised with the same rules as every other export name. A
+    wrong extension is *not* reinterpreted as a format request: it stays part of
+    the base, so ``Song.flac`` exported as WAV becomes ``Song.flac.wav``. The
+    dialog itself corrects known audio extensions before this helper runs.
+    """
+    normalized = _normalize_suffix(suffix)
+    value = str(name).strip()
+    if value.lower().endswith(normalized):
+        value = value[: -len(normalized)]
+    return sanitize_base_name(value)
 
 
 def export_filename(base: str, suffix: str, *, collision: int = 1) -> str:

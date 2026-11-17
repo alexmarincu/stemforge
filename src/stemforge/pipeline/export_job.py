@@ -48,6 +48,7 @@ from stemforge.errors import StemForgeError
 from stemforge.jobs.job import JobContext
 from stemforge.pipeline.export_names import (
     ROLE_LABELS,
+    destination_base_name,
     required_export_space,
     suggest_base_name,
     unique_export_path,
@@ -229,13 +230,16 @@ def run_export_job(
     target: ExportTarget | str,
     fmt: ExportFormat | str,
     destination_dir: Path,
+    destination_name: str | None = None,
 ) -> ExportResult:
     """Encode one selection and atomically write it to ``destination_dir``.
 
     ``target`` accepts the value from :func:`export_targets` or its stable key.
-    The destination must already exist and be writable; the Job never creates a
-    directory on the user's behalf. Free space is checked against the ticket 07
-    WAV-24 worst case before any destination file is touched.
+    ``destination_name`` is the save dialog's chosen filename (ticket 18); when
+    omitted the target's suggested base name is used. The destination directory
+    must already exist and be writable; the Job never creates a directory on the
+    user's behalf. Free space is checked against the ticket 07 WAV-24 worst case
+    before any destination file is touched.
     """
     export_format = ExportFormat(fmt)
     target_key = target.key if isinstance(target, ExportTarget) else str(target)
@@ -274,6 +278,12 @@ def run_export_job(
             context={"path": str(resolved.path)},
         )
 
+    base_name = (
+        destination_base_name(destination_name, export_format.suffix)
+        if destination_name
+        else resolved.base_name
+    )
+
     emit(0.02, STAGE_ENCODING, "checking the destination")
     _require_destination(destination)
     require_free_space(destination, required_export_space(duration_s), floor=0)
@@ -283,16 +293,29 @@ def run_export_job(
     try:
         encoded = staging / f"export{export_format.suffix}"
         emit(0.05, STAGE_ENCODING, resolved.label)
-        media.encode_export(
-            resolved.path,
-            encoded,
-            fmt=export_format,
-            metadata=_metadata_record(source.manifest),
-            gain_db=resolved.gain_db,
-            cover=_cover_for(source, export_format),
-            cancel=cancel,
-            log=log,
-        )
+        try:
+            media.encode_export(
+                resolved.path,
+                encoded,
+                fmt=export_format,
+                metadata=_metadata_record(source.manifest),
+                gain_db=resolved.gain_db,
+                cover=_cover_for(source, export_format),
+                cancel=cancel,
+                log=log,
+            )
+        except StemForgeError as exc:
+            # Ticket 14 §4.6 makes both Export encoder failures retryable even
+            # though the shared adapter leaves the flag unset elsewhere.
+            if exc.code in {errors.MEDIA_ENCODE_FAILED, errors.MEDIA_VALIDATION_FAILED}:
+                raise StemForgeError(
+                    exc.code,
+                    exc.message,
+                    retryable=True,
+                    detail=exc.detail,
+                    context=exc.context,
+                ) from exc
+            raise
 
         emit(0.60, STAGE_TAGGING, "verifying tags and cover")
         output_info = _verify_output(
@@ -308,7 +331,7 @@ def run_export_job(
         final_path = _write_destination(
             encoded,
             destination=destination,
-            base_name=resolved.base_name,
+            base_name=base_name,
             fmt=export_format,
             cancel=cancel,
         )
@@ -610,6 +633,7 @@ def _verify_output(
         raise StemForgeError(
             errors.MEDIA_VALIDATION_FAILED,
             "the export tags did not match the source record",
+            retryable=True,
             detail="tags",
             context={"path": str(path), "fields": sorted(missing)},
         )

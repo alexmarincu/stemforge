@@ -10,6 +10,7 @@ import pytest
 from stemforge.pipeline.export_names import (
     MAX_BASE_CHARS,
     MAX_FILENAME_BYTES,
+    destination_base_name,
     export_filename,
     required_export_space,
     sanitize_base_name,
@@ -139,3 +140,19 @@ def test_space_estimate_is_the_ticket_07_wav_24_worst_case() -> None:
 def test_space_estimate_rejects_negative_durations() -> None:
     with pytest.raises(ValueError, match="duration"):
         required_export_space(-1)
+
+
+@pytest.mark.parametrize(
+    ("typed", "suffix", "expected"),
+    [
+        ("Song - Vocals.wav", ".wav", "Song - Vocals"),
+        ("Song - Vocals.WAV", ".wav", "Song - Vocals"),
+        ("Song - Vocals.flac", ".wav", "Song - Vocals.flac"),
+        ("CON.wav", ".wav", "_CON"),
+        ("track: <bad> / name? * .wav", ".wav", "track_ _bad_ _ name_ _"),
+        (".wav", ".wav", "Export"),
+        ("   ", ".wav", "Export"),
+    ],
+)
+def test_a_dialog_supplied_name_becomes_a_safe_base(typed: str, suffix: str, expected: str) -> None:
+    assert destination_base_name(typed, suffix) == expected
