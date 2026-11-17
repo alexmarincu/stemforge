@@ -9,6 +9,7 @@ destination.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Final
@@ -187,4 +188,4 @@ def _truncate_utf8(text: str, max_bytes: int) -> str:
 
 
 def _path_exists(path: Path) -> bool:
-    return path.exists()
+    return os.path.lexists(path)
