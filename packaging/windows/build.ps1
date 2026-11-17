@@ -74,6 +74,24 @@ function Assert-File([string]$Path, [string]$Label) {
     }
 }
 
+function Invoke-Captured([string]$Tool, [string[]]$Arguments, [string]$Label) {
+    # Native stderr becomes a terminating ErrorRecord under
+    # $ErrorActionPreference='Stop'. Rubber Band writes --version to stderr.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = (& $Tool @Arguments 2>&1 | Out-String).Trim()
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($code -ne 0) {
+        throw "$Label failed; the vendor tree is damaged"
+    }
+    return $output
+}
+
 function Add-RuntimeBuildInfo([string]$BundleRoot) {
     $licences = Join-Path $BundleRoot 'LICENSES'
     if (-not (Test-Path -LiteralPath $licences -PathType Container)) {
@@ -82,14 +100,8 @@ function Add-RuntimeBuildInfo([string]$BundleRoot) {
     $ffmpeg = Join-Path $BundleRoot 'vendor\ffmpeg\ffmpeg.exe'
     $ffmpegInfo = Join-Path $licences 'ffmpeg\BUILDINFO.txt'
     if ((Test-Path -LiteralPath $ffmpeg -PathType Leaf) -and (Test-Path -LiteralPath $ffmpegInfo -PathType Leaf)) {
-        $version = (& $ffmpeg -version 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0) {
-            throw 'shipped ffmpeg.exe -version failed; the vendor tree is damaged'
-        }
-        $configure = (& $ffmpeg -buildconf 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0) {
-            throw 'shipped ffmpeg.exe -buildconf failed; the vendor tree is damaged'
-        }
+        $version = Invoke-Captured $ffmpeg @('-version') 'shipped ffmpeg.exe -version'
+        $configure = Invoke-Captured $ffmpeg @('-buildconf') 'shipped ffmpeg.exe -buildconf'
         Add-Content -LiteralPath $ffmpegInfo -Encoding UTF8 -Value @(
             '',
             '## Shipped runtime output',
@@ -107,10 +119,7 @@ function Add-RuntimeBuildInfo([string]$BundleRoot) {
     $rubberband = Join-Path $BundleRoot 'vendor\rubberband\rubberband.exe'
     $rubberbandInfo = Join-Path $licences 'rubberband\BUILDINFO.txt'
     if ((Test-Path -LiteralPath $rubberband -PathType Leaf) -and (Test-Path -LiteralPath $rubberbandInfo -PathType Leaf)) {
-        $version = (& $rubberband --version 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0) {
-            throw 'shipped rubberband.exe --version failed; the vendor tree is damaged'
-        }
+        $version = Invoke-Captured $rubberband @('--version') 'shipped rubberband.exe --version'
         Add-Content -LiteralPath $rubberbandInfo -Encoding UTF8 -Value @(
             '',
             '## Shipped runtime output',

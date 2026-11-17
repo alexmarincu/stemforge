@@ -184,8 +184,19 @@ function Find-Child([string]$Root, [string]$Leaf) {
 
 function Test-Version([string]$Tool, [string]$Path, [string]$Flag, [string]$Expected) {
     Assert-File $Path $Path
-    $output = (& $Path $Flag 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
+    # Rubber Band's --version writes to stderr. Merging it with 2>&1 under
+    # $ErrorActionPreference='Stop' turns the version string into a terminating
+    # ErrorRecord, so relax the preference only around this probe.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = (& $Path $Flag 2>&1 | Out-String).Trim()
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($code -ne 0) {
         throw "--version failed: $Tool ($output)"
     }
     $first = ($output -split "`r?`n")[0].Trim()
