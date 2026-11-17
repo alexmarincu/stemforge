@@ -294,6 +294,7 @@ def _export(
     *,
     job_id: str = "job-export",
     events: list[tuple[float, str | None, str | None]] | None = None,
+    destination_name: str | None = None,
 ):
     return run_export_job(
         _job_context(events, job_id=job_id),
@@ -303,6 +304,7 @@ def _export(
         target=target,  # type: ignore[arg-type]
         fmt=fmt,
         destination_dir=destination,
+        destination_name=destination_name,
     )
 
 
@@ -656,6 +658,31 @@ def test_an_unwritable_destination_fails_as_a_permission_error(
 # ---------------------------------------------------------------------------
 # Windows-safe names and collisions
 # ---------------------------------------------------------------------------
+
+
+def test_a_dialog_chosen_name_is_sanitised_and_keeps_the_selected_format(
+    tmp_path: Path,
+    ffmpeg_path: Path,
+    media: FfmpegTool,
+) -> None:
+    store = _store(tmp_path)
+    canonical = _make_tone(ffmpeg_path, tmp_path / "tone.wav")
+    _commit_source(store, canonical)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    result = _export(
+        store,
+        media,
+        "master",
+        ExportFormat.WAV24,
+        destination,
+        destination_name="My Mix: <final>?.WAV",
+    )
+
+    assert result.path.name == "My Mix_ _final__.wav"
+    assert result.path.is_file()
+    _assert_no_partial(destination)
 
 
 def test_a_reserved_device_name_is_prefixed(
