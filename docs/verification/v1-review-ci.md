@@ -42,7 +42,8 @@ deliberately omits. They run in the full-sync `licensing` job with
 
 Coverage is combined, not per job. The three producer jobs set
 `COVERAGE_FILE=.coverage.<job>` and upload a `coverage-<job>` artifact with
-7-day retention; `coverage` downloads `coverage-*` with
+7-day retention and `include-hidden-files: true` — upload-artifact v4 otherwise
+silently skips the dotfile. `coverage` downloads `coverage-*` with
 `actions/download-artifact@v4` (`merge-multiple: true`), combines, and runs:
 
 ```text
@@ -129,6 +130,10 @@ first, so they run there.
 - **The `release.yml` pin is an LF digest.** Git checks out CRLF on the Windows
   runner, so the test normalizes `\r\n` to `\n` before hashing; the Linux and
   Windows jobs now compare the same bytes.
+- **Coverage artifacts are dotfiles.** The first post-merge CI run combined no
+  data because `actions/upload-artifact@v4` excludes hidden files by default;
+  the three uploads now pass `include-hidden-files: true` and the topology test
+  pins it.
 - **Ticket 11 says the nightly runs `fetch_models.py`.** No such script exists in
   this repository; the single model-download path is the bundle's
   `--install-model --accept-model-licence`, which `release.yml` also uses. The

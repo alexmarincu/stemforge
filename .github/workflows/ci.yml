@@ -81,6 +81,7 @@ jobs:
           name: coverage-unit-linux
           path: .coverage.unit-linux
           retention-days: 7
+          include-hidden-files: true
 
   unit-windows:
     name: unit-windows
@@ -155,6 +156,7 @@ jobs:
           name: coverage-integration-linux
           path: .coverage.integration-linux
           retention-days: 7
+          include-hidden-files: true
 
   integration-windows:
     name: integration-windows
@@ -262,6 +264,7 @@ jobs:
           name: coverage-ui-linux
           path: .coverage.ui-linux
           retention-days: 7
+          include-hidden-files: true
 
   coverage:
     name: coverage
