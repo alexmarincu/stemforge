@@ -414,3 +414,46 @@ def test_render_pitch_requires_a_configured_engine(tmp_path: Path) -> None:
 
     assert raised.value.code == "internal.unexpected"
     assert service.runner.jobs() == []
+
+
+class _BlockingPitch:
+    """A Render that stays in ``shift`` until the Track removal cancels it."""
+
+    version = "4.0.0"
+    started = __import__("threading").Event()
+
+    def shift(self, src, dst, *, semitones, cancel, log, progress=None):  # type: ignore[no-untyped-def]
+        del src, dst, semitones, log, progress
+        self.started.set()
+        while True:
+            cancel.check()
+            __import__("time").sleep(0.005)
+
+    def sum_stems(self, srcs, dst, *, cancel, log):  # type: ignore[no-untyped-def]
+        raise AssertionError("not reached")
+
+    def peak_dbfs(self, path, *, cancel, log):  # type: ignore[no-untyped-def]
+        raise AssertionError("not reached")
+
+
+@pytest.mark.unit
+def test_removing_the_track_cancels_its_active_job_before_deleting_the_cache(
+    tmp_path: Path,
+) -> None:
+    pitch = _BlockingPitch()
+    service, store = _service(tmp_path, engines=ServiceEngines(pitch=pitch, media=object()))
+    _commit_source(store)
+    track = service._accept_source(_track().source)
+    service.runner.start()
+    try:
+        job_id = service.render_pitch(track, 3, RenderScope.ORIGINAL)
+        assert pitch.started.wait(5)
+
+        outcome = service.remove_track(track.track_id)
+
+        assert outcome.track.track_id == track.track_id
+        assert service.runner.snapshot(job_id).state.value == "cancelled"
+        assert service.snapshot().tracks == ()
+        assert not (store.sources_dir / SOURCE_ID).exists()
+    finally:
+        service.runner.stop(timeout=5)

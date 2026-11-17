@@ -350,7 +350,7 @@ class ModelStore:
         return StemForgeError(
             code,
             f"could not {action}",
-            retryable=code == errors.SEPARATION_ENGINE_ERROR,
+            retryable=True,
             detail=f"{type(exc).__name__}: {exc}",
             context={"path": str(path), "errno": exc.errno},
         )

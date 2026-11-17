@@ -496,6 +496,8 @@ def test_decode_uses_the_canonical_format(
     _assert_duration(info.duration_s, 3.0)
     _assert_duration(result.duration_s, 3.0)
     assert result.downmixed is False
+    # WAV writers never carry the source's comment tag as an ICMT chunk.
+    assert b"ICMT" not in result.path.read_bytes()
     assert not (out_dir / "canonical.partial.wav").exists()
 
 
@@ -864,8 +866,11 @@ def test_export_wav24_carries_info_tags_and_no_cover(
     assert info.channels == 2
     _assert_duration(info.duration_s, 3.0)
     assert not _has_attached_picture(document)
-    for key in ("title", "artist", "album", "track", "date", "genre", "comment", "copyright"):
+    for key in ("title", "artist", "album", "track", "date", "genre", "copyright"):
         assert info.tags[key] == _export_metadata(fixtures).tags()[key]
+    # Ticket 05 §9: WAV comment tags are not written, so no ICMT INFO chunk.
+    assert "comment" not in info.tags
+    assert b"ICMT" not in target.read_bytes()
     assert not (out_dir / "export.partial.wav").exists()
 
 
@@ -1017,6 +1022,7 @@ def test_sum_wavs_adds_the_inputs_without_normalizing(
     )
     assert error <= 1e-3
     assert max(abs(sample) for sample in total) <= 1.0
+    assert b"ICMT" not in target.read_bytes()
     assert not (out_dir / "instrumental.partial.wav").exists()
 
 

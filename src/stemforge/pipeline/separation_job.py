@@ -436,6 +436,7 @@ def _validate_wav(
         raise StemForgeError(
             code,
             "the separation produced an unreadable file",
+            retryable=True,
             detail=f"{role}: {exc.code}",
             context={"role": role, "path": str(path)},
         ) from exc
@@ -452,6 +453,7 @@ def _validate_wav(
         raise StemForgeError(
             code,
             "the separation produced an invalid file",
+            retryable=True,
             detail=f"{role}: {', '.join(problems)}",
             context={"role": role, "path": str(path), "problems": problems},
         )

@@ -26,7 +26,13 @@ from stemforge.application import ExportFormat, ExportTarget
 from stemforge.domain.models import Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import SaveAudioFileDialog, SaveSelection
+from stemforge.integration.shell import PathOpener
 from stemforge.ui import formatting
+from stemforge.ui.components.diagnostics import (
+    ClipboardWriter,
+    DiagnosticsProvider,
+    error_details,
+)
 
 if TYPE_CHECKING:
     from stemforge.application import WorkspaceService
@@ -85,6 +91,8 @@ class ExportNotice:
     code: str | None = None
     detail: str | None = None
     retryable: bool = False
+    job_id: str | None = None
+    log_path: Path | None = None
 
     @property
     def succeeded(self) -> bool:
@@ -102,8 +110,17 @@ class ExportNotice:
         code: str,
         detail: str | None,
         retryable: bool,
+        job_id: str | None = None,
+        log_path: Path | None = None,
     ) -> ExportNotice:
-        return cls(spec=spec, code=code, detail=detail, retryable=retryable)
+        return cls(
+            spec=spec,
+            code=code,
+            detail=detail,
+            retryable=retryable,
+            job_id=job_id,
+            log_path=log_path,
+        )
 
 
 class ExportSheet:
@@ -116,11 +133,17 @@ class ExportSheet:
         *,
         on_job_started: JobStarted,
         on_target_selected: TargetSelected,
+        diagnostics: DiagnosticsProvider | None = None,
+        clipboard: ClipboardWriter | None = None,
+        open_path: PathOpener | None = None,
     ) -> None:
         self._service = service
         self._save_dialog = save_dialog
         self._on_job_started = on_job_started
         self._on_target_selected = on_target_selected
+        self._diagnostics = diagnostics
+        self._clipboard = clipboard
+        self._open_path = open_path
         self._formats: dict[str, ExportFormat] = {}
         self._targets: dict[str, str] = {}
         self._track: Track | None = None
@@ -252,7 +275,13 @@ class ExportSheet:
         with ui.element("div").classes("sf-notice").mark("export-submit-error"):
             ui.label(copy.headline).classes("sf-notice-headline")
             ui.label(copy.action).classes("sf-notice-action")
-            ui.label(f"{code} · {detail}" if detail else code).classes("sf-notice-detail")
+            error_details(
+                code=code,
+                marker="export-submit",
+                diagnostics=self._diagnostics,
+                clipboard=self._clipboard,
+                open_path=self._open_path,
+            )
 
     def _footer(self, *, busy: bool, can_submit: bool) -> None:
         with ui.element("div").classes("sf-export-footer"):
@@ -395,11 +424,22 @@ class ExportStatusBar:
         busy: bool,
         on_retry: Callable[[], None],
         on_dismiss: Callable[[], None],
+        diagnostics: DiagnosticsProvider | None = None,
+        clipboard: ClipboardWriter | None = None,
+        open_path: PathOpener | None = None,
     ) -> None:
         if notice.succeeded:
             self._success(notice, on_dismiss=on_dismiss)
             return
-        self._failure(notice, busy=busy, on_retry=on_retry, on_dismiss=on_dismiss)
+        self._failure(
+            notice,
+            busy=busy,
+            on_retry=on_retry,
+            on_dismiss=on_dismiss,
+            diagnostics=diagnostics,
+            clipboard=clipboard,
+            open_path=open_path,
+        )
 
     def _success(self, notice: ExportNotice, *, on_dismiss: Callable[[], None]) -> None:
         with ui.element("div").classes("sf-exportbar is-success").mark("export-success"):
@@ -426,17 +466,27 @@ class ExportStatusBar:
         busy: bool,
         on_retry: Callable[[], None],
         on_dismiss: Callable[[], None],
+        diagnostics: DiagnosticsProvider | None,
+        clipboard: ClipboardWriter | None,
+        open_path: PathOpener | None,
     ) -> None:
         code = notice.code or errors.INTERNAL_UNEXPECTED
-        reason = "export" if code == errors.STORAGE_DISK_FULL else notice.detail
+        reason = "export" if code == errors.STORAGE_DISK_FULL else _reason(notice.detail)
         copy = formatting.copy_for(code, reason)
         with ui.element("div").classes("sf-exportbar is-failure").mark("export-failure"):
             ui.icon("error_outline", size="sm").classes("sf-exportbar-icon")
             with ui.element("div").classes("sf-exportbar-main"):
                 ui.label(copy.headline).classes("sf-exportbar-title").mark("export-headline")
                 ui.label(copy.action).classes("sf-exportbar-detail")
-                detail = f"{code} · {notice.detail}" if notice.detail else code
-                ui.label(detail).classes("sf-exportbar-code").mark("export-error-code")
+                error_details(
+                    code=code,
+                    marker="export-error",
+                    job_id=notice.job_id,
+                    log_path=notice.log_path,
+                    diagnostics=diagnostics,
+                    clipboard=clipboard,
+                    open_path=open_path,
+                )
             if notice.retryable:
                 retry = (
                     ui.button(EXPORT_RETRY, on_click=lambda _=None: on_retry())
@@ -449,3 +499,13 @@ class ExportStatusBar:
                 .props("flat dense no-caps size=sm")
                 .mark("export-dismiss")
             )
+
+
+def _reason(detail: str | None) -> str | None:
+    text = (detail or "").strip()
+    if not text:
+        return None
+    for part in text.replace("\n", " ").split():
+        if part.startswith("reason="):
+            return part.removeprefix("reason=")
+    return text if " " not in text else None

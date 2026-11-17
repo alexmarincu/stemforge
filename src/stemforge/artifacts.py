@@ -76,6 +76,7 @@ SCHEMA_VERSION: Final = 1
 SOURCE_MANIFEST_NAME: Final = "source.json"
 ARTIFACT_MANIFEST_NAME: Final = "manifest.json"
 USED_MARKER_NAME: Final = ".used"
+EVICTION_LEDGER_NAME: Final = "evictions.jsonl"
 
 SOURCE_KIND: Final = "source"
 SEPARATION_KIND: Final = "separation"
@@ -360,6 +361,11 @@ class ArtifactStore:
     def youtube_cache_dir(self) -> Path:
         """The yt-dlp tool cache; "Clear YouTube cache" deletes only this."""
         return self.root / "yt-dlp"
+
+    @property
+    def eviction_ledger_path(self) -> Path:
+        """The append-only cache eviction journal used by diagnostics."""
+        return self.root / EVICTION_LEDGER_NAME
 
     @property
     def cap_bytes(self) -> int:
@@ -836,11 +842,13 @@ class ArtifactStore:
                     _remove_tree(base / entry.key)
                 except OSError as exc:
                     _raise_wrapped(exc, f"evict {entry.key}")
+            self._record_evictions(plan.evicted)
             usage_after = self.usage_bytes()
             if usage_after > self._cap_bytes:
                 raise StemForgeError(
                     errors.STORAGE_CACHE_FULL,
                     "cache is full and everything left is in use",
+                    retryable=True,
                     context={
                         "usage": usage_after,
                         "cap": self._cap_bytes,
@@ -853,6 +861,45 @@ class ArtifactStore:
                 usage_after=usage_after,
                 cap_bytes=self._cap_bytes,
             )
+
+    def _record_evictions(self, entries: Sequence[CacheEntry]) -> None:
+        """Append evicted keys to the diagnostics journal; never fail the eviction."""
+        if not entries:
+            return
+        stamp = datetime.now(UTC).isoformat()
+        try:
+            with self.eviction_ledger_path.open("a", encoding="utf-8") as handle:
+                for entry in entries:
+                    payload = {
+                        "at": stamp,
+                        "key": entry.key,
+                        "kind": entry.kind,
+                        "bytes": entry.size_bytes,
+                    }
+                    handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        except OSError:
+            _LOG.warning("could not record cache evictions", exc_info=True)
+
+    def eviction_count(self, since: datetime) -> int:
+        """Count evictions at or after ``since`` from the local journal."""
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=UTC)
+        try:
+            lines = self.eviction_ledger_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return 0
+        count = 0
+        for line in lines:
+            try:
+                payload = json.loads(line)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            stamp = _parse_datetime(payload.get("at"))
+            if stamp is not None and stamp >= since:
+                count += 1
+        return count
 
     def _cache_entries(self) -> tuple[CacheEntry, ...]:
         entries: list[CacheEntry] = []
@@ -1478,6 +1525,7 @@ def _raise_wrapped(exc: OSError, action: str) -> None:
     raise StemForgeError(
         code,
         f"could not {action}: {exc}",
+        retryable=True,
         detail=str(exc),
         context={"errno": exc.errno},
     ) from exc
