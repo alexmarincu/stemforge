@@ -59,4 +59,5 @@ generator consume it; `scripts/vendor-fetch.sh` and
    `scripts/vendor-fetch.ps1 -Force -RubberBandPrebuilt ...` (Windows).
 4. Run `uv run pytest tests/unit/test_vendor_lock.py
    tests/integration/test_vendor_binaries.py -m "unit or (integration and slow)"`.
-5. Ticket 22's `generate_notices.py --check` must stay green.
+5. `scripts/generate_notices.py --check` must stay green (see
+   [`../licenses/README.md`](../licenses/README.md)).
