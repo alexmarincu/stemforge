@@ -329,6 +329,7 @@ def test_submit_export_queues_one_export_job_with_the_selection_identity(
         "master",
         ExportFormat.WAV24.value,
         str(destination),
+        "-",
     )
 
 
@@ -343,6 +344,31 @@ def test_submit_export_accepts_a_target_key_and_string_format(tmp_path: Path) ->
 
     assert runner.submitted[0].identity[2] == "master"
     assert runner.submitted[0].identity[3] == "mp3_320"
+
+
+def test_submit_export_carries_the_dialog_chosen_name(tmp_path: Path) -> None:
+    service, store, runner = _service(tmp_path)
+    _commit_source(store)
+    track = _add_track(service, store)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    service.submit_export(
+        track,
+        "master",
+        ExportFormat.FLAC24,
+        destination,
+        destination_name="My Mix - Vocals.flac",
+    )
+
+    assert runner.submitted[0].identity == (
+        JobKind.EXPORT.value,
+        track.track_id,  # type: ignore[attr-defined]
+        "master",
+        ExportFormat.FLAC24.value,
+        str(destination),
+        "My Mix - Vocals.flac",
+    )
 
 
 def test_submit_export_refuses_a_target_that_does_not_belong_to_the_track(

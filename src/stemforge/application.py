@@ -38,7 +38,8 @@ from stemforge.domain.models import (
     Track,
 )
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
-from stemforge.engines.media import ExportFormat, MediaTool
+from stemforge.engines.media import ExportFormat as ExportFormat
+from stemforge.engines.media import MediaTool
 from stemforge.engines.pitch import (
     MAX_SEMITONES,
     MIN_SEMITONES,
@@ -704,13 +705,16 @@ class WorkspaceService:
         target: ExportTarget | str,
         fmt: ExportFormat | str,
         destination_dir: Path | str,
+        *,
+        destination_name: str | None = None,
     ) -> str:
         """Submit one Export Job and return its id.
 
         ``target`` is a value from :meth:`export_targets` or its stable key. The
         Job re-resolves the key against the committed manifests, so a queued
         Export follows a re-separation instead of a stale path. The native save
-        dialog and format sheet (#18) own the file name and overwrite consent.
+        dialog and format sheet (#18) own the file name; ``destination_name``
+        carries the dialog's sanitised choice so the Job writes that name.
         """
         found = self._find_track(track)
         if found is None:
@@ -754,9 +758,16 @@ class WorkspaceService:
                 resolved.key,
                 export_format.value,
                 str(destination),
+                destination_name or "-",
             ),
             title=found.title,
-            run=self._export_run(resolved, export_format, destination, media),
+            run=self._export_run(
+                resolved,
+                export_format,
+                destination,
+                media,
+                destination_name,
+            ),
         )
         return self._runner.submit(job)
 
@@ -830,6 +841,7 @@ class WorkspaceService:
         fmt: ExportFormat,
         destination: Path,
         media: MediaTool,
+        destination_name: str | None = None,
     ) -> JobRun:
         def run(ctx: JobContext) -> Mapping[str, str]:
             result = run_export_job(
@@ -840,6 +852,7 @@ class WorkspaceService:
                 target=target,
                 fmt=fmt,
                 destination_dir=destination,
+                destination_name=destination_name,
             )
             return {
                 "path": str(result.path),
