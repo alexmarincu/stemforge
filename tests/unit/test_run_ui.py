@@ -80,6 +80,61 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     assert len(shutdown) == 1
 
 
+def test_run_ui_enforces_the_cache_cap_after_the_sweep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nicegui import app, ui
+
+    from stemforge.application import WorkspaceService
+    from stemforge.artifacts import EvictionReport, SweepReport
+    from stemforge.ui import page
+
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    calls: list[str] = []
+
+    monkeypatch.setattr(ui, "run", lambda **kwargs: None)
+    monkeypatch.setattr(app, "on_startup", lambda callback: None)
+    monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
+    monkeypatch.setattr(page, "configure", lambda context: None)
+    monkeypatch.setattr(
+        WorkspaceService,
+        "sweep_stale",
+        lambda self: calls.append("sweep") or SweepReport(),
+    )
+    monkeypatch.setattr(
+        WorkspaceService,
+        "enforce_cache_cap",
+        lambda self: calls.append("cap") or EvictionReport((), 0, 0, 0),
+    )
+
+    assert __main__._run_ui(paths, PreflightReport(checks=())) == 0
+    assert calls == ["sweep", "cap"]
+
+
+def test_run_ui_survives_a_cache_cap_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nicegui import app, ui
+
+    from stemforge import errors
+    from stemforge.application import WorkspaceService
+    from stemforge.errors import StemForgeError
+    from stemforge.ui import page
+
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+
+    def fail(self: WorkspaceService) -> None:
+        raise StemForgeError(errors.STORAGE_CACHE_FULL, "cache is full")
+
+    monkeypatch.setattr(ui, "run", lambda **kwargs: None)
+    monkeypatch.setattr(app, "on_startup", lambda callback: None)
+    monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
+    monkeypatch.setattr(page, "configure", lambda context: None)
+    monkeypatch.setattr(WorkspaceService, "enforce_cache_cap", fail)
+
+    assert __main__._run_ui(paths, PreflightReport(checks=())) == 0
+
+
 def test_run_ui_browser_mode_opens_the_web_server(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

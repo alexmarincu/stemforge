@@ -80,6 +80,55 @@ def test_install_model_accepts_and_reports_the_pinned_result(
     assert consent.acknowledged is True
 
 
+def test_install_model_interactive_yes_records_consent_and_installs_once(
+    home: AppPaths,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    attempts: list[ModelInstallJob] = []
+    monkeypatch.setattr(ModelStore, "verify", lambda store: _status(store, verified=False))
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "yes")
+
+    def install(job: ModelInstallJob, _ctx: object) -> ModelInstallResult:
+        attempts.append(job)
+        return ModelInstallResult(status=_status(job.store, verified=True), downloaded=True)
+
+    monkeypatch.setattr(ModelInstallJob, "run", install)
+
+    code = entry.main(["--install-model"])
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert len(attempts) == 1
+    assert "model_missing" not in output
+    assert "installed htdemucs " in output
+    consent = SettingsStore(home).model_consent()
+    assert consent is not None
+    assert consent.acknowledged is True
+    assert consent.version == 1
+
+
+def test_install_model_interactive_no_declines_without_installing(
+    home: AppPaths,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    attempts: list[ModelInstallJob] = []
+    monkeypatch.setattr(ModelStore, "verify", lambda store: _status(store, verified=False))
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "no")
+    monkeypatch.setattr(ModelInstallJob, "run", lambda job, _ctx: attempts.append(job))
+
+    code = entry.main(["--install-model"])
+
+    output = capsys.readouterr().out
+    assert code == 1
+    assert attempts == []
+    assert f"error {errors.SEPARATION_MODEL_MISSING}: consent declined" in output
+    assert SettingsStore(home).model_consent() is None
+
+
 def test_install_model_reports_an_already_verified_cache_without_consent(
     home: AppPaths,
     monkeypatch: pytest.MonkeyPatch,

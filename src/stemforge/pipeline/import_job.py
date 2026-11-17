@@ -90,7 +90,7 @@ def run_local_import(
                 detail=f"duration={info.duration_s:.3f}",
                 context={"path": str(source_path), "duration_s": info.duration_s},
             )
-        _check_free_space(artifacts, info.duration_s, native_bytes)
+        estimate = _check_free_space(artifacts, info.duration_s, native_bytes)
         ctx.cancel.check()
         ctx.progress(0.05, stage=STAGE_PROBING, detail=source_path.name)
 
@@ -103,6 +103,8 @@ def run_local_import(
             ctx.progress(1.0, stage=STAGE_SAVING)
             return ImportResult(source=source, track=track, artifact=cached, cached=True)
 
+        # Ticket 07 §2: the Job reserves its output estimate before it writes.
+        artifacts.enforce_cap(estimate)
         staging = artifacts.stage(ctx.job_id)
         native_path = staging / _native_name(source_path)
         _copy_native(source_path, native_path)
@@ -150,6 +152,7 @@ def run_local_import(
             decoded_duration_s=decoded.duration_s,
             decoded_sample_rate=decoded.sample_rate,
             decoded_channels=decoded.channels,
+            downmixed=decoded.downmixed,
             metadata=metadata,
             title=title,
             gain_db=gain_db,
@@ -212,9 +215,10 @@ def _blake2b_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _check_free_space(artifacts: ArtifactStore, duration_s: float, native_bytes: int) -> None:
+def _check_free_space(artifacts: ArtifactStore, duration_s: float, native_bytes: int) -> int:
     estimate = estimate_import_bytes(duration_s, native_bytes=native_bytes)
     require_free_space(artifacts.root, free_space_requirement(estimate))
+    return estimate
 
 
 def _copy_native(source: Path, target: Path) -> None:
@@ -270,6 +274,7 @@ def _source_manifest(
     decoded_duration_s: float,
     decoded_sample_rate: int,
     decoded_channels: int,
+    downmixed: bool,
     metadata: CanonicalMetadata,
     title: str,
     gain_db: float,
@@ -292,6 +297,7 @@ def _source_manifest(
         "content_hash": source_id,
         "app_version": __version__,
         "gain_db": gain_db,
+        "downmixed": downmixed,
         "metadata": _metadata_record(
             metadata,
             source_id=source_id,
@@ -355,6 +361,7 @@ def _source_from_artifact(
         origin=str(source_path),
         origin_kind=OriginKind.FILE,
         metadata=metadata,
+        downmixed=artifact.manifest.get("downmixed") is True,
         native_path=artifact.path_for("native"),
         canonical_path=artifact.path_for("canonical"),
         preview_path=artifact.path_for("preview"),

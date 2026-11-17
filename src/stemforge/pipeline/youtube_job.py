@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import errno
 import hashlib
-import json
 import math
 import os
 import shutil
@@ -24,7 +23,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Final, cast
 
 from stemforge import __version__, errors
@@ -117,7 +116,8 @@ def run_youtube_import(
                 ctx, artifacts, cached, video, finalize, origin=metadata.canonical_url
             )
 
-    _check_free_space(artifacts, metadata.duration_s)
+    estimate = _check_free_space(artifacts, metadata.duration_s)
+    artifacts.enforce_cap(estimate)
     staging: Path | None = None
     try:
         staging = artifacts.stage(ctx.job_id)
@@ -189,6 +189,7 @@ def run_youtube_import(
             duration_s=decoded.duration_s,
             sample_rate=decoded.sample_rate,
             channels=decoded.channels,
+            downmixed=decoded.downmixed,
             native_bytes=_file_size(native_path),
             native_sha256=_sha256_file(native_path),
             gain_db=gain_db,
@@ -258,25 +259,26 @@ def _recover_from_native(
     when the native file cannot be decoded after all. No network is used here.
     """
     source_id = video.source_id
-    directory = artifacts.sources_dir / source_id
-    try:
-        payload = json.loads((directory / "source.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    record = artifacts.read_source_manifest(source_id)
+    if record is None:
         return None
-    if not isinstance(payload, dict):
-        return None
-    manifest = cast("Mapping[str, object]", payload)
-    if (
-        manifest.get("schema_version") != 1
-        or manifest.get("kind") != "source"
-        or manifest.get("source_id") != source_id
-    ):
-        return None
+    manifest = record.manifest
 
-    native = _manifest_native(directory, manifest)
-    if native is None:
+    native_entry = record.entry_for("native")
+    native_path = record.path_for("native")
+    if native_entry is None or native_path is None:
         return None
-    native_path, native_bytes, native_sha256 = native
+    native_bytes = native_entry.size
+    native_sha256 = native_entry.sha256
+    if native_bytes is None or native_sha256 is None:
+        return None
+    try:
+        if native_path.is_symlink() or not native_path.is_file():
+            return None
+        if native_path.stat().st_size != native_bytes:
+            return None
+    except OSError:
+        return None
     if _sha256_file(native_path) != native_sha256:
         # Ticket 09 §5 case 3: the native file no longer matches its hash.
         _discard_broken_source(ctx, artifacts, source_id)
@@ -292,6 +294,8 @@ def _recover_from_native(
     )
 
     ctx.progress(0.75, stage=STAGE_DECODING, detail="Repairing cached audio")
+    duration_s = _as_float(_metadata_mapping(manifest).get("duration_s")) or 0.0
+    artifacts.enforce_cap(estimate_import_bytes(duration_s, youtube=True))
     staging = artifacts.stage(ctx.job_id)
     try:
         native_target = staging / f"native{native_path.suffix.lower() or '.bin'}"
@@ -331,6 +335,7 @@ def _recover_from_native(
             duration_s=decoded.duration_s,
             sample_rate=decoded.sample_rate,
             channels=decoded.channels,
+            downmixed=decoded.downmixed,
             native_bytes=native_bytes,
             native_sha256=native_sha256,
             gain_db=gain_db,
@@ -366,48 +371,6 @@ def _recover_from_native(
         artifact=artifact,
         cached=True,
     )
-
-
-def _manifest_native(
-    directory: Path, manifest: Mapping[str, object]
-) -> tuple[Path, int, str] | None:
-    files = manifest.get("files")
-    if not isinstance(files, list):
-        return None
-    for raw_entry in files:
-        if not isinstance(raw_entry, Mapping):
-            continue
-        entry = cast("Mapping[str, object]", raw_entry)
-        if entry.get("role") != "native":
-            continue
-        relative = entry.get("path")
-        sha256 = entry.get("sha256")
-        size = entry.get("size")
-        if not isinstance(relative, str) or not relative:
-            return None
-        if not isinstance(sha256, str) or len(sha256) != 64:
-            return None
-        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
-            return None
-        pure = PurePosixPath(relative)
-        if (
-            pure.is_absolute()
-            or not pure.parts
-            or any(part in {"", ".", ".."} for part in pure.parts)
-            or "\\" in relative
-            or ":" in relative
-        ):
-            return None
-        target = directory.joinpath(*pure.parts)
-        try:
-            if target.is_symlink() or not target.is_file():
-                return None
-            if target.stat().st_size != size:
-                return None
-        except OSError:
-            return None
-        return target, size, sha256.lower()
-    return None
 
 
 def _metadata_from_manifest(
@@ -501,9 +464,10 @@ def _require_duration_cap(duration_s: float) -> None:
         )
 
 
-def _check_free_space(artifacts: ArtifactStore, duration_s: float | None) -> None:
+def _check_free_space(artifacts: ArtifactStore, duration_s: float | None) -> int:
     estimate = estimate_import_bytes(duration_s or 0.0, youtube=True)
     require_free_space(artifacts.root, free_space_requirement(estimate))
+    return estimate
 
 
 # --- files and manifests ---------------------------------------------------
@@ -568,6 +532,7 @@ def _source_manifest(
     duration_s: float,
     sample_rate: int,
     channels: int,
+    downmixed: bool,
     native_bytes: int,
     native_sha256: str,
     gain_db: float,
@@ -586,6 +551,7 @@ def _source_manifest(
         "content_hash": native_sha256,
         "app_version": __version__,
         "gain_db": gain_db,
+        "downmixed": downmixed,
         "native_sha256": native_sha256,
         "native_bytes": native_bytes,
         "format_id": downloaded.format_id,
@@ -636,6 +602,7 @@ def _source_from_artifact(artifact: SourceArtifact, *, fallback_origin: str) -> 
         origin=origin,
         origin_kind=OriginKind.YOUTUBE,
         metadata=metadata,
+        downmixed=artifact.manifest.get("downmixed") is True,
         native_path=artifact.path_for("native"),
         canonical_path=artifact.path_for("canonical"),
         preview_path=artifact.path_for("preview"),
