@@ -8,6 +8,7 @@ Export are wired here; Separation and Render follow in their tickets.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
@@ -44,28 +45,39 @@ from stemforge.engines.pitch import (
     PitchEngine,
     validate_semitones,
 )
+from stemforge.engines.separation import SeparationEngine
 from stemforge.engines.youtube import YouTubeTool, YouTubeVideo, YtDlpImporter, parse_youtube_url
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import Job, JobContext, JobRun
 from stemforge.jobs.runner import JobRunner
 from stemforge.models import ModelSpec, ModelStatus, ModelStore
 from stemforge.pipeline.export_job import (
-    ExportTarget,
-    resolve_export_target,
-    run_export_job,
+    ExportTarget as ExportTarget,
 )
 from stemforge.pipeline.export_job import (
     export_targets as enumerate_export_targets,
 )
+from stemforge.pipeline.export_job import (
+    resolve_export_target,
+    run_export_job,
+)
 from stemforge.pipeline.export_names import unique_export_path
 from stemforge.pipeline.import_job import run_local_import
 from stemforge.pipeline.model_job import (
+    DEFAULT_RETRY_DELAY_S,
     ModelInstallJob,
     Transport,
     consent_is_current,
     require_model_consent,
 )
 from stemforge.pipeline.pitch_job import STEM_ROLES, find_pitch_render, run_pitch_job
+from stemforge.pipeline.separation_job import (
+    INSTRUMENTAL_ROLE,
+    run_separation_job,
+)
+from stemforge.pipeline.separation_job import (
+    STEM_ROLES as SEPARATION_STEM_ROLES,
+)
 from stemforge.pipeline.youtube_job import run_youtube_import
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
@@ -135,6 +147,40 @@ class PitchSet:
     based_on_earlier_separation: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class SeparationSet:
+    """One committed Separation set as the Separation card sees it.
+
+    The v0.1.0 artifact store keeps one Stems set per Source: a re-separation
+    replaces it (ticket 05). The view is still a list so the UI contract does
+    not have to change when an archived set appears; ``set_key`` is the stable
+    identity used by preview lookups.
+    """
+
+    set_key: str
+    created_at: datetime
+    label: str
+    stem_roles: tuple[str, ...]
+    based_on_earlier_separation: bool = False
+
+
+_STEM_LABELS: Mapping[str, str] = {
+    "vocals": "Vocals",
+    INSTRUMENTAL_ROLE: "Instrumental",
+    "drums": "Drums",
+    "bass": "Bass",
+    "other": "Other",
+}
+
+_SEPARATION_ROLES: tuple[str, ...] = (
+    "vocals",
+    INSTRUMENTAL_ROLE,
+    "drums",
+    "bass",
+    "other",
+)
+
+
 class WorkspaceService:
     """Owns the Workspace and orchestrates Jobs on behalf of the UI."""
 
@@ -147,6 +193,8 @@ class WorkspaceService:
         runner: JobRunner | None = None,
         engines: ServiceEngines | None = None,
         models: ModelStore | None = None,
+        model_transport: Transport | None = None,
+        model_retry_delay_s: float = DEFAULT_RETRY_DELAY_S,
         youtube_delay: Callable[[float], None] = time.sleep,
     ) -> None:
         self._settings = settings
@@ -159,9 +207,12 @@ class WorkspaceService:
         self._runner = runner if runner is not None else JobRunner(paths=self._paths)
         self._engines = engines if engines is not None else ServiceEngines()
         self._models = models if models is not None else ModelStore(self._paths)
+        self._model_transport = model_transport
+        self._model_retry_delay_s = max(0.0, float(model_retry_delay_s))
         self._youtube_delay = youtube_delay
         self._workspace = Workspace()
         self._lock = threading.Lock()
+        self._pending_separation_track_id: str | None = None
 
     @property
     def settings(self) -> SettingsStore:
@@ -483,6 +534,152 @@ class WorkspaceService:
             return None
         return "/media/" + quote(relative, safe="/")
 
+    # -- Separation --------------------------------------------------------
+
+    def separation_sets(self, track: Track) -> tuple[SeparationSet, ...]:
+        """Every committed Separation set for the Track, oldest first (ticket 14).
+
+        The v0.1.0 store replaces the Stems directory on a re-separation, so there is
+        at most one set. The newest set is the last item and is the card's
+        default; the tuple shape keeps older labelled sets representable.
+        """
+        artifact = self._artifacts.find_separation(track.source_id)
+        if artifact is None:
+            return ()
+        return (
+            SeparationSet(
+                set_key=_separation_key(artifact),
+                created_at=artifact.created_at,
+                label="Separation",
+                stem_roles=SEPARATION_STEM_ROLES,
+                based_on_earlier_separation=False,
+            ),
+        )
+
+    def separation_preview_target(
+        self,
+        track: Track,
+        set_key: str,
+        stem: str,
+    ) -> PreviewTarget | None:
+        """The playable preview of one stem in one Separation set.
+
+        ``stem`` is a Demucs role or ``instrumental``. A missing set, an unknown
+        role, or a cleared preview returns ``None`` so the row can be marked
+        unavailable instead of pointing at a URL that can only 404.
+        """
+        artifact = self._separation_artifact(track, set_key)
+        if artifact is None or stem not in _SEPARATION_ROLES:
+            return None
+        path = artifact.path_for(f"{stem}_preview")
+        url = self._preview_url(path)
+        if url is None:
+            return None
+        return PreviewTarget(
+            key=f"{set_key}:{stem}",
+            label=_STEM_LABELS[stem],
+            url=url,
+        )
+
+    def separate(self, track: Track) -> str:
+        """Submit one Separation Job, or raise ``separation.model_missing``.
+
+        A missing model never reaches the runner: the card shows the gate and the
+        request is latched so a successful install can resubmit it exactly once
+        (ticket 06 §3, ticket 14 §4.3). A checksum failure is only discovered by
+        the Job's before-use verification; the page latches that outcome through
+        :meth:`remember_pending_separation`.
+        """
+        try:
+            return self._submit_separation(track)
+        except StemForgeError as error:
+            if error.code == errors.SEPARATION_MODEL_MISSING:
+                self.remember_pending_separation(track.track_id)
+            raise
+
+    def _submit_separation(self, track: Track) -> str:
+        separation = cast("SeparationEngine | None", self._engines.separation)
+        media = self._engines.media
+        if separation is None or media is None:
+            raise StemForgeError(
+                errors.INTERNAL_UNEXPECTED,
+                "the separation engines are not configured",
+            )
+        status = self._models.status()
+        if not status.installed:
+            raise StemForgeError(
+                errors.SEPARATION_MODEL_MISSING,
+                "the separation model is not installed",
+                detail=f"reason={status.reason or 'absent'}",
+                context={
+                    "model": status.name,
+                    "path": str(status.path),
+                    "reason": status.reason or "absent",
+                },
+            )
+        job = Job(
+            kind=JobKind.SEPARATE,
+            identity=(JobKind.SEPARATE.value, track.source_id),
+            title=track.title,
+            run=self._separation_run(track, separation, media),
+        )
+        return self._runner.submit(job)
+
+    def _separation_run(
+        self,
+        track: Track,
+        separation: SeparationEngine,
+        media: MediaTool,
+    ) -> JobRun:
+        def run(ctx: JobContext) -> Mapping[str, str]:
+            result = run_separation_job(
+                ctx,
+                artifacts=self._artifacts,
+                engine=separation,
+                media=media,
+                models=self._models,
+                source_id=track.source_id,
+                title=track.title,
+            )
+            return {
+                "track_id": track.track_id,
+                "set_key": _separation_key(result.artifact),
+            }
+
+        return run
+
+    def _separation_artifact(self, track: Track, set_key: str) -> SeparationArtifact | None:
+        artifact = self._artifacts.find_separation(track.source_id)
+        if artifact is None or _separation_key(artifact) != set_key:
+            return None
+        return artifact
+
+    def pending_separation_track_id(self) -> str | None:
+        """The Track whose Separation waits for the model install, if any."""
+        with self._lock:
+            return self._pending_separation_track_id
+
+    def remember_pending_separation(self, track_id: str) -> None:
+        """Latch one post-install resubmit; the first request wins."""
+        if not track_id:
+            raise ValueError("track id must not be empty")
+        with self._lock:
+            if self._pending_separation_track_id is None:
+                self._pending_separation_track_id = track_id
+
+    def resubmit_pending_separation(self, track: Track) -> str | None:
+        """Submit the latched Separation exactly once, or ``None``.
+
+        The latch is consumed before the submission is attempted, so a failure
+        here (including a second ``model_missing``) cannot loop. ``None`` means
+        this Track was not the latched one; nothing is submitted.
+        """
+        with self._lock:
+            if self._pending_separation_track_id != track.track_id:
+                return None
+            self._pending_separation_track_id = None
+        return self._submit_separation(track)
+
     # -- Export ------------------------------------------------------------
 
     def export_targets(self, track: Track | str) -> tuple[ExportTarget, ...]:
@@ -709,7 +906,7 @@ class WorkspaceService:
             kind=JobKind.MODEL_INSTALL,
             identity=(JobKind.MODEL_INSTALL.value, spec.name, spec.revision),
             title=spec.name,
-            run=self._model_install_run(transport),
+            run=self._model_install_run(self._model_transport if transport is None else transport),
         )
         return self._runner.submit(job)
 
@@ -719,6 +916,7 @@ class WorkspaceService:
                 store=self._models,
                 consent=self._settings.model_consent(),
                 transport=transport,
+                retry_delay_s=self._model_retry_delay_s,
             )
             result = job.run(ctx)
             return {
@@ -870,6 +1068,14 @@ class _RenderView:
     scope: RenderScope
     label: str
     based_on_earlier_separation: bool
+
+
+def _separation_key(artifact: SeparationArtifact) -> str:
+    """A stable, path-safe identity for one committed Separation set."""
+    digest = hashlib.sha256(
+        f"{artifact.source_id}:{artifact.created_at.isoformat()}".encode()
+    ).hexdigest()
+    return f"sep-{digest[:16]}"
 
 
 def _semitone_label(semitones: int) -> str:
