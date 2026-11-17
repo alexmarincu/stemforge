@@ -37,6 +37,7 @@ from stemforge.integration.dialogs import (
     SaveAudioFileDialog,
     filter_drop_paths,
 )
+from stemforge.integration.shell import PathOpener
 from stemforge.platform.preflight import PreflightReport
 from stemforge.ui import formatting
 from stemforge.ui.components.about import SettingsDialog
@@ -136,6 +137,11 @@ SHELL_CSS: Final = """
   gap: 16px; padding: 8px 0; }
 .sf-setting-main { display: flex; flex-direction: column; gap: 2px; }
 .sf-setting-label { font-size: 12.5px; font-weight: 550; }
+.sf-field-error { color: #f1b7b7; }
+.sf-licence-text { max-height: 58vh; overflow: auto; margin: 8px 0 0; padding: 12px;
+  border: 1px solid #232a35; border-radius: 8px; background: #0e1116;
+  color: #c7d0dc; font-size: 11px; line-height: 1.45;
+  font-family: ui-monospace, "Cascadia Mono", monospace; white-space: pre-wrap; }
 .sf-detail { display: flex; flex-direction: column; gap: 18px; max-width: 980px; }
 .sf-title { font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
 .sf-detail-meta { font-size: 11.5px; color: #8994a4; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -273,6 +279,7 @@ class UiContext:
     service: WorkspaceService
     dialogs: AudioFileDialog
     save_dialog: SaveAudioFileDialog | None = None
+    open_path: PathOpener | None = None
     show_recovery: bool = False
     recovery_dismissed: bool = False
     preflight: PreflightReport | None = None
@@ -1623,7 +1630,11 @@ class WorkspacePage:
         self._banner.refresh()
 
     def _open_settings(self) -> None:
-        SettingsDialog(self.service, on_youtube_toggle=self._on_youtube_toggle).open()
+        SettingsDialog(
+            self.service,
+            on_youtube_toggle=self._on_youtube_toggle,
+            open_path=self.context.open_path,
+        ).open()
 
     def _on_youtube_toggle(self) -> None:
         self._detail.refresh()
