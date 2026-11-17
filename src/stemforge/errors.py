@@ -70,6 +70,10 @@ PREFLIGHT_PREVIEW_UNAVAILABLE: Final = "preflight.preview_unavailable"
 # playback.*
 PLAYBACK_UNAVAILABLE: Final = "playback.unavailable"
 
+# licensing.*
+LICENSING_FILES_MISSING: Final = "licensing.files_missing"
+LICENSING_OPEN_FAILED: Final = "licensing.open_failed"
+
 # Worker protocol only: a handled worker exit code 2 carrying ``cancelled``.
 CANCELLED: Final = "cancelled"
 
@@ -114,6 +118,8 @@ ALL_CODES: Final[frozenset[str]] = frozenset(
         PREFLIGHT_STORAGE_UNWRITABLE,
         PREFLIGHT_PREVIEW_UNAVAILABLE,
         PLAYBACK_UNAVAILABLE,
+        LICENSING_FILES_MISSING,
+        LICENSING_OPEN_FAILED,
         CANCELLED,
     }
 )
