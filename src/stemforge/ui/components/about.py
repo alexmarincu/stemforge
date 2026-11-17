@@ -26,7 +26,7 @@ from nicegui.events import ValueChangeEventArguments
 from stemforge import __version__, errors
 from stemforge.application import LicenceFiles, WorkspaceService
 from stemforge.errors import StemForgeError
-from stemforge.integration.shell import PathOpener, SystemPathOpener
+from stemforge.integration.shell import PathOpener
 from stemforge.ui import formatting
 
 
@@ -191,7 +191,13 @@ class SettingsDialog:
             copy = formatting.copy_for(errors.LICENSING_FILES_MISSING)
             self._show_error(f"{copy.headline} {copy.action}")
             return
-        opener = self._open_path if self._open_path is not None else SystemPathOpener()
+        opener = self._open_path
+        if opener is None:
+            # Production always supplies SystemPathOpener. A missing seam is a
+            # coded failure rather than an accidental OS launch in a test.
+            copy = formatting.copy_for(errors.LICENSING_OPEN_FAILED)
+            self._show_error(f"{copy.headline} {copy.action}")
+            return
         try:
             opener.open_path(files.licenses_dir)
         except StemForgeError as error:
