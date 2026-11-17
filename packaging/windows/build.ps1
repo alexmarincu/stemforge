@@ -47,22 +47,9 @@ function Get-StemForgeVersion {
 }
 
 function Assert-CpuTorch {
-    $check = @'
-import importlib.util
-import sys
-
-if importlib.util.find_spec("torch") is not None:
-    import torch
-
-    if not torch.__version__.endswith("+cpu"):
-        print(
-            f"build.ps1: torch {torch.__version__} is not a +cpu build; "
-            "a PyPI fallback would ship CUDA wheels",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-'@
-    & $Python -c $check
+    # A file, not a here-string: Windows PowerShell mangles multi-line native
+    # arguments, which turned the old -c assertion into a SyntaxError.
+    & $Python (Join-Path $PSScriptRoot 'assert_cpu_torch.py')
     if ($LASTEXITCODE -ne 0) {
         throw 'the build environment does not have the CPU-only torch wheel'
     }
