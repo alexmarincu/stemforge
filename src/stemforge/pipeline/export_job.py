@@ -99,7 +99,6 @@ _WAV_INFO_FIELDS: Final = (
     "track",
     "date",
     "genre",
-    "comment",
     "copyright",
 )
 
