@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import socket
 import threading
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
@@ -40,12 +39,8 @@ AGE_HEADLINE = "This video is age-restricted. StemForge doesn't sign in to YouTu
 
 
 @pytest.fixture(autouse=True)
-def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    def refuse(*args: object, **kwargs: object) -> None:
-        raise AssertionError("the UI YouTube flow must not open a connection")
-
-    monkeypatch.setattr(socket.socket, "connect", refuse)
-    monkeypatch.setattr(socket.socket, "connect_ex", refuse)
+def _no_network(no_external_network: None) -> None:
+    """External connections fail; loopback (NiceGUI's test harness) is allowed."""
 
 
 class FakeMedia:

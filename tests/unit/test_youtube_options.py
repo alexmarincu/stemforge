@@ -28,18 +28,13 @@ SECRET = "raw extractor text that must never reach the UI"
 
 
 @pytest.fixture(autouse=True)
-def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Any connection attempt in this module fails the test."""
-
-    def refuse(*args: object, **kwargs: object) -> None:
-        raise AssertionError("the option/classifier tests must not open a connection")
+def _no_network(no_external_network: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """External connections fail; no test constructs a real ``YoutubeDL``."""
 
     def refuse_youtube_dl(options: object) -> None:
         del options
         raise AssertionError("these tests must not construct a real YoutubeDL")
 
-    monkeypatch.setattr(socket.socket, "connect", refuse)
-    monkeypatch.setattr(socket.socket, "connect_ex", refuse)
     monkeypatch.setattr("stemforge.engines.youtube._default_youtube_dl", refuse_youtube_dl)
 
 
