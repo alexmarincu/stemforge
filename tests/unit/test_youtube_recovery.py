@@ -69,7 +69,7 @@ def _store_with_broken_native(tmp_path: Path) -> tuple[ArtifactStore, Path]:
         },
     )
     (artifact.path_for("native") or Path()).write_bytes(b"!" * len(native))
-    assert store.find_source(VIDEO.source_id) is None
+    assert store.find_source(VIDEO.source_id, verify_hashes=True) is None
     return store, artifact.directory
 
 

@@ -93,7 +93,7 @@ def run_youtube_import(
     """Import one validated YouTube video into the cache and the Workspace."""
     ctx.progress(0.0, stage=STAGE_CHECKING, detail="Resolving metadata")
 
-    cached = artifacts.find_source(video.source_id)
+    cached = artifacts.find_source(video.source_id, verify_hashes=True)
     if cached is not None:
         return _finish_cached(ctx, artifacts, cached, video, finalize)
 
@@ -110,7 +110,7 @@ def run_youtube_import(
     source_id = f"yt-{metadata.video_id}"
     if source_id != video.source_id:
         # Ticket 09 §1: yt-dlp's id is authoritative after resolve.
-        cached = artifacts.find_source(source_id)
+        cached = artifacts.find_source(source_id, verify_hashes=True)
         if cached is not None:
             return _finish_cached(
                 ctx, artifacts, cached, video, finalize, origin=metadata.canonical_url
