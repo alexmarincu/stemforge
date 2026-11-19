@@ -117,7 +117,7 @@ def run_pitch_job(
     emit = _context_progress(ctx)
     cancel.check()
 
-    source = artifacts.find_source(source_id)
+    source = artifacts.find_source(source_id, verify_hashes=True)
     if source is None:
         raise ValueError(f"source is not committed: {source_id}")
     canonical = source.canonical_path
@@ -135,7 +135,7 @@ def run_pitch_job(
         engine_version=engine_version,
     )
 
-    existing = artifacts.find_render(render_key)
+    existing = artifacts.find_render(render_key, verify_hashes=True)
     if existing is not None:
         artifacts.touch_render(render_key)
         emit(1.0, STAGE_DONE, "this render set already exists")
@@ -279,7 +279,7 @@ def _resolve_inputs(
 ) -> list[PitchInput]:
     if scope is RenderScope.ORIGINAL:
         return [PitchInput(ORIGINAL_ROLE, canonical, "canonical.wav")]
-    separation = artifacts.find_separation(source_id)
+    separation = artifacts.find_separation(source_id, verify_hashes=True)
     if separation is None:
         raise ValueError(f"stems are not available for this source: {source_id}")
     inputs: list[PitchInput] = []
