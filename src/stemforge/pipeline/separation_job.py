@@ -145,7 +145,7 @@ def run_separation_job(
     cancel.check()
     emit(0.0, STAGE_VERIFY, "checking the model weights")
 
-    source = artifacts.find_source(source_id)
+    source = artifacts.find_source(source_id, verify_hashes=True)
     if source is None:
         raise ValueError(f"source is not committed: {source_id}")
     canonical = source.canonical_path

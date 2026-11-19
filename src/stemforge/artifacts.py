@@ -37,11 +37,14 @@ own directory)::
       ]
     }
 
-Every file must exist; ``size`` and ``sha256`` are validated when present.
-Caller-specific fields (metadata, semitones, engine version, validation result)
-are preserved as written. A schema newer than :data:`SCHEMA_VERSION` is ignored
-by lookup and left untouched by the sweep, but remains eligible for LRU
-eviction.
+Every file must exist and, when the manifest records one, match its size; a
+recorded ``sha256`` is provenance and is checked only by a deep verification
+(``verify_hashes=True``) or when a set is committed. Routine lookups stay
+metadata-only so the UI never reads hundreds of megabytes of audio per refresh
+(issue #27). Caller-specific fields (metadata, semitones, engine version,
+validation result) are preserved as written. A schema newer than
+:data:`SCHEMA_VERSION` is ignored by lookup and left untouched by the sweep, but
+remains eligible for LRU eviction.
 """
 
 from __future__ import annotations
@@ -597,7 +600,14 @@ class ArtifactStore:
 
     # -- lookup -------------------------------------------------------------
 
-    def find_source(self, source_id: str) -> SourceArtifact | None:
+    def find_source(self, source_id: str, *, verify_hashes: bool = False) -> SourceArtifact | None:
+        """Return a committed Source, or ``None`` when it is not usable.
+
+        Routine lookups validate the manifest, file existence, and recorded
+        sizes only. ``verify_hashes=True`` additionally re-reads every file and
+        compares its SHA-256, which is appropriate for a Job that is about to
+        consume the audio, never for a UI refresh.
+        """
         if not _is_valid_identity(source_id):
             return None
         directory = self.sources_dir / source_id
@@ -608,6 +618,7 @@ class ArtifactStore:
             identity_field="source_id",
             identity=source_id,
             required_roles=frozenset({"canonical"}),
+            verify_hashes=verify_hashes,
         )
         if result.status is not _ManifestStatus.VALID:
             return None
@@ -656,7 +667,10 @@ class ArtifactStore:
             created_at=result.created_at,
         )
 
-    def find_separation(self, source_id: str) -> SeparationArtifact | None:
+    def find_separation(
+        self, source_id: str, *, verify_hashes: bool = False
+    ) -> SeparationArtifact | None:
+        """Return the committed Stems set; see :meth:`find_source` for integrity."""
         if not _is_valid_identity(source_id):
             return None
         directory = self.sources_dir / source_id / "stems"
@@ -667,6 +681,7 @@ class ArtifactStore:
             identity_field="source_id",
             identity=source_id,
             required_roles=frozenset(),
+            verify_hashes=verify_hashes,
         )
         if result.status is not _ManifestStatus.VALID:
             return None
@@ -682,7 +697,8 @@ class ArtifactStore:
             gain_db=_gain_db(result.payload),
         )
 
-    def find_render(self, render_key: str) -> RenderArtifact | None:
+    def find_render(self, render_key: str, *, verify_hashes: bool = False) -> RenderArtifact | None:
+        """Return a committed Render set; see :meth:`find_source` for integrity."""
         if not _is_valid_identity(render_key):
             return None
         directory = self.renders_dir / render_key
@@ -693,6 +709,7 @@ class ArtifactStore:
             identity_field="render_key",
             identity=render_key,
             required_roles=frozenset(),
+            verify_hashes=verify_hashes,
         )
         if result.status is not _ManifestStatus.VALID:
             return None
@@ -1333,7 +1350,15 @@ def _read_manifest(
     identity: str,
     required_roles: AbstractSet[str],
     require_files: bool = True,
+    verify_hashes: bool = False,
 ) -> _ManifestResult:
+    """Parse and validate one manifest.
+
+    Existence and recorded sizes are always checked when ``require_files`` is
+    set; recorded hashes are re-read only when ``verify_hashes`` is set. The
+    default keeps a lookup proportional to the manifest's metadata rather than
+    to the size of the audio it references (issue #27).
+    """
     try:
         raw = manifest_path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -1373,7 +1398,12 @@ def _read_manifest(
     files: list[ManifestFile] = []
     seen_paths: set[str] = set()
     for raw_entry in raw_files:
-        entry = _parse_manifest_file(raw_entry, base_dir, require_file=require_files)
+        entry = _parse_manifest_file(
+            raw_entry,
+            base_dir,
+            require_file=require_files,
+            verify_hashes=verify_hashes,
+        )
         if entry is None:
             return _ManifestResult(_ManifestStatus.INVALID)
         if entry.path in seen_paths:
@@ -1393,7 +1423,11 @@ def _read_manifest(
 
 
 def _parse_manifest_file(
-    raw_entry: object, base_dir: Path, *, require_file: bool = True
+    raw_entry: object,
+    base_dir: Path,
+    *,
+    require_file: bool = True,
+    verify_hashes: bool = True,
 ) -> ManifestFile | None:
     if not isinstance(raw_entry, dict):
         return None
@@ -1434,7 +1468,7 @@ def _parse_manifest_file(
         return None
     if size is not None and stat_result.st_size != size:
         return None
-    if sha256 is not None and _sha256_file(target) != sha256:
+    if verify_hashes and sha256 is not None and _sha256_file(target) != sha256:
         return None
     return ManifestFile(path=relative, role=role, sha256=sha256, size=size)
 
