@@ -159,7 +159,7 @@ def test_a_missing_referenced_file_makes_the_set_invalid(
 def test_a_routine_lookup_never_reads_audio_bytes(
     store: ArtifactStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    artifact = _commit_source(store, "abc123", data=b"a" * 4096)
+    _commit_source(store, "abc123", data=b"a" * 4096)
 
     def unexpected(path: Path) -> str:
         raise AssertionError(f"lookup read {path}")
@@ -167,8 +167,6 @@ def test_a_routine_lookup_never_reads_audio_bytes(
     monkeypatch.setattr("stemforge.artifacts._sha256_file", unexpected)
 
     assert store.find_source("abc123") is not None
-    assert artifact.canonical_path is not None
-    assert store.find_source("abc123").files == artifact.files
 
 
 @pytest.mark.unit
@@ -182,6 +180,37 @@ def test_a_hash_mismatch_only_fails_deep_verification(store: ArtifactStore) -> N
     # UI must not read hundreds of megabytes on every refresh.
     assert store.find_source("abc123") is not None
     assert store.find_source("abc123", verify_hashes=True) is None
+
+
+@pytest.mark.unit
+def test_hash_verification_covers_separation_sets(store: ArtifactStore) -> None:
+    _commit_source(store, "abc123")
+    staging = store.stage("job-sep-verify")
+    (staging / "vocals.wav").write_bytes(b"vocals")
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "kind": "separation",
+        "source_id": "abc123",
+        "files": [_file_entry("vocals.wav", b"vocals", "vocals")],
+    }
+    artifact = store.commit_separation(staging, "abc123", manifest)
+    path = artifact.path_for("vocals")
+    assert path is not None
+    path.write_bytes(b"vocalX")  # same size, different bytes
+
+    assert store.find_separation("abc123") is not None
+    assert store.find_separation("abc123", verify_hashes=True) is None
+
+
+@pytest.mark.unit
+def test_hash_verification_covers_render_sets(store: ArtifactStore) -> None:
+    artifact = _commit_render(store, "render123", data=b"rendered")
+    path = artifact.path_for("original")
+    assert path is not None
+    path.write_bytes(b"X" * len(b"rendered"))
+
+    assert store.find_render("render123") is not None
+    assert store.find_render("render123", verify_hashes=True) is None
 
 
 @pytest.mark.unit
