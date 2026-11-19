@@ -180,13 +180,16 @@ def resolve_export_target(
     source_id: str,
     key: str,
     title: str | None = None,
+    verify_hashes: bool = False,
 ) -> ExportTarget | None:
     """Resolve one target key against the current manifests, or return ``None``.
 
     A Job calls this again when it runs, so a queued Export follows the current
     committed set and never trusts a path that was deleted in the meantime.
+    ``verify_hashes=True`` is the Job's deep verification of the file it is about
+    to encode; the UI's enumeration stays metadata-only.
     """
-    source = artifacts.find_source(source_id)
+    source = artifacts.find_source(source_id, verify_hashes=verify_hashes)
     if source is None:
         return None
     resolved_title = title or _record_title(source.manifest, source_id)
@@ -194,7 +197,7 @@ def resolve_export_target(
     if key == "master":
         return _master_target(source, resolved_title)
     if key == f"stem:{INSTRUMENTAL_ROLE}" or key == INSTRUMENTAL_ROLE:
-        separation = artifacts.find_separation(source_id)
+        separation = artifacts.find_separation(source_id, verify_hashes=verify_hashes)
         return (
             _separation_target(separation, INSTRUMENTAL_ROLE, resolved_title)
             if separation is not None
@@ -204,7 +207,7 @@ def resolve_export_target(
         role = key.removeprefix("stem:")
         if role not in STEM_ROLES:
             return None
-        separation = artifacts.find_separation(source_id)
+        separation = artifacts.find_separation(source_id, verify_hashes=verify_hashes)
         return (
             _separation_target(separation, role, resolved_title) if separation is not None else None
         )
@@ -213,7 +216,7 @@ def resolve_export_target(
         if len(parts) != 3:
             return None
         _, render_key, role = parts
-        render = artifacts.find_render(render_key)
+        render = artifacts.find_render(render_key, verify_hashes=verify_hashes)
         if render is None or render.source_id != source_id:
             return None
         return _render_target(render, role, resolved_title)
@@ -253,6 +256,7 @@ def run_export_job(
         source_id=source_id,
         key=target_key,
         title=target_title,
+        verify_hashes=True,
     )
     if resolved is None:
         raise StemForgeError(

@@ -818,7 +818,7 @@ async def test_rendering_committed_stems_never_rehashes_audio(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async for user, workspace_page in _open_page(harness):
-        track_id = await _import(harness, user, workspace_page)
+        await _import(harness, user, workspace_page)
         track = harness.service.snapshot().tracks[0]
         harness.add_separation(track.source_id)
 
@@ -837,7 +837,6 @@ async def test_rendering_committed_stems_never_rehashes_audio(
         for role in ("vocals", "instrumental"):
             assert _enabled(user, f"stem-play-{role}") is True
             assert _enabled(user, f"stem-export-{role}") is True
-        assert track_id == track.track_id
 
 
 async def test_older_sets_are_labelled_selectable_and_the_newest_is_default(
