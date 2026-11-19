@@ -813,6 +813,33 @@ async def test_primary_rows_are_visible_secondary_hidden_and_every_row_plays(
         assert len(user.find(marker="player").elements) == 1
 
 
+async def test_rendering_committed_stems_never_rehashes_audio(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        track = harness.service.snapshot().tracks[0]
+        harness.add_separation(track.source_id)
+
+        def unexpected(path: Path) -> str:
+            raise AssertionError(f"the card re-hashed {path}")
+
+        # A refresh after Separation must read manifests and stats, never the
+        # hundreds of megabytes those manifests describe (issue #27).
+        monkeypatch.setattr("stemforge.artifacts._sha256_file", unexpected)
+        with user:
+            workspace_page._detail.refresh()
+        await asyncio.sleep(0.05)
+
+        await user.should_see(marker="separation-row-vocals")
+        await user.should_see(marker="separation-row-instrumental")
+        for role in ("vocals", "instrumental"):
+            assert _enabled(user, f"stem-play-{role}") is True
+            assert _enabled(user, f"stem-export-{role}") is True
+        assert track_id == track.track_id
+
+
 async def test_older_sets_are_labelled_selectable_and_the_newest_is_default(
     harness: Harness,
     monkeypatch: pytest.MonkeyPatch,
