@@ -466,7 +466,7 @@ class ArtifactStore:
 
         with self._lock:
             target = self.sources_dir / source_id
-            existing = self.find_source(source_id)
+            existing = self.find_source(source_id, verify_hashes=True)
             if existing is not None:
                 _remove_checked(staging, "discard the redundant staging directory")
                 self.touch_source(source_id)
@@ -523,7 +523,7 @@ class ArtifactStore:
 
         with self._lock:
             target = self.renders_dir / render_key
-            existing = self.find_render(render_key)
+            existing = self.find_render(render_key, verify_hashes=True)
             if existing is not None:
                 _remove_checked(staging, "discard the redundant staging directory")
                 self.touch_render(render_key)
@@ -773,7 +773,12 @@ class ArtifactStore:
     # -- sweep --------------------------------------------------------------
 
     def sweep_stale(self) -> SweepReport:
-        """Delete crash residue and invalid sets; never completed valid work."""
+        """Delete crash residue and structurally invalid sets.
+
+        Sets are validated by manifest structure, file existence, and recorded
+        size; hashes are not re-read here. Deep verification is explicit so the
+        startup sweep never reads the whole cache (issue #27).
+        """
         self._ensure_roots()
         with self._lock:
             removed_tmp = self._sweep_children(self.tmp_dir)
@@ -1427,7 +1432,7 @@ def _parse_manifest_file(
     base_dir: Path,
     *,
     require_file: bool = True,
-    verify_hashes: bool = True,
+    verify_hashes: bool = False,
 ) -> ManifestFile | None:
     if not isinstance(raw_entry, dict):
         return None
@@ -1505,7 +1510,7 @@ def _validate_referenced_files(
     assert isinstance(raw_files, list)
     parsed: list[ManifestFile] = []
     for raw_entry in raw_files:
-        entry = _parse_manifest_file(raw_entry, base_dir)
+        entry = _parse_manifest_file(raw_entry, base_dir, verify_hashes=True)
         if entry is None:
             raise ValueError(f"manifest references a missing or invalid file: {raw_entry!r}")
         parsed.append(entry)
