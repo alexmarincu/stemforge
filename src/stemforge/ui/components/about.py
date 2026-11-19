@@ -8,8 +8,9 @@ Three sections, in the order ticket 08 fixes:
   directory. Documents open in a scrollable plain-text dialog; the folder opens
   through an injected OS seam, so no test launches a file manager.
 * **Storage** — the 8 GiB cache meter, Clear cached audio (live tracks stay),
-  Clear recent files, and the YouTube tool cache.
-* **Behaviour** — the persisted YouTube import toggle.
+  Clear recent files, the YouTube tool cache, and Open log folder.
+* **Behaviour** — the persisted YouTube import toggle, the close/shutdown
+  contract, and the force-quit export-partial note (ticket 14 §8).
 
 A missing licence tree is a coded ``licensing.files_missing`` message, not a
 traceback; a file manager that cannot start is ``licensing.open_failed``.
@@ -223,21 +224,24 @@ class SettingsDialog:
             copy = formatting.copy_for(errors.LICENSING_FILES_MISSING)
             self._show_error(f"{copy.headline} {copy.action}", code=errors.LICENSING_FILES_MISSING)
             return
+        self._open_folder(files.licenses_dir, failed_code=errors.LICENSING_OPEN_FAILED)
+
+    def _open_logs(self) -> None:
+        self._open_folder(self._service.logs_dir(), failed_code=errors.LOGGING_OPEN_FAILED)
+
+    def _open_folder(self, path: Path, *, failed_code: str) -> None:
         opener = self._open_path
         if opener is None:
             # Production always supplies SystemPathOpener. A missing seam is a
             # coded failure rather than an accidental OS launch in a test.
-            copy = formatting.copy_for(errors.LICENSING_OPEN_FAILED)
-            self._show_error(f"{copy.headline} {copy.action}", code=errors.LICENSING_OPEN_FAILED)
+            copy = formatting.copy_for(failed_code)
+            self._show_error(f"{copy.headline} {copy.action}", code=failed_code)
             return
         try:
-            opener.open_path(files.licenses_dir)
-        except StemForgeError as error:
-            copy = formatting.copy_for(error.code)
-            self._show_error(f"{copy.headline} {copy.action}", code=error.code)
-        except OSError:
-            copy = formatting.copy_for(errors.LICENSING_OPEN_FAILED)
-            self._show_error(f"{copy.headline} {copy.action}", code=errors.LICENSING_OPEN_FAILED)
+            opener.open_path(path)
+        except (OSError, StemForgeError):
+            copy = formatting.copy_for(failed_code)
+            self._show_error(f"{copy.headline} {copy.action}", code=failed_code)
 
     def _show_error(self, message: str, *, code: str) -> None:
         if self._licence_error is None:
@@ -292,6 +296,18 @@ class SettingsDialog:
                     .props("flat no-caps")
                     .mark("clear-youtube-cache")
                 )
+        with ui.element("div").classes("sf-setting-row"):
+            with ui.element("div").classes("sf-setting-main"):
+                ui.label(formatting.SETTINGS_LOG_LABEL).classes("sf-setting-label")
+                ui.label(formatting.SETTINGS_LOG_HINT).classes("sf-fineprint")
+            (
+                ui.button(
+                    formatting.SETTINGS_OPEN_LOG_FOLDER,
+                    on_click=self._open_logs,
+                )
+                .props("flat no-caps")
+                .mark("open-log-folder")
+            )
 
     def _clear_cache(self) -> None:
         report = self._service.clear_cache()
@@ -325,8 +341,8 @@ class SettingsDialog:
 
     def _size_text(self) -> str:
         return (
-            f"{formatting.format_bytes(self._service.artifacts.usage_bytes())} / "
-            f"{formatting.format_bytes(self._service.artifacts.cap_bytes)}"
+            f"{formatting.format_bytes(self._service.cache_usage_bytes())} / "
+            f"{formatting.format_bytes(self._service.cache_cap_bytes())}"
         )
 
     def _recent_text(self) -> str:
@@ -350,6 +366,15 @@ class SettingsDialog:
                 .props("dense")
             )
             toggle.on_value_change(self._apply_youtube_toggle)
+        ui.label(formatting.SETTINGS_YOUTUBE_NOTE).classes("sf-fineprint").mark(
+            "about-youtube-note"
+        )
+        ui.label(formatting.SETTINGS_BEHAVIOUR_CLOSE).classes("sf-fineprint").mark(
+            "about-close-note"
+        )
+        ui.label(formatting.SETTINGS_BEHAVIOUR_PARTIAL).classes("sf-fineprint").mark(
+            "about-partial-note"
+        )
 
     def _apply_youtube_toggle(self, event: ValueChangeEventArguments[bool | None]) -> None:
         self._service.set_youtube_enabled(bool(event.value))

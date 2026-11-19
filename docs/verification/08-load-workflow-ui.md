@@ -7,13 +7,15 @@ this host.
 
 ## Verified headlessly
 
-- `tests/ui/test_load_flow.py` (NiceGUI user simulation, 11 passed):
+- `tests/ui/test_load_flow.py` (NiceGUI user simulation, 13 passed):
   empty state, dialog-driven import through a fake media tool, track rows and
   source facts (duration/sample rate/channels), selection, one Job bar with
   stage/progress/cancel, cancellation, coded import failure copy and recovery,
   Remove confirmation with cached-audio deletion and untouched source file,
   recent-list re-import, missing-recent notice, multi-file import, drop path
-  filtering, recovery banner and session dismissal, clean-sweep banner absence.
+  filtering, recovery banner and session dismissal, clean-sweep banner absence,
+  the window title following selection/removal, and the initial signal path
+  (`Source` done, `Separation · not run`, `Pitch · not rendered`).
 - `tests/unit/test_open_dialog.py` (13 passed): exact pywebview filter grammar,
   multi-select request, cancel, case/whitespace extension matching, unsupported
   extension coded error, fake-path rejection, drop filtering.
@@ -21,8 +23,7 @@ this host.
   `show=False`, the 1280x820 window size, and registers startup/shutdown.
 - `uv run python -m stemforge --smoke-test`: exit 0, HTTP 200 on `/`.
 - `uv run python -m stemforge --self-test`: exit 0.
-- `uv run pytest -m "integration and not slow"`: 50 passed, including the real
-  FFmpeg local-import job.
+- `uv run pytest -m "unit or ui"`: 1012 passed, 3 skipped.
 - `ruff format --check`, `ruff check`, `mypy src/stemforge`, `lint-imports`:
   green.
 

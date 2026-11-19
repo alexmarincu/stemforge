@@ -1,14 +1,13 @@
-"""The per-Track Pitch card: request stepper, version tabs, and inline errors.
+"""The per-Track Pitch card: request stepper and one scoped Render action.
 
 The stepper is a request, not a view (ticket 08 §5): stepping only changes what a
-later Render would ask for. Nothing in this module touches an artifact, a
-manifest, or an engine — every read and every Render goes through
-``WorkspaceService``, and the page owns the single ``<audio>`` player.
+later Render would ask for. Version tabs live in the Outputs card; nothing in
+this module touches an artifact, a manifest, or an engine. Every read and every
+Render goes through ``WorkspaceService``.
 
-Version tabs are immutable render sets in creation order, ``Original`` first.
-A set is the newest committed set for its ``(semitones, scope)`` request; a
-master set never satisfies a stems request (ticket 08 §5). A stems set built
-from an earlier separation stays selectable and carries the ticket-05 label.
+The primary action follows the current scope: with Stems cached it renders the
+four stems and Instrumental; without them it renders the source master. A master
+set never satisfies a stems request, and the Outputs tabs keep both visible.
 """
 
 from __future__ import annotations
@@ -80,21 +79,22 @@ class PitchCard:
     def build(self, track: Track, *, active_key: str, busy: bool) -> None:
         self._current_track_id = track.track_id
         semitones = self._requested.get(track.track_id, 0)
-        sets = self._service.pitch_sets(track)
-        has_stems = self._service.has_separation(track)
+        scope = self._current_scope(track)
+        existing = self._service.pitch_set(track, semitones, scope) if semitones != 0 else None
         with ui.element("section").classes("sf-card").mark("pitch-card"):
             ui.label(formatting.PITCH_TITLE).classes("sf-card-title")
             self._stepper(track, semitones)
-            self._status(track, semitones, active_key, sets)
+            self._status(track, semitones, active_key, existing)
             with ui.element("div").classes("sf-actions"):
-                self._primary(track, semitones, active_key, busy)
-                if has_stems:
-                    self._stems_action(track, semitones, active_key, busy)
-            self._versions(track, active_key, sets)
+                self._primary(track, semitones, active_key, existing, busy)
             self._error(track, busy)
             ui.label(formatting.PITCH_TEMPO_NOTE).classes("sf-fineprint")
 
     # -- pieces -------------------------------------------------------------
+
+    def _current_scope(self, track: Track) -> RenderScope:
+        """Stems when Separation is cached, otherwise the source master."""
+        return RenderScope.STEMS if self._service.has_separation(track) else RenderScope.ORIGINAL
 
     def _stepper(self, track: Track, semitones: int) -> None:
         with ui.element("div").classes("sf-stepper"):
@@ -127,18 +127,12 @@ class PitchCard:
         track: Track,
         semitones: int,
         active_key: str,
-        sets: tuple[PitchSet, ...],
+        existing: PitchSet | None,
     ) -> None:
-        active_set = next((item for item in sets if item.render_key == active_key), None)
-        existing = (
-            self._service.pitch_set(track, semitones, RenderScope.ORIGINAL)
-            if semitones != 0
-            else None
-        )
         if semitones == 0:
             text = formatting.PITCH_NEUTRAL_HINT
-        elif active_set is not None and active_set.semitones == semitones:
-            text = formatting.PITCH_VIEWING_STATUS.format(label=active_set.label)
+        elif existing is not None and existing.render_key == active_key:
+            text = formatting.PITCH_VIEWING_STATUS.format(label=existing.label)
         elif existing is not None:
             text = formatting.PITCH_CACHED_HINT.format(label=existing.label)
         else:
@@ -152,6 +146,7 @@ class PitchCard:
         track: Track,
         semitones: int,
         active_key: str,
+        existing: PitchSet | None,
         busy: bool,
     ) -> None:
         if semitones == 0:
@@ -162,7 +157,6 @@ class PitchCard:
                 .set_enabled(False)
             )
             return
-        existing = self._service.pitch_set(track, semitones, RenderScope.ORIGINAL)
         if existing is not None and existing.render_key == active_key:
             ui.label(formatting.PITCH_VIEWING).classes("sf-fineprint").mark("pitch-passive")
             return
@@ -180,105 +174,12 @@ class PitchCard:
         button = (
             ui.button(
                 f"{formatting.PITCH_RENDER} {rendered}",
-                on_click=lambda _=None: self._submit(track, semitones, RenderScope.ORIGINAL),
+                on_click=lambda _=None: self._submit(track, semitones, self._current_scope(track)),
             )
             .props("unelevated no-caps size=sm")
             .mark("pitch-primary", "pitch-render")
         )
         button.set_enabled(not busy)
-
-    def _stems_action(
-        self,
-        track: Track,
-        semitones: int,
-        active_key: str,
-        busy: bool,
-    ) -> None:
-        scope = formatting.PITCH_STEMS_SCOPE
-        if semitones == 0:
-            (
-                ui.button(f"{formatting.PITCH_RENDER} {scope}")
-                .props("flat no-caps size=sm")
-                .mark("pitch-stems", "pitch-stems-render")
-                .set_enabled(False)
-            )
-            return
-        existing = self._service.pitch_set(track, semitones, RenderScope.STEMS)
-        if existing is not None and existing.render_key == active_key:
-            ui.label(formatting.PITCH_VIEWING).classes("sf-fineprint").mark("pitch-stems-passive")
-            return
-        rendered = formatting.format_semitones(semitones)
-        if existing is not None:
-            (
-                ui.button(
-                    f"{formatting.PITCH_OPEN} {scope} {rendered}",
-                    on_click=lambda _=None: self._select(track, existing.render_key),
-                )
-                .props("flat no-caps size=sm")
-                .mark("pitch-stems", "pitch-stems-open")
-            )
-            return
-        button = (
-            ui.button(
-                f"{formatting.PITCH_RENDER} {scope} {rendered}",
-                on_click=lambda _=None: self._submit(track, semitones, RenderScope.STEMS),
-            )
-            .props("flat no-caps size=sm")
-            .mark("pitch-stems", "pitch-stems-render")
-        )
-        button.set_enabled(not busy)
-
-    def _versions(
-        self,
-        track: Track,
-        active_key: str,
-        sets: tuple[PitchSet, ...],
-    ) -> None:
-        with ui.element("div").classes("sf-versions"):
-            ui.label(formatting.PITCH_VERSIONS).classes("sf-versions-label")
-            with ui.element("div").classes("sf-tabs").mark("pitch-tabs"):
-                self._tab(
-                    track,
-                    key="original",
-                    label=formatting.PITCH_ORIGINAL,
-                    active=active_key == "original",
-                    stale=False,
-                )
-                for item in sets:
-                    self._tab(
-                        track,
-                        key=item.render_key,
-                        label=item.label,
-                        active=item.render_key == active_key,
-                        stale=item.based_on_earlier_separation,
-                    )
-
-    def _tab(
-        self,
-        track: Track,
-        *,
-        key: str,
-        label: str,
-        active: bool,
-        stale: bool,
-    ) -> None:
-        text = label
-        if stale:
-            text += f" · {formatting.PITCH_EARLIER_SEPARATION}"
-        classes = "sf-version-tab"
-        if active:
-            classes += " is-active"
-        if stale:
-            classes += " is-stale"
-        markers = ["pitch-tab", f"pitch-tab-{key}"]
-        if stale:
-            markers.append("pitch-earlier-separation")
-        (
-            ui.button(text, on_click=lambda _=None: self._select(track, key))
-            .props("flat dense no-caps size=sm")
-            .classes(classes)
-            .mark(*markers)
-        )
 
     def _error(self, track: Track, busy: bool) -> None:
         failure = self._failures.get(track.track_id)
@@ -330,8 +231,8 @@ class PitchCard:
             self.build.refresh()
             return
         except ValueError:
-            # The stems action raced a lost separation; the next refresh removes
-            # the action. Nothing was submitted, so no Job or error appears.
+            # The scope raced a lost separation; the next refresh removes the
+            # stale request. Nothing was submitted, so no Job or error appears.
             self.build.refresh()
             return
         self._failures.pop(track.track_id, None)

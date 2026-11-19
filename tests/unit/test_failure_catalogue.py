@@ -60,6 +60,11 @@ EXPLICIT_EXCEPTIONS = {
         "tests/ui/test_preview.py::"
         "test_deleting_the_playing_preview_stops_and_reports_unavailable"
     ),
+    errors.LOGGING_OPEN_FAILED: (
+        "Settings action raised when the injected path opener fails; "
+        "tests/ui/test_about_licensing.py::"
+        "test_a_failing_opener_is_a_coded_message_not_a_traceback"
+    ),
 }
 
 

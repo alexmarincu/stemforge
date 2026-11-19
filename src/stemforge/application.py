@@ -52,6 +52,7 @@ from stemforge.engines.separation import SeparationEngine
 from stemforge.engines.youtube import YouTubeTool, YouTubeVideo, YtDlpImporter, parse_youtube_url
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import Job, JobContext, JobRun
+from stemforge.jobs.models import JobSnapshot
 from stemforge.jobs.runner import JobRunner
 from stemforge.models import ModelSpec, ModelStatus, ModelStore
 from stemforge.pipeline.export_job import (
@@ -206,7 +207,8 @@ _SEPARATION_ROLE_LABELS: Mapping[str, str] = {
     "other": "Other",
 }
 
-_SEPARATION_ROLES: tuple[str, ...] = (
+# Display order shared by the service preview API and the Outputs card.
+SEPARATION_OUTPUT_ROLES: tuple[str, ...] = (
     "vocals",
     INSTRUMENTAL_ROLE,
     "drums",
@@ -393,6 +395,18 @@ class WorkspaceService:
         """Run the startup LRU pass after the sweep (ticket 07 §2, §7)."""
         return self._artifacts.enforce_cap()
 
+    def cache_usage_bytes(self) -> int:
+        """The cache meter's used size; the UI never reads the store directly."""
+        return self._artifacts.usage_bytes()
+
+    def cache_cap_bytes(self) -> int:
+        """The configured cache ceiling (ticket 07 §2)."""
+        return self._artifacts.cap_bytes
+
+    def logs_dir(self) -> Path:
+        """The app's log root, shown and opened from Settings & About."""
+        return self._paths.logs
+
     def youtube_cache_bytes(self) -> int:
         """The size of ``<cache>/yt-dlp/`` shown in Settings & About."""
         return self._artifacts.youtube_cache_bytes()
@@ -435,6 +449,45 @@ class WorkspaceService:
         if track is None:
             return ()
         return self._preview_targets(track)
+
+    def pitch_render_preview_target(
+        self,
+        track: Track,
+        render_key: str,
+        role: str,
+    ) -> PreviewTarget | None:
+        """The preview of one member of a Render set (ticket 08 §7).
+
+        A master set carries only its shifted master; a stems set carries Vocals,
+        Instrumental, Drums, Bass, and Other. The key is stable and unique across
+        versions so the single player can tell the rows apart.
+        """
+        view = next(
+            (
+                item
+                for item in self._render_views(track.source_id)
+                if item.artifact.render_key == render_key
+            ),
+            None,
+        )
+        if view is None:
+            return None
+        if view.scope is RenderScope.ORIGINAL:
+            if role != "original":
+                return None
+            file_role = "original_preview"
+        else:
+            if role not in (*STEM_ROLES, INSTRUMENTAL_ROLE):
+                return None
+            file_role = f"{role}_preview"
+        url = self._preview_url(view.artifact.path_for(file_role))
+        if url is None:
+            return None
+        return PreviewTarget(
+            key=f"render:{view.artifact.render_key}:{role}",
+            label=_SEPARATION_ROLE_LABELS.get(role, role.title()),
+            url=url,
+        )
 
     def _preview_targets(self, track: Track) -> tuple[PreviewTarget, ...]:
         targets: list[PreviewTarget] = []
@@ -672,7 +725,7 @@ class WorkspaceService:
         unavailable instead of pointing at a URL that can only 404.
         """
         artifact = self._separation_artifact(track, set_key)
-        if artifact is None or stem not in _SEPARATION_ROLES:
+        if artifact is None or stem not in SEPARATION_OUTPUT_ROLES:
             return None
         path = artifact.path_for(f"{stem}_preview")
         url = self._preview_url(path)
@@ -788,6 +841,17 @@ class WorkspaceService:
         return self._submit_separation(track)
 
     # -- Export ------------------------------------------------------------
+
+    def preferred_export_dir(self) -> Path | None:
+        """The last directory the user exported to, when it still exists."""
+        preferred = self._settings.preferred_export_dir
+        if preferred is not None and preferred.is_dir():
+            return preferred
+        return None
+
+    def remember_export_dir(self, directory: Path) -> None:
+        """Persist the destination the native save dialog returned (ticket 08 §9)."""
+        self._settings.set_export_dir(directory)
 
     def export_targets(self, track: Track | str) -> tuple[ExportTarget, ...]:
         """Every existing, valid export selection for one Track.
@@ -1050,6 +1114,18 @@ class WorkspaceService:
         return run
 
     # -- Jobs ---------------------------------------------------------------
+
+    def jobs(self) -> tuple[JobSnapshot, ...]:
+        """Every Job the runner still remembers, newest last."""
+        return tuple(self._runner.jobs())
+
+    def job_snapshot(self, job_id: str) -> JobSnapshot:
+        """One Job's immutable snapshot; raises ``KeyError`` when forgotten."""
+        return self._runner.snapshot(job_id)
+
+    def cancel_job(self, job_id: str) -> bool:
+        """Request cancellation of one Job (ticket 06 §3)."""
+        return self._runner.cancel(job_id)
 
     def youtube_enabled(self) -> bool:
         """Whether the empty-state YouTube row is enabled (ticket 09 §7)."""

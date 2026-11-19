@@ -11,14 +11,14 @@ host.
 
 - `tests/ui/test_export_flow.py` (12 passed, NiceGUI user simulation):
   - the sheet lists WAV 24-bit (default), FLAC 24-bit, and MP3 320 with
-    per-minute size estimates; the source list is exactly
-    `WorkspaceService.export_targets` — master (shown as Original), Vocals,
-    Drums, Bass, Other, Instrumental, and each pitch render member;
+    per-minute size estimates, plus a read-only Source row for the artifact the
+    entry point selected;
+  - the sheet has no source picker: an Outputs row's export icon and the
+    transport Export fix the target before the sheet opens (ticket 08 §9);
   - there is no "Save original", no "Export all", no batch control, and exactly
     one Export confirmation per sheet;
   - changing format updates the seeded filename and sends the matching filter
-    and default name to the save seam; changing source selects that target and
-    marks the corresponding Separation row;
+    and default name to the save seam;
   - a typed known audio extension that differs from the chosen format is
     replaced; the chosen format never changes. Evidence: WAV chosen, dialog
     returns `Chosen Mix.flac`, the committed file is `Chosen Mix.wav`, the Job
@@ -29,10 +29,10 @@ host.
     persisted for the next sheet, and the Job bar shows the one Export Job;
   - cancelling the native dialog starts no Job, leaves the sheet usable, and
     re-enables Export;
-  - the transport Export uses the current listening target (a render preview
-    selects that render target), Outputs-row Export opens the sheet on that
-    row's target, and a Separation row's export icon opens the sheet on that
-    stem;
+  - the transport Export uses the current listening target (a render tab's
+    first row selects that render member), an Outputs-row Export opens the
+    sheet on that row's target, and a stem row's export icon opens the sheet on
+    that stem;
   - playback, seek, and A/B stay enabled during an Export Job; only second-Job
     actions (Add audio, Export) disable (ticket 08 §11);
   - failures render in the Job-bar area with the coded error and Retry, keeping
@@ -164,8 +164,10 @@ save-dialog backend is scripted, and no socket guard is patched globally.
   shared media adapter's flag elsewhere. `storage.disk_full` uses the reason key
   `export` so its action is "Choose another location." while imports keep
   "Clear cached audio".
-- **Target list:** the master target is labelled `Original` (the ticket 05
-  label) with the meta text `master`; it is a transcoded export, not a
-  passthrough, so there is no "Save original".
+- **Target selection:** ticket 08 §9 makes the entry point authoritative. The
+  sheet shows the selected artifact as read-only Source; it never re-lists
+  `WorkspaceService.export_targets`. The master target is labelled `Original`
+  (the ticket 05 label); it is a transcoded export, not a passthrough, so there
+  is no "Save original".
 - **Manual native verification is deferred** to a qualified Linux/Windows host
   as listed above; this container has no GTK/WebKitGTK or display.

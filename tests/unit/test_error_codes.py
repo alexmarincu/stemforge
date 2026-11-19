@@ -38,6 +38,7 @@ TICKET_14_CODES = frozenset(
         "media.encode_failed",
         "media.validation_failed",
         "export.write_failed",
+        "logging.open_failed",
         "storage.disk_full",
         "storage.cache_full",
         "storage.permission_denied",

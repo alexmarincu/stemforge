@@ -6,8 +6,9 @@ the main pane carries the empty state. One Job bar sits at the bottom of the
 main pane. The page only reads immutable snapshots from ``WorkspaceService``;
 every mutation goes through the service (ticket 06 §5, ticket 08).
 
-The shell is also importable headlessly: ``--smoke-test`` registers ``/`` and
-checks that the page responds before any service or native window exists.
+The Outputs card is the version authority: its tabs switch the artifact set, and
+its rows are the only playable artifacts. Exactly one ``<audio>`` element serves
+the whole page. Pitch and Separation contribute requests and job state only.
 """
 
 from __future__ import annotations
@@ -25,7 +26,8 @@ from nicegui.events import NativeEventArguments
 
 from stemforge import __version__, errors
 from stemforge.application import (
-    ExportTarget,
+    SEPARATION_OUTPUT_ROLES,
+    PitchSet,
     PreviewTarget,
     WorkspaceService,
 )
@@ -59,6 +61,9 @@ from stemforge.ui.components.youtube import YouTubeRow
 TITLE: Final = "StemForge"
 POLL_INTERVAL_S: Final = 0.4
 RECENT_VISIBLE: Final = 3
+OUTPUT_ROLES: Final = SEPARATION_OUTPUT_ROLES
+PRIMARY_ROLES: Final = OUTPUT_ROLES[:2]
+SECONDARY_ROLES: Final = OUTPUT_ROLES[2:]
 
 SHELL_CSS: Final = """
 .nicegui-content { padding: 0 !important; gap: 0 !important; align-items: stretch !important; }
@@ -93,6 +98,9 @@ SHELL_CSS: Final = """
 .sf-track-meta { font-size: 10.5px; color: #7c8798; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .sf-dot { width: 7px; height: 7px; border-radius: 50%; background: #5c6675; flex: none; }
+.sf-dot.is-ok { background: #4fbf7a; }
+.sf-dot.is-run { background: #f0a83a; }
+.sf-dot.is-bad { background: #e06c6c; }
 .sf-track-remove { opacity: 0; }
 .sf-track:hover .sf-track-remove, .sf-track.is-selected .sf-track-remove { opacity: 1; }
 .sf-recent { padding: 10px 8px 6px; border-top: 1px solid #1d222c; }
@@ -148,11 +156,20 @@ SHELL_CSS: Final = """
   color: #c7d0dc; font-size: 11px; line-height: 1.45;
   font-family: ui-monospace, "Cascadia Mono", monospace; white-space: pre-wrap; }
 .sf-detail { display: flex; flex-direction: column; gap: 18px; max-width: 980px; }
+.sf-head { display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; }
+.sf-head-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+.sf-two-up { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px; align-items: start; }
+@media (max-width: 1150px) { .sf-two-up { grid-template-columns: minmax(0, 1fr); } }
 .sf-title { font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
 .sf-detail-meta { font-size: 11.5px; color: #8994a4; display: flex; flex-wrap: wrap; gap: 6px; }
 .sf-card { border: 1px solid #232a35; border-radius: 12px; background: #151920; padding: 16px; }
 .sf-card-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
   color: #7c8798; font-weight: 600; margin-bottom: 10px; }
+.sf-card-head { display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 10px; }
+.sf-card-head .sf-card-title { margin-bottom: 0; }
 .sf-fact { display: flex; gap: 16px; font-size: 12px; padding: 3px 0; }
 .sf-fact-key { width: 100px; color: #7c8798; flex: none; }
 .sf-fact-value { color: #d8e0eb; min-width: 0; overflow-wrap: anywhere; }
@@ -214,13 +231,23 @@ SHELL_CSS: Final = """
 .sf-version-tab.is-active { background: #3a2c14; border-color: #5b4520; color: #f0a83a; }
 .sf-version-tab.is-stale { border-style: dashed; color: #b9a77c; }
 .sf-version-tab.is-stale.is-active { background: #3a2c14; color: #f0a83a; }
-.sf-output-row { display: flex; align-items: center; gap: 9px; padding: 4px 0;
-  border-top: 1px solid #1d222c; }
+.sf-output-row { display: flex; align-items: center; gap: 9px; min-height: 40px;
+  padding: 3px 0; border-top: 1px solid #1d222c; }
 .sf-output-row:first-of-type { border-top: 0; }
 .sf-output-row.is-active { background: #1b2230; border-radius: 8px; }
-.sf-output-name { flex: 1; min-width: 0; font-size: 12px; }
-.sf-output-meta { font-size: 10.5px; color: #7c8798; }
-.sf-unavailable { font-size: 11.5px; color: #a47878; }
+.sf-output-row.is-playing { background: #1b2230; border-radius: 8px; }
+.sf-output-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sf-output-name { font-size: 12px; }
+.sf-output-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.sf-output-repair { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 10.5px; color: #b9a77c; }
+.sf-output-duration { font-size: 10.5px; color: #7c8798; font-family: ui-monospace, monospace; }
+.sf-output-row.is-unavailable .sf-output-name { color: #a47878; }
+.sf-placeholder { display: flex; align-items: center; gap: 9px; min-height: 40px;
+  padding: 3px 10px; margin-top: 4px; border: 1px dashed #354052; border-radius: 8px;
+  color: #8b97a8; font-size: 11.5px; }
+.sf-placeholder span { flex: 1; }
+.sf-unavailable { font-size: 11.5px; color: #a47878; margin-bottom: 6px; }
 .sf-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .sf-player { display: none; }
 .sf-separation-status { font-size: 11.5px; color: #9aa6b7; margin: 2px 0 6px; }
@@ -232,17 +259,8 @@ SHELL_CSS: Final = """
 .sf-gate-summary { font-size: 11.5px; color: #b9c4d3; }
 .sf-gate-meta { font-size: 10.5px; color: #8994a4; font-family: ui-monospace, monospace; }
 .sf-gate-notice { font-size: 11px; color: #b9a77c; line-height: 1.45; }
-.sf-stem-row { display: flex; align-items: center; gap: 8px; padding: 4px 0;
-  border-top: 1px solid #1d222c; }
-.sf-stem-row.is-playing { background: #1b2230; border-radius: 8px; }
-.sf-stem-row.is-export-target { outline: 1px solid #5b4520; border-radius: 8px; }
-.sf-stem-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.sf-stem-title { display: flex; align-items: center; gap: 6px; }
-.sf-stem-name { font-size: 12px; }
 .sf-stem-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
   color: #8b97a8; border: 1px solid #2a3240; border-radius: 999px; padding: 0 6px; }
-.sf-stem-meta { font-size: 10.5px; color: #7c8798; }
-.sf-stem-ab { font-size: 10px; color: #9aa6b7; }
 .sf-stall { border: 1px solid #40341d; background: #1d1a12; border-radius: 10px;
   padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .sf-stall-text { font-size: 11.5px; color: #e4d3a9; }
@@ -250,17 +268,15 @@ SHELL_CSS: Final = """
   gap: 12px; }
 .sf-export-body { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 .sf-export-title { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
-.sf-format-list, .sf-export-targets { display: flex; flex-direction: column; gap: 6px; }
-.sf-export-targets { max-height: 230px; overflow-y: auto; padding-right: 2px; }
-.sf-format-row, .sf-target-row { display: flex; align-items: center; gap: 10px;
+.sf-format-list { display: flex; flex-direction: column; gap: 6px; }
+.sf-format-row { display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border: 1px solid #2a3240; border-radius: 9px; cursor: pointer;
   background: #12161d; }
-.sf-format-row:hover, .sf-target-row:hover { border-color: #55647a; }
-.sf-format-row.is-active, .sf-target-row.is-active {
-  border-color: #5b4520; background: #3a2c14; }
+.sf-format-row:hover { border-color: #55647a; }
+.sf-format-row.is-active { border-color: #5b4520; background: #3a2c14; }
 .sf-format-radio { width: 12px; height: 12px; flex: none; border-radius: 50%;
   border: 1px solid #55647a; }
-.sf-format-row.is-active .sf-format-radio, .sf-target-row.is-active .sf-format-radio {
+.sf-format-row.is-active .sf-format-radio {
   border-color: #f0a83a; background: #f0a83a; box-shadow: inset 0 0 0 2px #3a2c14; }
 .sf-format-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .sf-format-name { font-size: 12.5px; font-weight: 550; }
@@ -324,6 +340,17 @@ class Notice:
     action: str
     job_id: str | None = None
     log_path: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OutputRow:
+    """One playable artifact row inside the active Outputs version."""
+
+    key: str
+    name: str
+    badges: tuple[str, ...]
+    preview: PreviewTarget | None
+    export_key: str | None
 
 
 class RecentEntry(Protocol):
@@ -450,21 +477,22 @@ class WorkspacePage:
         self._client: Client | None = None
         self._last_busy = False
         self._player: ui.audio | None = None
-        self._playing_track_id: str | None = None
-        self._playing_key: str | None = None
+        self._loaded_track_id: str | None = None
+        self._loaded_preview: PreviewTarget | None = None
         self._is_playing = False
         self._position_s = 0.0
+        self._elapsed_label: ui.label | None = None
+        self._seek_slider: ui.slider | None = None
+        self._seek_max = 0.1
         self._active_key: dict[str, str] = {}
-        self._ab_alternate: dict[str, str] = {}
-        self._extra_targets: dict[str, dict[str, PreviewTarget]] = {}
-        self._export_selection: dict[str, str] = {}
+        self._show_all_stems: set[str] = set()
         self._export_jobs: dict[str, ExportSpec] = {}
         self._export_notice: ExportNotice | None = None
         self._export_status = ExportStatusBar()
-        self._unavailable_preview: set[str] = set()
+        self._unavailable_previews: set[tuple[str, str]] = set()
         self._pitch = PitchCard(
             self.service,
-            on_select=self._select_pitch_set,
+            on_select=self._select_version,
             on_job_started=self._pitch_job_started,
             diagnostics=context.diagnostics,
             clipboard=context.clipboard,
@@ -475,8 +503,7 @@ class WorkspacePage:
             self.service,
             on_job_started=self._separation_job_started,
             on_cancel=self._cancel_active_job,
-            on_play=self._play_separation_target,
-            on_export_target=self._select_export_target,
+            on_open_about=self._open_settings,
             diagnostics=context.diagnostics,
             clipboard=context.clipboard,
             open_path=context.open_path,
@@ -486,7 +513,6 @@ class WorkspacePage:
             self.service,
             context.save_dialog if context.save_dialog is not None else NativeSaveDialog(),
             on_job_started=self._export_job_started,
-            on_target_selected=self._export_target_changed,
             diagnostics=context.diagnostics,
             clipboard=context.clipboard,
             open_path=context.open_path,
@@ -515,6 +541,16 @@ class WorkspacePage:
                 with ui.element("div").classes("sf-player"):
                     self._player = ui.audio("", controls=False).props("preload=none").mark("player")
                     self._player.on("error", self._on_player_error)
+                    self._player.on(
+                        "timeupdate",
+                        self._on_time_update,
+                        js_handler="(event) => emit(event.target.currentTime)",
+                    )
+                    self._player.on(
+                        "ended",
+                        self._on_ended,
+                        js_handler="() => emit(true)",
+                    )
         # The sheet is one persistent dialog; see ExportSheet.build for why.
         self._export_sheet.build()
         ui.timer(POLL_INTERVAL_S, self.poll)
@@ -559,6 +595,7 @@ class WorkspacePage:
                 .classes(f"sf-track{selected}")
                 .mark("track", f"track-{track.track_id}")
             )
+            status_text, status_class = self._track_status(track)
             with row:
                 hit = (
                     ui.element("div")
@@ -570,9 +607,15 @@ class WorkspacePage:
                     ui.icon("music_note").classes("sf-track-ic")
                     with ui.element("div").classes("sf-track-main"):
                         ui.label(track.title).classes("sf-track-title")
-                        ui.label(self._track_meta(track)).classes("sf-track-meta")
-                    ui.element("span").classes("sf-dot")
-                playing = self._playing_track_id == track.track_id and self._is_playing
+                        (
+                            ui.label(self._track_meta(track, status_text))
+                            .classes("sf-track-meta")
+                            .mark("track-meta", f"track-meta-{track.track_id}")
+                        )
+                    ui.element("span").classes(f"sf-dot {status_class}").mark(
+                        "track-dot", f"track-dot-{track.track_id}"
+                    )
+                playing = self._loaded_track_id == track.track_id and self._is_playing
                 play = (
                     ui.button(
                         icon="pause" if playing else "play_arrow",
@@ -581,7 +624,7 @@ class WorkspacePage:
                     .props("flat dense round size=sm")
                     .mark("track-play", f"track-play-{track.track_id}")
                 )
-                self._apply_play_enabled(play, available=self.service.has_preview(track.track_id))
+                self._apply_play_enabled(play, available=self._track_has_playable(track))
                 (
                     ui.button(
                         icon="close", on_click=lambda _=None, item=track: self._confirm_remove(item)
@@ -649,8 +692,8 @@ class WorkspacePage:
 
     @ui.refreshable_method
     def _footer(self) -> None:
-        used = self.service.artifacts.usage_bytes()
-        cap = self.service.artifacts.cap_bytes
+        used = self.service.cache_usage_bytes()
+        cap = self.service.cache_cap_bytes()
         percent = formatting.cache_percent(used, cap)
         with ui.element("div").classes("sf-cache-line"):
             ui.label("Cache")
@@ -669,38 +712,47 @@ class WorkspacePage:
 
     @ui.refreshable_method
     def _banner(self) -> None:
-        # Degraded mode is persistent and stacks first (ticket 14 §2).
+        """At most two banners stack, degraded first (ticket 14 §2)."""
+        banners: list[str] = []
         if not self.context.playback_available:
-            copy = formatting.copy_for(errors.PREFLIGHT_PREVIEW_UNAVAILABLE)
-            with ui.element("div").classes("sf-banner sf-banner-degraded").mark("playback-banner"):
-                ui.icon("volume_off")
-                with ui.element("div").classes("sf-banner-text flex-1"):
-                    ui.label(copy.headline).classes("sf-banner-headline")
-                    ui.label(copy.action).classes("sf-banner-hint")
-        warning = self._resource_warning()
-        if warning is not None and not self.context.resource_warning_dismissed:
-            with ui.element("div").classes("sf-banner").mark("resource-banner"):
-                ui.icon("memory")
-                ui.label(warning).classes("flex-1")
-                (
-                    ui.button(
-                        formatting.RESOURCE_WARNING_DISMISS,
-                        on_click=self._dismiss_resource_warning,
+            banners.append("degraded")
+        if self._resource_warning() is not None and not self.context.resource_warning_dismissed:
+            banners.append("resource")
+        if self.context.show_recovery and not self.context.recovery_dismissed:
+            banners.append("recovery")
+        for kind in banners[:2]:
+            if kind == "degraded":
+                copy = formatting.copy_for(errors.PREFLIGHT_PREVIEW_UNAVAILABLE)
+                with (
+                    ui.element("div")
+                    .classes("sf-banner sf-banner-degraded")
+                    .mark("playback-banner")
+                ):
+                    ui.icon("volume_off")
+                    with ui.element("div").classes("sf-banner-text flex-1"):
+                        ui.label(copy.headline).classes("sf-banner-headline")
+                        ui.label(copy.action).classes("sf-banner-hint")
+            elif kind == "resource":
+                warning = self._resource_warning()
+                assert warning is not None
+                with ui.element("div").classes("sf-banner").mark("resource-banner"):
+                    ui.icon("memory")
+                    ui.label(warning).classes("flex-1")
+                    (
+                        ui.button(
+                            formatting.RESOURCE_WARNING_DISMISS,
+                            on_click=self._dismiss_resource_warning,
+                        )
+                        .props("flat dense no-caps size=sm")
+                        .mark("resource-dismiss")
                     )
-                    .props("flat dense no-caps size=sm")
-                    .mark("resource-dismiss")
-                )
-        if not self.context.show_recovery or self.context.recovery_dismissed:
-            return
-        with ui.element("div").classes("sf-banner").mark("recovery-banner"):
-            ui.icon("info")
-            ui.label(
-                "StemForge closed unexpectedly last time. Unfinished work was discarded; "
-                "cached audio and completed renders are intact."
-            ).classes("flex-1")
-            ui.button("Dismiss", on_click=self._dismiss_recovery).props(
-                "flat dense no-caps size=sm"
-            )
+            else:
+                with ui.element("div").classes("sf-banner").mark("recovery-banner"):
+                    ui.icon("info")
+                    ui.label(formatting.RECOVERY_HEADLINE).classes("flex-1")
+                    ui.button(formatting.RECOVERY_DISMISS, on_click=self._dismiss_recovery).props(
+                        "flat dense no-caps size=sm"
+                    )
 
     def _resource_warning(self) -> str | None:
         report = self.context.preflight
@@ -746,27 +798,38 @@ class WorkspacePage:
             meta.append(filename)
         meta.extend(self._audio_facts(track))
         with ui.element("div").classes("sf-detail").mark("track-detail"):
-            ui.label(track.title).classes("sf-title")
-            ui.label(" · ".join(meta)).classes("sf-detail-meta")
+            with ui.element("div").classes("sf-head"):
+                with ui.element("div"):
+                    ui.label(track.title).classes("sf-title")
+                    ui.label(" · ".join(meta)).classes("sf-detail-meta")
+                    if track.source.downmixed:
+                        ui.label(formatting.DOWNMIX_NOTE).classes("sf-fineprint").mark(
+                            "downmix-note"
+                        )
+                with ui.element("div").classes("sf-head-actions"):
+                    (
+                        ui.button(icon="settings", on_click=self._open_settings)
+                        .props("flat dense round size=sm")
+                        .mark("detail-settings")
+                        .tooltip(formatting.SETTINGS_TITLE)
+                    )
+                    (
+                        ui.button(
+                            icon="delete",
+                            on_click=lambda _=None, item=track: self._confirm_remove(item),
+                        )
+                        .props("flat dense round size=sm")
+                        .mark("detail-remove")
+                        .tooltip("Remove track and cached audio")
+                    )
             self._signal_path(track)
-            targets = self._targets(track)
-            self._transport(track, targets)
-            self._pitch_card(track)
-            self._separation_card(track)
-            self._outputs(track, targets)
-            with ui.element("section").classes("sf-card"):
-                ui.label("Source").classes("sf-card-title")
-                self._fact("File", filename or track.source.origin)
-                self._fact("Duration", formatting.format_duration(track.source.metadata.duration_s))
-                sample_rate = formatting.format_sample_rate(track.source.metadata.sample_rate)
-                if sample_rate:
-                    self._fact("Sample rate", sample_rate)
-                channels = formatting.format_channels(track.source.metadata.channels)
-                if channels:
-                    self._fact("Channels", channels)
-                if track.source.downmixed:
-                    ui.label(formatting.DOWNMIX_NOTE).classes("sf-fineprint").mark("downmix-note")
-                self._fact("Status", "No stems yet")
+            sets = self.service.pitch_sets(track)
+            rows, version_label = self._version_rows(track)
+            self._transport(track, rows, sets, version_label)
+            with ui.element("div").classes("sf-two-up"):
+                self._pitch_card(track)
+                self._separation_card(track)
+            self._outputs(track, sets)
 
     def _empty_state(self) -> None:
         busy = self._busy()
@@ -809,74 +872,146 @@ class WorkspacePage:
                     "empty-model-card"
                 )
 
-    # -- preview player -----------------------------------------------------
+    # -- version and output rows -------------------------------------------
 
-    def _targets(self, track: Track) -> tuple[PreviewTarget, ...]:
-        return self.service.preview_targets(track.track_id)
+    def _active_version(self, track: Track, sets: Sequence[PitchSet]) -> str:
+        key = self._valid_version_key(self._active_key.get(track.track_id, "original"), sets)
+        self._active_key[track.track_id] = key
+        return key
+
+    @staticmethod
+    def _valid_version_key(key: str, sets: Sequence[PitchSet]) -> str:
+        if key != "original" and not any(item.render_key == key for item in sets):
+            return "original"
+        return key
+
+    def _version_label(self, key: str, sets: Sequence[PitchSet]) -> str:
+        if key == "original":
+            return formatting.PITCH_ORIGINAL
+        item = next((view for view in sets if view.render_key == key), None)
+        return item.label if item is not None else formatting.PITCH_ORIGINAL
+
+    def _version_rows(self, track: Track) -> tuple[tuple[OutputRow, ...], str]:
+        sets = self.service.pitch_sets(track)
+        key = self._active_version(track, sets)
+        rows = self._rows_for(track, key, sets)
+        return rows, self._version_label(key, sets)
+
+    def _rows_for(
+        self,
+        track: Track,
+        version_key: str,
+        sets: Sequence[PitchSet],
+    ) -> tuple[OutputRow, ...]:
+        exports = {
+            (target.scope, target.role, target.render_key): target.key
+            for target in self.service.export_targets(track)
+        }
+        if version_key == "original":
+            original = next(
+                (
+                    item
+                    for item in self.service.preview_targets(track.track_id)
+                    if item.key == "original"
+                ),
+                None,
+            )
+            rows = [
+                OutputRow(
+                    key="original",
+                    name=formatting.PITCH_ORIGINAL,
+                    badges=(formatting.OUTPUTS_SOURCE_BADGE,),
+                    preview=original,
+                    export_key=exports.get(("master", "original", None)),
+                )
+            ]
+            separation_sets = self.service.separation_sets(track)
+            if not separation_sets:
+                return tuple(rows)
+            set_key = separation_sets[-1].set_key
+            for role in OUTPUT_ROLES:
+                rows.append(
+                    OutputRow(
+                        key=role,
+                        name=formatting.SEPARATION_ROLE_LABELS[role],
+                        badges=self._badges_for(role),
+                        preview=self.service.separation_preview_target(track, set_key, role),
+                        export_key=exports.get(("separation", role, None)),
+                    )
+                )
+            return tuple(rows)
+        item = next((view for view in sets if view.render_key == version_key), None)
+        if item is None:
+            return ()
+        shift = formatting.format_semitones(item.semitones)
+        if item.scope is RenderScope.ORIGINAL:
+            return (
+                OutputRow(
+                    key="master",
+                    name=formatting.OUTPUTS_SHIFTED_MASTER,
+                    badges=(shift,),
+                    preview=self.service.pitch_render_preview_target(
+                        track, item.render_key, "original"
+                    ),
+                    export_key=exports.get(
+                        (RenderScope.ORIGINAL.value, "original", item.render_key)
+                    ),
+                ),
+            )
+        rows = []
+        for role in OUTPUT_ROLES:
+            rows.append(
+                OutputRow(
+                    key=role,
+                    name=formatting.SEPARATION_ROLE_LABELS[role],
+                    badges=self._badges_for(role, shift=shift),
+                    preview=self.service.pitch_render_preview_target(track, item.render_key, role),
+                    export_key=exports.get((RenderScope.STEMS.value, role, item.render_key)),
+                )
+            )
+        return tuple(rows)
+
+    @staticmethod
+    def _badges_for(role: str, *, shift: str | None = None) -> tuple[str, ...]:
+        badges: list[str] = []
+        if role in PRIMARY_ROLES:
+            badges.append(formatting.SEPARATION_PRIMARY_BADGE)
+        if role == "instrumental":
+            badges.append(formatting.SEPARATION_SUM_BADGE)
+        if role in SECONDARY_ROLES:
+            badges.append(formatting.OUTPUTS_STEM_BADGE)
+        if shift is not None:
+            badges.append(shift)
+        return tuple(badges)
 
     def _pitch_card(self, track: Track) -> None:
+        sets = self.service.pitch_sets(track)
         self._pitch.build(
             track,
-            active_key=self._active_key.get(track.track_id, "original"),
+            active_key=self._active_version(track, sets),
             busy=self._busy(),
         )
 
     def _separation_card(self, track: Track) -> None:
-        playing_key = (
-            self._playing_key
-            if self._playing_track_id == track.track_id and self._is_playing
-            else None
-        )
-        self._separation.build(
-            track,
-            busy=self._busy(),
-            playing_key=playing_key,
-            export_key=self._export_selection.get(track.track_id),
-            playback_available=self.context.playback_available,
-        )
+        self._separation.build(track, busy=self._busy())
 
-    def _active_target(
-        self, track: Track, targets: Sequence[PreviewTarget] | None = None
-    ) -> PreviewTarget | None:
-        if targets is None:
-            targets = self._targets(track)
-        key = self._active_key.get(track.track_id)
-        if key is None:
-            return targets[0] if targets else None
-        for target in targets:
-            if target.key == key:
-                return target
-        extra = self._extra_targets.get(track.track_id, {})
-        return extra.get(key)
-
-    def _ab_pair(
-        self, track: Track, targets: Sequence[PreviewTarget] | None = None
-    ) -> tuple[PreviewTarget | None, PreviewTarget | None]:
-        if targets is None:
-            targets = self._targets(track)
-        original = next((target for target in targets if target.key == "original"), None)
-        remembered = self._ab_alternate.get(track.track_id)
-        if remembered is not None:
-            alternate = next((target for target in targets if target.key == remembered), None)
-            if alternate is None:
-                alternate = self._extra_targets.get(track.track_id, {}).get(remembered)
-            if alternate is not None:
-                return original, alternate
-        alternate = next(
-            (target for target in reversed(targets) if target.key != "original"),
-            None,
-        )
-        return original, alternate
-
-    def _transport(self, track: Track, targets: Sequence[PreviewTarget]) -> None:
-        unavailable = track.track_id in self._unavailable_preview
-        active = None if unavailable else self._active_target(track, targets)
-        original, alternate = self._ab_pair(track, targets)
-        playing = self._playing_track_id == track.track_id and self._is_playing
+    def _transport(
+        self,
+        track: Track,
+        rows: Sequence[OutputRow],
+        sets: Sequence[PitchSet],
+        version_label: str,
+    ) -> None:
+        current = self._current_row(track, rows)
+        playing = self._loaded_track_id == track.track_id and self._is_playing
         duration = track.source.metadata.duration_s or 0.0
+        position = self._position_s if self._loaded_track_id == track.track_id else 0.0
         slider_max = duration if duration > 0 else 0.1
+        self._seek_max = slider_max
+        latest = sets[-1] if sets else None
+        active_key = self._active_version(track, sets)
         with ui.element("section").classes("sf-card").mark("transport"):
-            ui.label("Transport").classes("sf-card-title")
+            ui.label(formatting.TRANSPORT_TITLE).classes("sf-card-title")
             with ui.element("div").classes("sf-transport"):
                 with ui.element("div").classes("sf-transport-row"):
                     play = (
@@ -888,76 +1023,94 @@ class WorkspacePage:
                         .style("background:#f0a83a;color:#141414")
                         .mark("transport-play")
                     )
-                    self._apply_play_enabled(play, available=active is not None)
+                    self._apply_play_enabled(
+                        play,
+                        available=current is not None
+                        and current.preview is not None
+                        and (track.track_id, current.preview.key) not in self._unavailable_previews,
+                    )
                     with ui.element("div").classes("sf-now"):
                         ui.label(track.title).classes("sf-now-title")
-                        ui.label(
-                            f"{active.label}" if active is not None else "Preview unavailable"
-                        ).classes("sf-now-target").mark("now-playing")
-                    ui.label(formatting.format_duration(self._position_s)).classes("sf-time")
+                        if current is None or (
+                            current.preview is not None
+                            and (track.track_id, current.preview.key) in self._unavailable_previews
+                        ):
+                            now_text = formatting.TRANSPORT_PREVIEW_UNAVAILABLE
+                        else:
+                            now_text = current.name
+                            if active_key != "original":
+                                now_text = f"{current.name} · {version_label}"
+                        ui.label(now_text).classes("sf-now-target").mark("now-playing")
+                    self._elapsed_label = (
+                        ui.label(formatting.format_duration(position))
+                        .classes("sf-time")
+                        .mark("elapsed")
+                    )
                     ui.label(
                         f"/ {formatting.format_duration(track.source.metadata.duration_s)}"
                     ).classes("sf-time")
-                seek = (
+                self._seek_slider = (
                     ui.slider(
                         min=0.0,
                         max=slider_max,
                         step=0.1,
-                        value=min(max(self._position_s, 0.0), slider_max),
+                        value=min(max(position, 0.0), slider_max),
                         on_change=self._seek,
                     )
                     .props("dense")
                     .mark("seek")
                 )
-                seek.set_enabled(self._playback_allowed() and active is not None)
+                self._seek_slider.set_enabled(self._playback_allowed() and current is not None)
                 with ui.element("div").classes("sf-transport-row"):
                     with ui.element("div").classes("sf-ab"):
-                        ab_original = (
+                        (
                             ui.button(
-                                "Original",
+                                formatting.AB_ORIGINAL,
                                 on_click=lambda _=None: self._select_ab(track, "original"),
                             )
                             .props("flat dense no-caps size=sm")
+                            .classes("is-active" if active_key == "original" else "")
                             .mark("ab-original")
+                            .set_enabled(self._playback_allowed())
                         )
-                        ab_preview = (
+                        (
                             ui.button(
-                                alternate.label if alternate is not None else "Preview",
-                                on_click=lambda _=None: self._select_ab(track, "preview"),
+                                (
+                                    latest.label
+                                    if latest is not None
+                                    else formatting.AB_LATEST_FALLBACK
+                                ),
+                                on_click=lambda _=None: self._select_ab(track, "latest"),
                             )
                             .props("flat dense no-caps size=sm")
-                            .mark("ab-preview")
+                            .classes("is-active" if active_key != "original" else "")
+                            .mark("ab-preview", "ab-latest")
+                            .set_enabled(latest is not None and self._playback_allowed())
                         )
-                    for button, target in (
-                        (ab_original, original),
-                        (ab_preview, alternate),
-                    ):
-                        active_side = (
-                            target is not None and active is not None and target.key == active.key
-                        )
-                        if active_side:
-                            button.classes("is-active")
-                        button.set_enabled(target is not None and self._playback_allowed())
+                    export_key = current.export_key if current is not None else None
                     export = (
                         ui.button(
-                            "Export",
+                            formatting.TRANSPORT_EXPORT,
                             icon="file_download",
-                            on_click=lambda _=None, item=track: self._open_export_for_current(item),
+                            on_click=lambda _=None: self._open_export(track, export_key=export_key),
                         )
                         .props("flat dense no-caps size=sm")
                         .mark("export-action")
                     )
-                    export.set_enabled(not self._busy())
+                    export.set_enabled(not self._busy() and export_key is not None)
 
-    def _outputs(self, track: Track, targets: Sequence[PreviewTarget]) -> None:
-        unavailable = track.track_id in self._unavailable_preview
-        active = None if unavailable else self._active_target(track, targets)
+    def _outputs(self, track: Track, sets: Sequence[PitchSet]) -> None:
+        active_key = self._active_version(track, sets)
+        rows = self._rows_for(track, active_key, sets)
         with ui.element("section").classes("sf-card").mark("outputs"):
-            ui.label("Outputs").classes("sf-card-title")
-            if not targets or unavailable:
-                ui.label("Preview unavailable. Re-import the file to rebuild it.").classes(
-                    "sf-unavailable"
-                ).mark("preview-unavailable")
+            with ui.element("div").classes("sf-card-head"):
+                ui.label(formatting.OUTPUTS_TITLE).classes("sf-card-title")
+                if sets:
+                    self._version_tabs(track, sets, active_key)
+            if not rows or all(row.preview is None for row in rows):
+                ui.label(formatting.OUTPUTS_UNAVAILABLE).classes("sf-unavailable").mark(
+                    "preview-unavailable"
+                )
                 error_details(
                     code=errors.PLAYBACK_UNAVAILABLE,
                     marker="playback-error",
@@ -965,47 +1118,271 @@ class WorkspacePage:
                     clipboard=self.context.clipboard,
                     open_path=self.context.open_path,
                 )
-                if not targets:
-                    return
-            for target in targets:
-                playing = (
-                    self._playing_track_id == track.track_id
-                    and self._playing_key == target.key
-                    and self._is_playing
-                )
-                selected = active is not None and target.key == active.key
-                row = (
-                    ui.element("div")
-                    .classes(f"sf-output-row{' is-active' if selected else ''}")
-                    .mark("output-row", f"output-row-{target.key}")
-                )
-                with row:
-                    play = (
+            expanded = track.track_id in self._show_all_stems
+            visible_roles = OUTPUT_ROLES if expanded else PRIMARY_ROLES
+            for row in rows:
+                if row.key not in ("original", "master") and row.key not in visible_roles:
+                    continue
+                self._output_row(track, row)
+            has_secondary = any(row.key in SECONDARY_ROLES for row in rows)
+            if has_secondary:
+                if expanded:
+                    (
                         ui.button(
-                            icon="pause" if playing else "play_arrow",
-                            on_click=lambda _=None, item=target: self._toggle_target(track, item),
+                            formatting.OUTPUTS_SHOW_LESS,
+                            on_click=lambda _=None: self._toggle_stems(track),
                         )
-                        .props("flat dense round size=sm")
-                        .mark("output-play", f"output-play-{target.key}")
+                        .props("flat dense no-caps size=sm")
+                        .classes("sf-fineprint")
+                        .mark("outputs-show-less")
                     )
-                    self._apply_play_enabled(play)
-                    ui.label(target.label).classes("sf-output-name")
-                    if target.key == "original":
-                        ui.label("source").classes("sf-output-meta")
-                    else:
-                        ui.label("render").classes("sf-output-meta")
-                    export_button = (
+                else:
+                    (
                         ui.button(
-                            icon="file_download",
-                            on_click=lambda _=None, item=target: self._open_export_for_preview(
-                                track, item
-                            ),
+                            formatting.OUTPUTS_SHOW_MORE,
+                            icon="expand_more",
+                            on_click=lambda _=None: self._toggle_stems(track),
                         )
-                        .props("flat dense round size=sm")
-                        .mark("output-export", f"output-export-{target.key}")
+                        .props("flat dense no-caps size=sm")
+                        .classes("sf-fineprint")
+                        .mark("outputs-show-more")
                     )
-                    export_button.set_enabled(not self._busy())
-                    export_button.tooltip("Export this version")
+            elif (
+                active_key == "original"
+                and not self.service.has_separation(track)
+                and self.service.model_status().installed
+            ):
+                self._outputs_placeholder(track, running=self._separation_running(track))
+
+    def _version_tabs(self, track: Track, sets: Sequence[PitchSet], active_key: str) -> None:
+        with ui.element("div").classes("sf-tabs").mark("output-tabs"):
+            (
+                ui.button(
+                    formatting.PITCH_ORIGINAL,
+                    on_click=lambda _=None: self._select_version(track.track_id, "original"),
+                )
+                .props("flat dense no-caps size=sm")
+                .classes("sf-version-tab" + (" is-active" if active_key == "original" else ""))
+                .mark("output-tab", "output-tab-original")
+            )
+            for item in sets:
+                classes = "sf-version-tab"
+                if item.render_key == active_key:
+                    classes += " is-active"
+                if item.based_on_earlier_separation:
+                    classes += " is-stale"
+                text = item.label
+                if item.based_on_earlier_separation:
+                    text += f" · {formatting.PITCH_EARLIER_SEPARATION}"
+                (
+                    ui.button(
+                        text,
+                        on_click=lambda _=None, key=item.render_key: self._select_version(
+                            track.track_id, key
+                        ),
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .classes(classes)
+                    .mark("output-tab", f"output-tab-{item.render_key}")
+                )
+
+    def _output_row(self, track: Track, row: OutputRow) -> None:
+        playing = (
+            self._loaded_track_id == track.track_id
+            and self._loaded_preview is not None
+            and row.preview is not None
+            and self._loaded_preview.key == row.preview.key
+            and self._is_playing
+        )
+        unavailable = row.preview is None or (
+            (track.track_id, row.preview.key) in self._unavailable_previews
+        )
+        classes = "sf-output-row"
+        if playing:
+            classes += " is-playing"
+        if unavailable:
+            classes += " is-unavailable"
+        with ui.element("div").classes(classes).mark("output-row", f"output-row-{row.key}"):
+            play = (
+                ui.button(
+                    icon="pause" if playing else "play_arrow",
+                    on_click=lambda _=None, item=row: self._toggle_row(track, item),
+                )
+                .props("flat dense round size=sm")
+                .mark("output-play", f"output-play-{row.key}")
+            )
+            self._apply_play_enabled(play, available=not unavailable)
+            with ui.element("div").classes("sf-output-main"):
+                ui.label(row.name).classes("sf-output-name")
+                if row.badges:
+                    with ui.element("div").classes("sf-output-badges"):
+                        for badge in row.badges:
+                            ui.label(badge).classes("sf-stem-badge")
+                if unavailable:
+                    self._repair_action(track, row)
+            ui.label(formatting.format_duration(track.source.metadata.duration_s)).classes(
+                "sf-output-duration"
+            )
+            export = (
+                ui.button(
+                    icon="file_download",
+                    on_click=lambda _=None, item=row: self._open_export(
+                        track, export_key=item.export_key
+                    ),
+                )
+                .props("flat dense round size=sm")
+                .mark("output-export", f"output-export-{row.key}")
+            )
+            export.set_enabled(not self._busy() and row.export_key is not None)
+            export.tooltip(formatting.OUTPUTS_EXPORT_TOOLTIP)
+
+    def _repair_action(self, track: Track, row: OutputRow) -> None:
+        """Ticket 14 §4.4: an unavailable row names the repair for its kind."""
+        active_key = self._active_version(track, self.service.pitch_sets(track))
+        with (
+            ui.element("div")
+            .classes("sf-output-repair")
+            .mark("output-repair", f"output-repair-{row.key}")
+        ):
+            if active_key != "original":
+                ui.label(formatting.OUTPUTS_REPAIR_RENDER)
+                button = (
+                    ui.button(
+                        formatting.OUTPUTS_REPAIR_RENDER_ACTION,
+                        on_click=lambda _=None: self._rerender(track, active_key),
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .mark("output-repair-render")
+                )
+            elif row.key == "original":
+                ui.label(formatting.OUTPUTS_REPAIR_IMPORT)
+                button = (
+                    ui.button(
+                        formatting.OUTPUTS_REPAIR_IMPORT_ACTION,
+                        on_click=self._open_files,
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .mark("output-repair-import")
+                )
+            else:
+                ui.label(formatting.OUTPUTS_REPAIR_SEPARATE)
+                button = (
+                    ui.button(
+                        formatting.OUTPUTS_REPAIR_SEPARATE_ACTION,
+                        on_click=lambda _=None: self._separation.request_separation(track),
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .mark("output-repair-separate")
+                )
+            button.set_enabled(not self._busy())
+
+    def _rerender(self, track: Track, render_key: str) -> None:
+        item = next(
+            (view for view in self.service.pitch_sets(track) if view.render_key == render_key),
+            None,
+        )
+        if item is None or self._busy():
+            return
+        try:
+            job_id = self.service.render_pitch(track, item.semitones, item.scope)
+        except StemForgeError as error:
+            self._pitch.record_failure(
+                track.track_id,
+                error.code,
+                error.detail,
+                item.semitones,
+                item.scope,
+            )
+            return
+        except ValueError:
+            return
+        self._pitch_job_started(job_id, track.track_id, item.semitones, item.scope)
+
+    def _outputs_placeholder(self, track: Track, *, running: bool) -> None:
+        with ui.element("div").classes("sf-placeholder").mark("outputs-placeholder"):
+            ui.icon("graphic_eq")
+            ui.label(
+                formatting.OUTPUTS_PLACEHOLDER_RUNNING
+                if running
+                else formatting.OUTPUTS_PLACEHOLDER
+            )
+            if not running:
+                button = (
+                    ui.button(
+                        formatting.OUTPUTS_SEPARATE,
+                        on_click=lambda _=None: self._separation.request_separation(track),
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .mark("outputs-separate")
+                )
+                button.set_enabled(not self._busy())
+
+    def _current_row(self, track: Track, rows: Sequence[OutputRow]) -> OutputRow | None:
+        if self._loaded_track_id == track.track_id and self._loaded_preview is not None:
+            match = next(
+                (
+                    row
+                    for row in rows
+                    if row.preview is not None and row.preview.key == self._loaded_preview.key
+                ),
+                None,
+            )
+            if match is not None:
+                return match
+        return next((row for row in rows if row.preview is not None), None)
+
+    def _select_ab(self, track: Track, side: str) -> None:
+        sets = self.service.pitch_sets(track)
+        if side == "original" or not sets:
+            self._select_version(track.track_id, "original")
+            return
+        self._select_version(track.track_id, sets[-1].render_key)
+
+    def _select_version(self, track_id: str, key: str) -> None:
+        """Switch one Track's active version; position never carries over."""
+        track = next(
+            (item for item in self.service.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
+        if track is None:
+            return
+        sets = self.service.pitch_sets(track)
+        key = self._valid_version_key(key, sets)
+        self._active_key[track_id] = key
+        manages_player = self._loaded_track_id == track_id or (
+            self._loaded_track_id is None and self._selected_id == track_id
+        )
+        if manages_player:
+            rows = self._rows_for(track, key, sets)
+            still_present = self._loaded_preview is not None and any(
+                row.preview is not None and row.preview.key == self._loaded_preview.key
+                for row in rows
+            )
+            if not still_present:
+                if self._player is not None:
+                    self._player.pause()
+                self._is_playing = False
+                self._position_s = 0.0
+                first = next((row for row in rows if row.preview is not None), None)
+                self._loaded_preview = first.preview if first is not None else None
+                if (
+                    first is not None
+                    and first.preview is not None
+                    and self._player is not None
+                    and self._playback_allowed()
+                ):
+                    self._player.set_source(first.preview.url)
+                    self._player.seek(0.0)
+        self._refresh_playback()
+
+    def _toggle_stems(self, track: Track) -> None:
+        if track.track_id in self._show_all_stems:
+            self._show_all_stems.discard(track.track_id)
+        else:
+            self._show_all_stems.add(track.track_id)
+        self._detail.refresh()
+
+    # -- preview player -----------------------------------------------------
 
     def _play_from_row(self, track_id: str) -> None:
         track = next(
@@ -1014,10 +1391,10 @@ class WorkspacePage:
         )
         if track is None:
             return
-        target = self._active_target(track)
-        if target is None:
-            return
-        self._toggle_target(track, target)
+        rows, _ = self._version_rows(track)
+        row = next((item for item in rows if item.preview is not None), None)
+        if row is not None:
+            self._toggle_row(track, row)
 
     def _toggle_transport(self, track_id: str) -> None:
         track = next(
@@ -1026,135 +1403,103 @@ class WorkspacePage:
         )
         if track is None:
             return
-        target = self._active_target(track)
-        if target is not None:
-            self._toggle_target(track, target)
+        rows, _ = self._version_rows(track)
+        row = self._current_row(track, rows)
+        if row is not None:
+            self._toggle_row(track, row)
 
-    def _toggle_target(self, track: Track, target: PreviewTarget) -> None:
-        same_target = self._playing_track_id == track.track_id and self._playing_key == target.key
-        if same_target and self._is_playing:
+    def _toggle_row(self, track: Track, row: OutputRow) -> None:
+        preview = row.preview
+        if preview is None:
+            return
+        same = (
+            self._loaded_track_id == track.track_id
+            and self._loaded_preview is not None
+            and self._loaded_preview.key == preview.key
+        )
+        if same and self._is_playing:
             self._pause()
             return
-        self._start_target(track, target)
+        self._start_preview(track, row, resume=same)
 
-    def _start_target(self, track: Track, target: PreviewTarget) -> None:
+    def _start_preview(self, track: Track, row: OutputRow, *, resume: bool) -> None:
         player = self._player
-        if player is None or not self._playback_allowed():
+        preview = row.preview
+        if player is None or preview is None or not self._playback_allowed():
             return
-        same_track = self._playing_track_id == track.track_id
-        position = self._position_s if same_track else 0.0
-        if not same_track:
-            self._position_s = 0.0
-        player.pause()
-        self._unavailable_preview.discard(track.track_id)
-        if target.key not in {item.key for item in self._targets(track)}:
-            self._extra_targets.setdefault(track.track_id, {})[target.key] = target
-        self._active_key[track.track_id] = target.key
-        if target.key != "original":
-            self._ab_alternate[track.track_id] = target.key
-        self._playing_track_id = track.track_id
-        self._playing_key = target.key
-        self._is_playing = True
-        player.set_source(target.url)
-        if position > 0:
-            player.seek(position)
-        player.play()
-        self._refresh_playback()
-
-    def _select_ab(self, track: Track, side: str) -> None:
-        original, alternate = self._ab_pair(track)
-        target = original if side == "original" else alternate
-        if target is None or not self._playback_allowed():
-            return
-        self._activate_version(track.track_id, target.key, autoplay=False)
-
-    def _select_pitch_set(self, track_id: str, render_key: str) -> None:
-        """A version tab is a listening choice: select it and preview its set."""
-        if render_key != "original":
-            self._ab_alternate[track_id] = render_key
-        self._activate_version(track_id, render_key, autoplay=True)
-
-    def _activate_version(self, track_id: str, key: str, *, autoplay: bool) -> None:
-        """Switch one Track's active version without ever creating a second player.
-
-        A version switch resets playback position (ticket 08 §7). When the host's
-        preview stack is degraded the view still changes; only the audio stays
-        disabled, so the Pitch card remains usable (ticket 14 §3).
-        """
-        track = next(
-            (item for item in self.service.snapshot().tracks if item.track_id == track_id),
-            None,
-        )
-        if track is None:
-            return
-        targets = self._targets(track)
-        target = next((item for item in targets if item.key == key), None)
-        if target is None:
-            target = self._extra_targets.get(track_id, {}).get(key)
-        was_playing = self._playing_track_id == track_id and self._is_playing
-        player = self._player
-        if player is not None:
-            player.pause()
-        self._active_key[track_id] = key
-        self._position_s = 0.0
-        if target is not None and self._playback_allowed() and player is not None:
-            self._unavailable_preview.discard(track_id)
-            player.set_source(target.url)
-            if was_playing or autoplay:
-                player.play()
-                self._playing_track_id = track_id
-                self._playing_key = key
-                self._is_playing = True
-            else:
-                self._playing_track_id = None
-                self._playing_key = None
-                self._is_playing = False
+        self._unavailable_previews.discard((track.track_id, preview.key))
+        if resume:
+            player.play()
         else:
-            self._playing_track_id = None
-            self._playing_key = None
-            self._is_playing = False
+            player.pause()
+            self._position_s = 0.0
+            player.set_source(preview.url)
+            player.play()
+        self._loaded_track_id = track.track_id
+        self._loaded_preview = preview
+        self._is_playing = True
         self._refresh_playback()
 
     def _pause(self) -> None:
         if self._player is not None:
             self._player.pause()
         self._is_playing = False
-        self._playing_track_id = None
-        self._playing_key = None
+        self._refresh_playback()
+
+    def _on_time_update(self, event: events.GenericEventArguments) -> None:
+        value = event.args
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return
+        self._position_s = max(0.0, float(value))
+        if self._loaded_track_id != self._selected_id:
+            return
+        if self._elapsed_label is not None:
+            self._elapsed_label.set_text(formatting.format_duration(self._position_s))
+        if self._seek_slider is not None:
+            self._seek_slider.set_value(min(self._position_s, self._seek_max))
+
+    def _on_ended(self) -> None:
+        self._is_playing = False
+        self._position_s = 0.0
         self._refresh_playback()
 
     def _reconcile_playback(self) -> None:
         """Stop when a Job removed or replaced the file that is currently playing."""
-        track_id = self._playing_track_id
-        if track_id is None or not self._is_playing:
+        if self._loaded_track_id is None:
             return
         track = next(
-            (item for item in self.service.snapshot().tracks if item.track_id == track_id),
+            (
+                item
+                for item in self.service.snapshot().tracks
+                if item.track_id == self._loaded_track_id
+            ),
             None,
         )
         if track is None:
-            self._mark_preview_unavailable(track_id)
+            self._mark_preview_unavailable(self._loaded_track_id)
             return
-        targets = self._targets(track)
-        if not any(target.key == self._playing_key for target in targets) and (
-            self._playing_key not in self._extra_targets.get(track_id, {})
+        if self._loaded_preview is None:
+            return
+        rows, _ = self._version_rows(track)
+        if not any(
+            row.preview is not None and row.preview.key == self._loaded_preview.key for row in rows
         ):
-            self._mark_preview_unavailable(track_id)
+            self._mark_preview_unavailable(track.track_id)
 
     def _on_player_error(self) -> None:
         """The browser's ``<audio>`` error handler maps to playback.unavailable."""
-        track_id = self._playing_track_id
+        track_id = self._loaded_track_id
         if track_id is not None:
             self._mark_preview_unavailable(track_id)
 
     def _mark_preview_unavailable(self, track_id: str) -> None:
         if self._player is not None:
             self._player.pause()
+        if self._loaded_preview is not None:
+            self._unavailable_previews.add((track_id, self._loaded_preview.key))
         self._is_playing = False
-        self._playing_track_id = None
-        self._playing_key = None
-        self._active_key.pop(track_id, None)
-        self._unavailable_preview.add(track_id)
+        self._loaded_track_id = None
+        self._loaded_preview = None
         ui.notify(formatting.copy_for(errors.PLAYBACK_UNAVAILABLE).headline, type="negative")
         self._refresh_playback()
 
@@ -1162,7 +1507,7 @@ class WorkspacePage:
         if event.value is None:
             return
         self._position_s = float(event.value)
-        if self._player is not None:
+        if self._player is not None and self._loaded_track_id == self._selected_id:
             self._player.seek(self._position_s)
 
     def _playback_allowed(self) -> bool:
@@ -1176,16 +1521,13 @@ class WorkspacePage:
             reason = (
                 "Playback unavailable"
                 if not self.context.playback_available
-                else "No cached preview"
+                else formatting.OUTPUTS_NO_PREVIEW
             )
             button.tooltip(reason)
 
     def _refresh_playback(self) -> None:
         self._tracks.refresh()
         self._detail.refresh()
-
-    def _not_yet(self, feature: str) -> None:
-        ui.notify(f"{feature} arrives in a later build.", type="info")
 
     @ui.refreshable_method
     def _job_bar(self) -> None:
@@ -1203,7 +1545,7 @@ class WorkspacePage:
                 )
             return
         with ui.element("div").classes("sf-jobbar").mark("job-bar"):
-            ui.element("span").classes("sf-dot")
+            ui.element("span").classes("sf-dot is-run")
             ui.label(
                 f"{self._job_label(snapshot.kind.value)} · {snapshot.stage or 'Starting'}"
             ).classes("sf-job-text").mark("job-stage")
@@ -1314,60 +1656,12 @@ class WorkspacePage:
         self._job_bar.refresh()
         self._refresh_all()
 
-    def _play_separation_target(self, track: Track, target: PreviewTarget) -> None:
-        """Play one stem through the one player and remember it for A/B."""
-        self._extra_targets.setdefault(track.track_id, {})[target.key] = target
-        self._toggle_target(track, target)
-
-    def _select_export_target(self, track: Track, target: ExportTarget) -> None:
-        """A stem row's export icon selects that target and opens the sheet."""
-        self._export_selection[track.track_id] = target.key
-        self._detail.refresh()
-        self._open_export(track, initial_target=target.key)
-
-    def _export_target_changed(self, track_id: str, key: str) -> None:
-        """The sheet's source selection is the card's selected export target."""
-        self._export_selection[track_id] = key
-        self._detail.refresh()
-
-    def export_selection(self, track_id: str) -> str | None:
-        """The Separation export row currently selected for one Track."""
-        return self._export_selection.get(track_id)
-
     # -- export -------------------------------------------------------------
 
-    def _open_export_for_current(self, track: Track) -> None:
-        preview = self._active_target(track)
-        initial = self._export_key_for_preview(track, preview) if preview is not None else None
-        self._open_export(track, initial_target=initial)
-
-    def _open_export_for_preview(self, track: Track, target: PreviewTarget) -> None:
-        key = self._export_key_for_preview(track, target)
-        self._open_export(track, initial_target=key)
-
-    def _open_export(self, track: Track, *, initial_target: str | None = None) -> None:
-        if self._busy():
+    def _open_export(self, track: Track, *, export_key: str | None) -> None:
+        if self._busy() or export_key is None:
             return
-        self._export_sheet.open(track, initial_target=initial_target, busy=False)
-
-    def _export_key_for_preview(self, track: Track, preview: PreviewTarget) -> str | None:
-        """Map a listening target to the export target the same row would save."""
-        if preview.key == "original":
-            return "master"
-        targets = self.service.export_targets(track)
-        keys = {target.key for target in targets}
-        if ":" in preview.key and preview.key.startswith("sep-"):
-            role = preview.key.rsplit(":", 1)[1]
-            key = "instrumental" if role == "instrumental" else f"stem:{role}"
-            if key in keys:
-                return key
-        for target in targets:
-            if target.render_key == preview.key and target.role in {"instrumental", "original"}:
-                return target.key
-        for target in targets:
-            if target.render_key == preview.key:
-                return target.key
-        return None
+        self._export_sheet.open(track, target_key=export_key, busy=False)
 
     def _export_job_started(self, job_id: str, spec: ExportSpec) -> None:
         self._export_jobs[job_id] = spec
@@ -1394,7 +1688,7 @@ class WorkspacePage:
             else:
                 self._export_notice = ExportNotice.success(spec, result.path)
                 with contextlib.suppress(OSError):
-                    self.service.settings.set_export_dir(result.path.parent)
+                    self.service.remember_export_dir(result.path.parent)
                 ui.notify(f"Exported to {result.path}", type="positive")
         elif snapshot.state.value == "failed":
             code = snapshot.error_code or errors.INTERNAL_UNEXPECTED
@@ -1470,7 +1764,7 @@ class WorkspacePage:
         snapshot = self._active_job()
         if snapshot is None:
             return
-        self.service.runner.cancel(snapshot.job_id)
+        self.service.cancel_job(snapshot.job_id)
         if snapshot.kind.value == "separate":
             ui.notify(formatting.SEPARATION_CANCELLED, type="info")
         elif snapshot.kind.value == "model_install":
@@ -1511,7 +1805,7 @@ class WorkspacePage:
     def _process_finished_jobs(self) -> None:
         for job_id in tuple(self._watched_jobs):
             try:
-                snapshot = self.service.runner.snapshot(job_id)
+                snapshot = self.service.job_snapshot(job_id)
             except KeyError:
                 self._watched_jobs.discard(job_id)
                 self._pitch_jobs.pop(job_id, None)
@@ -1561,7 +1855,7 @@ class WorkspacePage:
         elif snapshot.state.value == "cancelled":
             self._separation.clear_failure(track_id)
         else:
-            self._separation.record_success(track_id, snapshot.result_keys.get("set_key"))
+            self._separation.record_success(track_id)
         self._refresh_all()
 
     def _finish_model_job(self, snapshot: JobView) -> None:
@@ -1625,21 +1919,17 @@ class WorkspacePage:
         self._pitch.clear_failure(spec.track_id)
         render_key = snapshot.result_keys.get("render_key")
         if render_key:
-            self._active_key[spec.track_id] = render_key
-            self._ab_alternate[spec.track_id] = render_key
-            playing_this_track = (
-                self._selected_id == spec.track_id
-                and self._playing_track_id == spec.track_id
-                and self._is_playing
-            )
-            if playing_this_track:
-                self._activate_version(spec.track_id, render_key, autoplay=False)
+            self._select_version(spec.track_id, render_key)
         self._refresh_all()
 
     def _on_import_success(self, snapshot: JobView) -> None:
         track_id = snapshot.result_keys.get("track_id")
         if track_id is not None:
             self._selected_id = track_id
+            self._active_key[track_id] = "original"
+            self._unavailable_previews = {
+                pair for pair in self._unavailable_previews if pair[0] != track_id
+            }
         self._notice = None
         self._notice_block.refresh()
         self._refresh_all()
@@ -1715,9 +2005,11 @@ class WorkspacePage:
 
     def _remove_track(self, track: Track, dialog: ui.dialog) -> None:
         dialog.close()
-        if self._playing_track_id == track.track_id:
+        if self._loaded_track_id == track.track_id:
             self._pause()
-        ui.notify(formatting.REMOVING, type="info")
+            self._loaded_track_id = None
+            self._loaded_preview = None
+            ui.notify(formatting.REMOVING, type="info")
         try:
             self.service.remove_track(track.track_id)
         except StemForgeError as error:
@@ -1727,9 +2019,7 @@ class WorkspacePage:
             remaining = self.service.snapshot().tracks
             self._selected_id = remaining[0].track_id if remaining else None
         self._active_key.pop(track.track_id, None)
-        self._ab_alternate.pop(track.track_id, None)
-        self._extra_targets.pop(track.track_id, None)
-        self._export_selection.pop(track.track_id, None)
+        self._show_all_stems.discard(track.track_id)
         self._export_jobs = {
             job_id: spec
             for job_id, spec in self._export_jobs.items()
@@ -1737,7 +2027,11 @@ class WorkspacePage:
         }
         if self._export_notice is not None and self._export_notice.spec.track_id == track.track_id:
             self._export_notice = None
-        self._unavailable_preview.discard(track.track_id)
+        self._unavailable_previews = {
+            (track_id, key)
+            for track_id, key in self._unavailable_previews
+            if track_id != track.track_id
+        }
         self._separation.forget_track(track.track_id)
         self._refresh_all()
 
@@ -1772,10 +2066,20 @@ class WorkspacePage:
         return self._dialog_busy or self._active_job() is not None
 
     def _active_job(self) -> JobView | None:
-        for snapshot in self.service.runner.jobs():
+        for snapshot in self.service.jobs():
             if snapshot.active:
                 return snapshot
         return None
+
+    def _active_separation_job(self, track_id: str) -> JobView | None:
+        for snapshot in self.service.jobs():
+            if snapshot.active and self._separation_jobs.get(snapshot.job_id) == track_id:
+                return snapshot
+        return None
+
+    def _separation_running(self, track: Track) -> bool:
+        job = self._active_separation_job(track.track_id)
+        return job is not None and job.kind.value == "separate"
 
     def _selected_track(self) -> Track | None:
         if self._selected_id is None:
@@ -1786,14 +2090,12 @@ class WorkspacePage:
         return None
 
     def _select_track(self, track_id: str) -> None:
-        if track_id != self._playing_track_id and self._is_playing:
+        if track_id != self._loaded_track_id and self._is_playing:
             self._pause()
-        if track_id != self._playing_track_id:
+        if track_id != self._loaded_track_id:
             self._position_s = 0.0
         self._selected_id = track_id
-        track = self._selected_track()
-        if track is not None:
-            ui.page_title(f"{TITLE} — {track.title}")
+        self._sync_title()
         self._tracks.refresh()
         self._detail.refresh()
 
@@ -1812,7 +2114,12 @@ class WorkspacePage:
         self._recent.refresh()
         self._detail.refresh()
         self._footer.refresh()
+        self._sync_title()
         self._sync_actions()
+
+    def _sync_title(self) -> None:
+        track = self._selected_track()
+        ui.page_title(f"{TITLE} — {track.title}" if track is not None else TITLE)
 
     def _recent_state(self) -> tuple[tuple[str, bool], ...]:
         return tuple(
@@ -1826,13 +2133,42 @@ class WorkspacePage:
             self._recent_signature = state
             self._recent.refresh()
 
-    def _track_meta(self, track: Track) -> str:
+    def _track_status(self, track: Track) -> tuple[str, str]:
+        if self._active_separation_job(track.track_id) is not None:
+            return formatting.TRACK_STATUS_SEPARATING, "is-run"
+        failure = self._separation.failure_code(track.track_id)
+        if failure is not None and failure != errors.SEPARATION_MODEL_MISSING:
+            return formatting.TRACK_STATUS_FAILED, "is-bad"
+        latest = self._latest_render(track)
+        if self.service.has_separation(track):
+            if latest is not None:
+                return (
+                    formatting.TRACK_STATUS_STEMS_RENDERED.format(
+                        stems=formatting.TRACK_STATUS_STEMS,
+                        label=latest.label,
+                    ),
+                    "is-ok",
+                )
+            return formatting.TRACK_STATUS_STEMS, "is-ok"
+        if latest is not None:
+            return formatting.TRACK_STATUS_RENDERED.format(label=latest.label), ""
+        return formatting.TRACK_STATUS_NO_STEMS, ""
+
+    def _track_meta(self, track: Track, status: str) -> str:
         parts = [
             formatting.format_duration(track.source.metadata.duration_s),
             self._origin_label(track),
-            "No stems yet",
+            status,
         ]
         return " · ".join(parts)
+
+    def _latest_render(self, track: Track) -> PitchSet | None:
+        sets = self.service.pitch_sets(track)
+        return sets[-1] if sets else None
+
+    def _track_has_playable(self, track: Track) -> bool:
+        rows, _ = self._version_rows(track)
+        return any(row.preview is not None for row in rows)
 
     def _origin_label(self, track: Track) -> str:
         return "YouTube" if track.source.origin_kind is OriginKind.YOUTUBE else "Local file"
@@ -1853,24 +2189,47 @@ class WorkspacePage:
         return facts
 
     def _signal_path(self, track: Track) -> None:
-        del track
-        with ui.element("div").classes("sf-sigpath"):
+        has_stems = self.service.has_separation(track)
+        latest = self._latest_render(track)
+        with ui.element("div").classes("sf-sigpath").mark("signal-path"):
             with ui.element("span").classes("sf-chip is-done"):
                 ui.icon("check", size="xs")
-                ui.label("Source")
+                ui.label(formatting.SIGNAL_SOURCE).classes("sf-chip-label")
+                ui.label(
+                    formatting.SIGNAL_SOURCE_YOUTUBE
+                    if track.source.origin_kind is OriginKind.YOUTUBE
+                    else formatting.SIGNAL_SOURCE_LOCAL
+                )
             ui.icon("chevron_right", size="xs")
-            with ui.element("span").classes("sf-chip"):
-                ui.element("span").classes("sf-dot")
-                ui.label("Separation")
+            with (
+                ui.element("span")
+                .classes("sf-chip" + (" is-done" if has_stems else ""))
+                .mark("signal-separation")
+            ):
+                if has_stems:
+                    ui.icon("check", size="xs")
+                else:
+                    ui.element("span").classes("sf-dot")
+                ui.label(formatting.SIGNAL_SEPARATION).classes("sf-chip-label")
+                ui.label(
+                    formatting.SIGNAL_SEPARATION_DONE if has_stems else formatting.SIGNAL_NOT_RUN
+                )
             ui.icon("chevron_right", size="xs")
-            with ui.element("span").classes("sf-chip"):
-                ui.element("span").classes("sf-dot")
-                ui.label("Pitch")
-
-    def _fact(self, key: str, value: str) -> None:
-        with ui.element("div").classes("sf-fact"):
-            ui.label(key).classes("sf-fact-key")
-            ui.label(value).classes("sf-fact-value")
+            with (
+                ui.element("span")
+                .classes("sf-chip" + (" is-done" if latest is not None else ""))
+                .mark("signal-pitch")
+            ):
+                if latest is not None:
+                    ui.icon("check", size="xs")
+                else:
+                    ui.element("span").classes("sf-dot")
+                ui.label(formatting.SIGNAL_PITCH).classes("sf-chip-label")
+                ui.label(
+                    formatting.SIGNAL_RENDERED.format(label=latest.label)
+                    if latest is not None
+                    else formatting.SIGNAL_NOT_RENDERED
+                )
 
     def _job_label(self, kind: str) -> str:
         labels: Mapping[str, str] = {

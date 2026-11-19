@@ -72,6 +72,21 @@ SETTINGS_OPEN_LICENCES: Final = "Open licences folder"
 SETTINGS_VIEW: Final = "View"
 SETTINGS_CACHE_LABEL: Final = "Cached audio"
 SETTINGS_CACHE_CLEAR: Final = "Clear cached audio"
+SETTINGS_LOG_LABEL: Final = "Log folder"
+SETTINGS_LOG_HINT: Final = "One file per Job; the last 20 Jobs and 7 days are kept."
+SETTINGS_OPEN_LOG_FOLDER: Final = "Open log folder"
+SETTINGS_BEHAVIOUR_CLOSE: Final = (
+    "Closing the window stops the active job and clears the session track list. "
+    "Cached audio and recent files stay, so re-importing is instant. There is no close prompt."
+)
+SETTINGS_BEHAVIOUR_PARTIAL: Final = (
+    "If StemForge is force-quit during an export, a file ending in .partial may be "
+    "left beside the destination."
+)
+SETTINGS_YOUTUBE_NOTE: Final = (
+    "YouTube import uses yt-dlp on this machine. Turn it off to hide the empty-state "
+    "row; local files and existing tracks are unaffected."
+)
 SETTINGS_RECENT_CLEAR: Final = "Clear recent files"
 SETTINGS_RECENT_CLEARED: Final = "Recent files cleared."
 SETTINGS_CACHE_CLEARED: Final = "Cleared {size} of cached audio. Live tracks are kept."
@@ -96,6 +111,47 @@ EMPTY_MODEL_CARD: Final = (
     "Separation asks for the download the first time you use it."
 )
 
+# Ticket 08 §7 and §4: the Outputs card, transport, and signal path.
+OUTPUTS_TITLE: Final = "Outputs"
+OUTPUTS_SOURCE_BADGE: Final = "source"
+OUTPUTS_STEM_BADGE: Final = "stem"
+OUTPUTS_SHIFTED_MASTER: Final = "Shifted master"
+OUTPUTS_SHOW_MORE: Final = "Show 3 more stems"
+OUTPUTS_SHOW_LESS: Final = "Show fewer stems"
+OUTPUTS_PLACEHOLDER: Final = "Vocals & Instrumental appear here after Separation."
+OUTPUTS_PLACEHOLDER_RUNNING: Final = "Vocals & Instrumental appear here when Separation finishes."
+OUTPUTS_SEPARATE: Final = "Separate"
+OUTPUTS_NO_PREVIEW: Final = "No cached preview"
+OUTPUTS_UNAVAILABLE: Final = "Preview unavailable."
+OUTPUTS_EXPORT_TOOLTIP: Final = "Export this artifact"
+OUTPUTS_REPAIR_IMPORT: Final = "Re-import the file to rebuild it."
+OUTPUTS_REPAIR_IMPORT_ACTION: Final = "Re-import"
+OUTPUTS_REPAIR_SEPARATE: Final = "Separate again to rebuild these stems."
+OUTPUTS_REPAIR_SEPARATE_ACTION: Final = "Separate again"
+OUTPUTS_REPAIR_RENDER: Final = "Render this set again to rebuild it."
+OUTPUTS_REPAIR_RENDER_ACTION: Final = "Render again"
+TRANSPORT_TITLE: Final = "Transport"
+TRANSPORT_EXPORT: Final = "Export"
+TRANSPORT_PREVIEW_UNAVAILABLE: Final = "Preview unavailable"
+AB_LABEL: Final = "A/B"
+AB_ORIGINAL: Final = "Original"
+AB_LATEST_FALLBACK: Final = "Latest render"
+SIGNAL_SOURCE: Final = "Source"
+SIGNAL_SOURCE_LOCAL: Final = "local"
+SIGNAL_SOURCE_YOUTUBE: Final = "YouTube"
+SIGNAL_SEPARATION: Final = "Separation"
+SIGNAL_PITCH: Final = "Pitch"
+SIGNAL_SEPARATION_DONE: Final = "4 stems"
+SIGNAL_NOT_RUN: Final = "not run"
+SIGNAL_NOT_RENDERED: Final = "not rendered"
+SIGNAL_RENDERED: Final = "{label} rendered"
+TRACK_STATUS_NO_STEMS: Final = "No stems yet"
+TRACK_STATUS_SEPARATING: Final = "Separating…"
+TRACK_STATUS_FAILED: Final = "Separation failed"
+TRACK_STATUS_STEMS: Final = "4 stems"
+TRACK_STATUS_RENDERED: Final = "{label} rendered"
+TRACK_STATUS_STEMS_RENDERED: Final = "{stems} · {label} rendered"
+
 # Ticket 14 §9-§10: the shared Details disclosure and the copy-only report.
 DETAILS_LABEL: Final = "Details"
 OPEN_LOG_LABEL: Final = "Open log"
@@ -108,16 +164,19 @@ DIAGNOSTICS_COPIED: Final = "Copied."
 DIAGNOSTICS_COPY_FAILED: Final = "Copy failed. Select the text and copy it manually."
 DIAGNOSTICS_UNAVAILABLE: Final = "Diagnostics aren't available in this window."
 RESOURCE_WARNING_DISMISS: Final = "Dismiss"
+RECOVERY_HEADLINE: Final = (
+    "StemForge closed unexpectedly last time. Unfinished work was discarded; "
+    "cached audio and completed renders are intact."
+)
+RECOVERY_DISMISS: Final = "Dismiss"
 REMOVING: Final = "Removing…"
 
 # Ticket 08 §5 and ticket 11: the Pitch card's exact working copy.
 PITCH_TITLE: Final = "Pitch"
-PITCH_VERSIONS: Final = "Versions"
 PITCH_ORIGINAL: Final = "Original"
 PITCH_SEMITONES_UNIT: Final = "semitones"
 PITCH_RENDER: Final = "Render"
 PITCH_OPEN: Final = "Open"
-PITCH_STEMS_SCOPE: Final = "stems"
 PITCH_NEUTRAL_HINT: Final = "Set semitones to render a shifted set."
 PITCH_VIEWING: Final = "Viewing this render. Step semitones to render another set."
 PITCH_VIEWING_STATUS: Final = "{label} rendered · A/B compares it with Original."
@@ -131,7 +190,6 @@ PITCH_RETRY: Final = "Retry"
 
 # Ticket 08 §6 and §10 plus ticket 14 §4.3-4.4: the Separation card's copy.
 SEPARATION_TITLE: Final = "Separation"
-SEPARATION_VERSIONS: Final = "Separation versions"
 SEPARATION_NOT_SEPARATED: Final = "Not separated · htdemucs · CPU"
 SEPARATION_NOT_SEPARATED_HINT: Final = "Separate this track into four stems and an Instrumental."
 SEPARATION_ACTION: Final = "Separate vocals"
@@ -140,17 +198,12 @@ SEPARATION_DONE: Final = "4 stems ready · htdemucs · CPU"
 SEPARATION_PRIMARY_NOTE: Final = (
     "Vocals and Instrumental are primary. Drums, bass, and other stay behind Show 3 more stems."
 )
-SEPARATION_SHOW_MORE: Final = "Show 3 more stems"
-SEPARATION_SHOW_LESS: Final = "Show fewer stems"
 SEPARATION_RUNNING: Final = "Separating · {percent}%"
 SEPARATION_WORKER_NOTE: Final = "Runs in a worker process · safe to cancel"
 SEPARATION_STALL: Final = "No progress for {seconds} seconds. Separation may still be working."
 SEPARATION_KEEP_WAITING: Final = "Keep waiting"
 SEPARATION_CANCEL: Final = "Cancel"
 SEPARATION_RETRY: Final = "Retry"
-SEPARATION_EARLIER: Final = "based on an earlier separation"
-SEPARATION_CURRENT_SET: Final = "Newest separation"
-SEPARATION_OLDER_SET: Final = "Earlier separation"
 SEPARATION_LAST_SUCCESS: Final = "Stems from the last successful Separation are still available."
 SEPARATION_MODEL_CONSENT: Final = "Press Download model to accept this notice."
 SEPARATION_MODEL_DOWNLOADING: Final = "Downloading the model…"
@@ -159,10 +212,6 @@ SEPARATION_MODEL_RETRY: Final = "Retry download"
 SEPARATION_MODEL_CANCELLED: Final = "Model download cancelled."
 SEPARATION_CANCELLED: Final = "Separation cancelled."
 EXPORT_CANCELLED: Final = "Export cancelled."
-SEPARATION_AB: Final = "A/B"
-SEPARATION_AB_TOOLTIP: Final = "Compare this stem with the original"
-SEPARATION_EXPORT_TOOLTIP: Final = "Export this stem"
-SEPARATION_EXPORT_SELECTED: Final = "Export this stem (selected)"
 SEPARATION_PRIMARY_BADGE: Final = "primary"
 SEPARATION_SUM_BADGE: Final = "sum"
 SEPARATION_ROLE_LABELS: Final[Mapping[str, str]] = MappingProxyType(
@@ -368,6 +417,10 @@ COPY_BY_CODE: Final[Mapping[str, ErrorCopy]] = MappingProxyType(
         errors.LICENSING_OPEN_FAILED: ErrorCopy(
             "Couldn't open the licences folder.",
             "Open the LICENSES folder in your file manager from the StemForge folder.",
+        ),
+        errors.LOGGING_OPEN_FAILED: ErrorCopy(
+            "Couldn't open the log folder.",
+            "Open the logs folder in your file manager from StemForge's data folder.",
         ),
         errors.CANCELLED: ErrorCopy(
             "Cancelled.",

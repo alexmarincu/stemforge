@@ -299,6 +299,12 @@ async def test_transport_and_output_rows_drive_the_same_single_player(harness: H
         seek = _only(user, "seek")
         assert float(seek.props["max"]) == DURATION_S
 
+        # Ticket 08 §4: the transport advances with the media element.
+        user.find(marker="player").trigger("timeupdate", 42.0)
+        await asyncio.sleep(0.05)
+        assert _only(user, "elapsed").text == "0:42"
+        assert float(_only(user, "seek").value) == 42.0
+
 
 async def test_ab_swaps_original_and_newest_preview_in_one_player(harness: Harness) -> None:
     async for user, workspace_page in _open_page(harness):
@@ -323,10 +329,13 @@ async def test_ab_swaps_original_and_newest_preview_in_one_player(harness: Harne
         original = harness.service.preview_targets(track_id)[0].url
         preview = f"/media/renders/{render_key}/original_preview.mp3"
         assert _enabled(user, "ab-preview") is True
+        assert _only(user, "ab-preview").text == "+3"
 
         user.find(marker="ab-preview").click()
+        await asyncio.sleep(0.05)
         assert player.props["src"] == preview
         assert len(user.find(marker="player").elements) == 1
+        assert _only(user, "now-playing").text == "Shifted master · +3"
 
         user.find(marker="ab-original").click()
         assert player.props["src"] == original
@@ -345,7 +354,10 @@ async def test_a_missing_preview_is_unavailable_instead_of_a_dead_url(harness: H
         await asyncio.sleep(0.05)
 
         await user.should_see(marker="preview-unavailable")
-        await user.should_not_see(marker="output-play-original")
+        # Ticket 14 §4.4: the row enters the unavailable state with a repair.
+        assert _enabled(user, "output-play-original") is False
+        assert _enabled(user, "output-export-original") is False
+        await user.should_see(marker="output-repair-import")
         assert _enabled(user, "transport-play") is False
         assert _enabled(user, f"track-play-{track_id}") is False
 
@@ -498,6 +510,41 @@ async def test_resource_warnings_are_a_dismissible_banner_and_never_block(
             (track_id,) = await _import(harness, user, workspace_page, "Still.wav")
             assert track_id
             assert _enabled(user, "add-audio") is True
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_at_most_two_banners_stack_with_degraded_first(tmp_path: Path) -> None:
+    report = preflight.PreflightReport(
+        checks=(
+            preflight.CheckResult(
+                name=preflight.CHECK_PREVIEW,
+                status=preflight.STATUS_DEGRADED,
+                message="GStreamer is missing mpg123audiodec.",
+                fatal=False,
+            ),
+            preflight.CheckResult(
+                name=preflight.CHECK_RESOURCES,
+                status=preflight.STATUS_WARN,
+                message="This computer has 4.0 GB of RAM.",
+                fatal=False,
+            ),
+        ),
+        fail_on_degraded=False,
+    )
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(),
+        dialog=FakeDialog(),
+        preflight_report=report,
+    )
+    harness.context.show_recovery = True
+    harness.runner.start()
+    try:
+        async for user, _workspace_page in _open_page(harness):
+            await user.should_see(marker="playback-banner")
+            await user.should_see(marker="resource-banner")
+            await user.should_not_see(marker="recovery-banner")
     finally:
         harness.runner.stop(timeout=10)
 

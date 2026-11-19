@@ -1,4 +1,4 @@
-"""Headless Separation-card flow: model gate, download, Jobs, rows, and A/B.
+"""Headless Separation-card flow: model gate, download, Jobs, and Outputs rows.
 
 Everything runs through NiceGUI's user simulation. The separation adapter is a
 fake that writes tiny stand-ins and never spawns Demucs; the media adapter is a
@@ -15,19 +15,13 @@ import threading
 import urllib.error
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge import errors
-from stemforge.application import (
-    PreviewTarget,
-    SeparationSet,
-    ServiceEngines,
-    WorkspaceService,
-)
+from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
 from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
@@ -473,6 +467,12 @@ async def test_the_gate_shows_size_revision_licence_and_consent(tmp_path: Path) 
             assert _enabled(user, "model-download") is True
             await user.should_not_see(marker="separation-action")
 
+            # Ticket 08 §10: Licence details opens About, not a modal of its own.
+            user.find(marker="model-licence-details").click()
+            await user.should_see(marker="settings-dialog")
+            user.find(marker="settings-close").click()
+            await asyncio.sleep(0.05)
+
             # The rest of the app stays usable without the model.
             assert _enabled(user, "add-audio") is True
             user.find(marker="pitch-up").click()
@@ -636,7 +636,7 @@ async def test_one_successful_install_resubmits_a_pending_separation_exactly_onc
             await _poll(harness, user, workspace_page)
             await _poll(harness, user, workspace_page)
             assert len([job for job in harness.runner.jobs() if job.kind.value == "separate"]) == 1
-            await user.should_see(marker="separation-row-vocals")
+            await user.should_see(marker="output-row-vocals")
     finally:
         harness.runner.stop(timeout=10)
 
@@ -735,7 +735,7 @@ async def test_progress_cancel_and_stall_use_the_injected_clock(tmp_path: Path) 
             separation_jobs = [job for job in harness.runner.jobs() if job.kind.value == "separate"]
             assert [job.state.value for job in separation_jobs] == ["cancelled"]
             await user.should_not_see(marker="separation-error")
-            await user.should_not_see(marker="separation-row-vocals")
+            await user.should_not_see(marker="output-row-vocals")
             assert _only(user, "separation-status").text == "Not separated · htdemucs · CPU"
             assert list(harness.artifacts.staging_dir.iterdir()) == []
     finally:
@@ -756,17 +756,20 @@ async def test_primary_rows_are_visible_secondary_hidden_and_every_row_plays(
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
         await _poll(harness, user, workspace_page)
 
-        await user.should_see(marker="separation-row-vocals")
-        await user.should_see(marker="separation-row-instrumental")
-        await user.should_not_see(marker="separation-row-drums")
-        await user.should_not_see(marker="separation-row-bass")
-        await user.should_not_see(marker="separation-row-other")
+        # Ticket 08 §3 and §7: the rail reflects stem state; stems are Outputs rows.
+        assert "4 stems" in _only(user, f"track-meta-{track_id}").text
+        assert "is-ok" in _only(user, f"track-dot-{track_id}").classes
+        await user.should_see(marker="output-row-vocals")
+        await user.should_see(marker="output-row-instrumental")
+        await user.should_not_see(marker="output-row-drums")
+        await user.should_not_see(marker="output-row-bass")
+        await user.should_not_see(marker="output-row-other")
         await user.should_see("Show 3 more stems")
 
-        user.find(marker="separation-show-more").click()
+        user.find(marker="outputs-show-more").click()
         await asyncio.sleep(0.05)
         for role in ("drums", "bass", "other"):
-            await user.should_see(marker=f"separation-row-{role}")
+            await user.should_see(marker=f"output-row-{role}")
 
         track = harness.service.snapshot().tracks[0]
         (item,) = harness.service.separation_sets(track)
@@ -774,42 +777,42 @@ async def test_primary_rows_are_visible_secondary_hidden_and_every_row_plays(
         for role in ("vocals", "instrumental", "drums", "bass", "other"):
             target = harness.service.separation_preview_target(track, item.set_key, role)
             assert target is not None
-            user.find(marker=f"stem-play-{role}").click()
+            user.find(marker=f"output-play-{role}").click()
             await asyncio.sleep(0.05)
             assert player.props["src"] == target.url
             assert len(user.find(marker="player").elements) == 1
 
-        targets = {
-            target.role: target
-            for target in harness.service.export_targets(track)
-            if target.scope == "separation"
-        }
-        assert set(targets) == {"vocals", "instrumental", "drums", "bass", "other"}
-        user.find(marker="stem-export-drums").click()
+        # Ticket 08 §8: switching artifacts never carries the position over.
+        user.find(marker="output-play-vocals").click()
         await asyncio.sleep(0.05)
-        assert workspace_page.export_selection(track_id) == targets["drums"].key
-        assert "is-export-target" in _only(user, "separation-row-drums").classes
+        user.find(marker="player").trigger("timeupdate", 42.0)
+        await asyncio.sleep(0.05)
+        assert _only(user, "elapsed").text == "0:42"
+        user.find(marker="output-play-instrumental").click()
+        await asyncio.sleep(0.05)
+        assert _only(user, "elapsed").text == "0:00"
 
-        # Per-stem A/B against the original, still through the one player.
+        export = next(
+            target for target in harness.service.export_targets(track) if target.key == "stem:drums"
+        )
+        user.find(marker="output-export-drums").click()
+        await asyncio.sleep(0.05)
+        assert workspace_page._export_sheet._target_key == export.key
+        assert _only(user, "export-source-label").text == "Drums"
+        user.find(marker="export-cancel").click()
+        await asyncio.sleep(0.05)
+
+        # A/B stays the transport's Original | latest-render shortcut; playing
+        # a stem does not repurpose it (ticket 08 §7).
         original = harness.service.preview_targets(track_id)[0]
-        user.find(marker="stem-play-vocals").click()
+        user.find(marker="output-play-vocals").click()
         await asyncio.sleep(0.05)
         assert player.props["src"].endswith("/vocals.mp3")
-        user.find(marker="stem-ab-vocals").click()
+        assert _only(user, "ab-preview").text == "Latest render"
+        assert _enabled(user, "ab-preview") is False
+        user.find(marker="output-play-original").click()
         await asyncio.sleep(0.05)
         assert player.props["src"] == original.url
-        user.find(marker="stem-ab-vocals").click()
-        await asyncio.sleep(0.05)
-        assert player.props["src"].endswith("/vocals.mp3")
-
-        # The transport A/B follows the stem that is playing.
-        assert _only(user, "ab-preview").text == "Vocals"
-        user.find(marker="ab-original").click()
-        await asyncio.sleep(0.05)
-        assert player.props["src"] == original.url
-        user.find(marker="ab-preview").click()
-        await asyncio.sleep(0.05)
-        assert player.props["src"].endswith("/vocals.mp3")
         assert len(user.find(marker="player").elements) == 1
 
 
@@ -832,69 +835,11 @@ async def test_rendering_committed_stems_never_rehashes_audio(
             workspace_page._detail.refresh()
         await asyncio.sleep(0.05)
 
-        await user.should_see(marker="separation-row-vocals")
-        await user.should_see(marker="separation-row-instrumental")
+        await user.should_see(marker="output-row-vocals")
+        await user.should_see(marker="output-row-instrumental")
         for role in ("vocals", "instrumental"):
-            assert _enabled(user, f"stem-play-{role}") is True
-            assert _enabled(user, f"stem-export-{role}") is True
-
-
-async def test_older_sets_are_labelled_selectable_and_the_newest_is_default(
-    harness: Harness,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async for user, workspace_page in _open_page(harness):
-        track_id = await _import(harness, user, workspace_page)
-        track = harness.service.snapshot().tracks[0]
-        now = datetime.now(UTC)
-        views = (
-            SeparationSet(
-                set_key="older",
-                created_at=now - timedelta(minutes=5),
-                label="Separation",
-                stem_roles=("vocals", "drums", "bass", "other"),
-                based_on_earlier_separation=True,
-            ),
-            SeparationSet(
-                set_key="newer",
-                created_at=now,
-                label="Separation",
-                stem_roles=("vocals", "drums", "bass", "other"),
-                based_on_earlier_separation=False,
-            ),
-        )
-        monkeypatch.setattr(harness.service, "separation_sets", lambda _track, views=views: views)
-        monkeypatch.setattr(
-            harness.service,
-            "separation_preview_target",
-            lambda _track, set_key, stem: PreviewTarget(
-                key=f"{set_key}:{stem}",
-                label=stem.title(),
-                url=f"/media/fake/{set_key}/{stem}.mp3",
-            ),
-        )
-        with user:
-            workspace_page._detail.refresh()
-        await asyncio.sleep(0.05)
-
-        default_tab = _only(user, "separation-set-newer")
-        assert "is-active" in default_tab.classes
-        old_tab = _only(user, "separation-set-older")
-        assert "based on an earlier separation" in old_tab.text
-
-        player = _only(user, "player")
-        user.find(marker="stem-play-vocals").click()
-        await asyncio.sleep(0.05)
-        assert player.props["src"] == "/media/fake/newer/vocals.mp3"
-
-        user.find(marker="separation-set-older").click()
-        await asyncio.sleep(0.05)
-        assert "is-active" in _only(user, "separation-set-older").classes
-        user.find(marker="stem-play-vocals").click()
-        await asyncio.sleep(0.05)
-        assert player.props["src"] == "/media/fake/older/vocals.mp3"
-        assert len(user.find(marker="player").elements) == 1
-        assert track_id == track.track_id
+            assert _enabled(user, f"output-play-{role}") is True
+            assert _enabled(user, f"output-export-{role}") is True
 
 
 async def test_a_failed_reseparation_keeps_the_last_stems_playable(harness: Harness) -> None:
@@ -908,7 +853,7 @@ async def test_a_failed_reseparation_keeps_the_last_stems_playable(harness: Harn
         (first,) = harness.service.separation_sets(track)
         target = harness.service.separation_preview_target(track, first.set_key, "vocals")
         assert target is not None
-        user.find(marker="stem-play-vocals").click()
+        user.find(marker="output-play-vocals").click()
         await asyncio.sleep(0.05)
         assert _only(user, "player").props["src"] == target.url
 
@@ -920,8 +865,8 @@ async def test_a_failed_reseparation_keeps_the_last_stems_playable(harness: Harn
         await user.should_see(marker="separation-error")
         assert errors.SEPARATION_WORKER_CRASHED in _only(user, "separation-error-code").text
         await user.should_see("Stems from the last successful Separation are still available.")
-        await user.should_see(marker="separation-row-vocals")
-        user.find(marker="stem-play-vocals").click()
+        await user.should_see(marker="output-row-vocals")
+        user.find(marker="output-play-vocals").click()
         await asyncio.sleep(0.05)
         assert _only(user, "player").props["src"] == target.url
         assert len(user.find(marker="player").elements) == 1
@@ -963,7 +908,7 @@ async def test_a_retryable_separation_failure_is_inline_and_retry_resubmits(
         await _poll(harness, user, workspace_page)
 
         await user.should_not_see(marker="separation-error")
-        await user.should_see(marker="separation-row-vocals")
+        await user.should_see(marker="output-row-vocals")
         jobs = [job for job in harness.runner.jobs() if job.kind.value == "separate"]
         assert len(jobs) == 2
 

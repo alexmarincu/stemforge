@@ -98,3 +98,10 @@ def test_export_disk_full_chooses_another_location() -> None:
 
     assert copy.headline == "Not enough disk space."
     assert copy.action == "Choose another location."
+
+
+def test_a_log_folder_failure_is_not_reported_as_a_licence_failure() -> None:
+    copy = formatting.copy_for(errors.LOGGING_OPEN_FAILED)
+
+    assert copy.headline == "Couldn't open the log folder."
+    assert "logs folder" in copy.action

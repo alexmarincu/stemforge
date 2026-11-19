@@ -207,6 +207,12 @@ async def _open_page(harness: Harness):
         await simulation.__aexit__(None, None, None)
 
 
+def _only(user, marker: str):
+    elements = list(user.find(marker=marker).elements)
+    assert len(elements) == 1, f"expected exactly one {marker}, found {len(elements)}"
+    return elements[0]
+
+
 async def _finish_jobs(
     harness: Harness, user, workspace_page: page.WorkspacePage, *, expected_jobs: int | None = None
 ) -> None:
@@ -302,6 +308,56 @@ async def test_a_selected_file_becomes_a_track_with_audio_facts(harness: Harness
         cache_sources = list((harness.paths.cache / "sources").iterdir())
         assert len(cache_sources) == 1
         assert (cache_sources[0] / "source.json").is_file()
+
+
+async def test_window_title_follows_the_selected_track_and_clears_on_remove(
+    harness: Harness,
+) -> None:
+    source = harness.source_file()
+    harness.dialog._selections = [(str(source),)]
+
+    async for user, workspace_page in _open_page(harness):
+        assert workspace_page._client is not None
+        assert workspace_page._client.resolve_title() == "StemForge"
+
+        user.find(marker="add-audio").click()
+        await asyncio.sleep(0.1)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+        await asyncio.sleep(0.05)
+        assert workspace_page._client.resolve_title() == "StemForge — My Song"
+
+        # Ticket 08 §4: the header carries Settings and Remove.
+        user.find(marker="detail-settings").click()
+        await user.should_see(marker="settings-dialog")
+        user.find(marker="settings-close").click()
+        await asyncio.sleep(0.05)
+
+        user.find(marker="detail-remove").click()
+        await asyncio.sleep(0.05)
+        user.find(marker="confirm-remove").click()
+        await asyncio.sleep(0.05)
+        assert workspace_page._client.resolve_title() == "StemForge"
+
+
+async def test_signal_path_starts_at_source_only(harness: Harness) -> None:
+    source = harness.source_file()
+    harness.dialog._selections = [(str(source),)]
+
+    async for user, workspace_page in _open_page(harness):
+        user.find(marker="add-audio").click()
+        await asyncio.sleep(0.1)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+        await asyncio.sleep(0.05)
+
+        with user.scope(marker="signal-path"):
+            await user.should_see("Source")
+            await user.should_see("Separation")
+            await user.should_see("not run")
+            await user.should_see("Pitch")
+            await user.should_see("not rendered")
+
+        await user.should_see(marker="track-meta")
+        assert "No stems yet" in _only(user, "track-meta").text
 
 
 async def test_the_job_bar_reports_stage_progress_and_cancel(harness: Harness) -> None:

@@ -1,10 +1,12 @@
 """The Export sheet and the Export status bar.
 
-The sheet is the format/source authority (ticket 08 §9): WAV 24-bit by default,
-FLAC 24-bit, or MP3 320, with every target from ``WorkspaceService.export_targets``
-(master, Stems, Instrumental, and pitch render members). It then opens the native
-save dialog through the injected seam, which owns the strict filter and the
-extension repair. There is no "Save original", no batch, and no second player.
+The sheet is the format authority (ticket 08 §9): WAV 24-bit by default, FLAC
+24-bit, or MP3 320, with a computed size estimate. The source is fixed by the
+entry point — an Outputs row's export icon or the transport's Export for the
+current listening target — so the sheet never asks the user to re-pick an
+artifact. It then opens the native save dialog through the injected seam, which
+owns the strict filter and the extension repair. There is no "Save original", no
+batch, and no second player.
 
 A failed Export is never a modal error: the page's one Job bar shows progress
 while the Job runs, then the inline status bar shows the destination on success
@@ -66,7 +68,6 @@ EXPORT_CANCELLED: Final = "Export cancelled."
 EXPORT_NO_TARGETS: Final = "No exportable audio is available for this Track."
 
 JobStarted = Callable[[str, "ExportSpec"], None]
-TargetSelected = Callable[[str, str], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +125,7 @@ class ExportNotice:
 
 
 class ExportSheet:
-    """The one Export sheet for a page; choices are remembered per Track."""
+    """The one Export sheet for a page; the format choice is remembered per Track."""
 
     def __init__(
         self,
@@ -132,7 +133,6 @@ class ExportSheet:
         save_dialog: SaveAudioFileDialog,
         *,
         on_job_started: JobStarted,
-        on_target_selected: TargetSelected,
         diagnostics: DiagnosticsProvider | None = None,
         clipboard: ClipboardWriter | None = None,
         open_path: PathOpener | None = None,
@@ -140,12 +140,11 @@ class ExportSheet:
         self._service = service
         self._save_dialog = save_dialog
         self._on_job_started = on_job_started
-        self._on_target_selected = on_target_selected
         self._diagnostics = diagnostics
         self._clipboard = clipboard
         self._open_path = open_path
         self._formats: dict[str, ExportFormat] = {}
-        self._targets: dict[str, str] = {}
+        self._target_key: str | None = None
         self._track: Track | None = None
         self._dialog: ui.dialog | None = None
         self._body: ui.column | None = None
@@ -171,24 +170,15 @@ class ExportSheet:
         self,
         track: Track,
         *,
-        initial_target: str | None = None,
+        target_key: str,
         busy: bool = False,
     ) -> None:
-        """Open the sheet for one Track, preselecting ``initial_target``."""
+        """Open the sheet for one Track and the artifact the entry point chose."""
         self.build()
         self._track = track
+        self._target_key = target_key
         self._submit_error = None
         self._saving = False
-        targets = self._service.export_targets(track)
-        keys = {target.key for target in targets}
-        remembered = self._targets.get(track.track_id)
-        selected = next(
-            (key for key in (initial_target, remembered) if key is not None and key in keys),
-            targets[0].key if targets else None,
-        )
-        if selected is not None:
-            self._targets[track.track_id] = selected
-            self._on_target_selected(track.track_id, selected)
         self._render(busy=busy)
         assert self._dialog is not None
         self._dialog.open()
@@ -204,20 +194,15 @@ class ExportSheet:
             return
         body.clear()
         targets = self._service.export_targets(track)
+        selected_target = self._selected_target(track, targets)
         with body:
             ui.label(EXPORT_TITLE).classes("sf-export-title")
-            if not targets:
+            if selected_target is None:
                 ui.label(EXPORT_NO_TARGETS).classes("sf-lede")
-                self._footer(busy=True, can_submit=False)
+                self._footer(busy=busy, can_submit=False)
                 return
-            selected_target = self._selected_target(track, targets)
-            assert selected_target is not None
             ui.label(EXPORT_FORMAT).classes("sf-versions-label")
             self._format_rows(track)
-            ui.label(EXPORT_SOURCE).classes("sf-versions-label")
-            with ui.element("div").classes("sf-export-targets"):
-                for target in targets:
-                    self._target_row(track, target, selected_target)
             self._summary(track, selected_target)
             self._submit_error_block()
             self._footer(busy=busy, can_submit=True)
@@ -239,23 +224,12 @@ class ExportSheet:
                         ui.label(self._estimate(track, fmt)).classes("sf-format-size")
                 row.on("click", lambda _=None, item=fmt: self._choose_format(track, item))
 
-    def _target_row(self, track: Track, target: ExportTarget, selected: ExportTarget) -> None:
-        active = " is-active" if target.key == selected.key else ""
-        row = (
-            ui.element("div")
-            .classes(f"sf-target-row{active}")
-            .mark("export-target", f"export-target-{target.key}")
-        )
-        with row:
-            ui.element("span").classes("sf-format-radio")
-            with ui.element("div").classes("sf-format-main"):
-                ui.label(target.label).classes("sf-format-name")
-                ui.label(self._target_meta(target)).classes("sf-format-size")
-        row.on("click", lambda _=None, item=target: self._choose_target(track, item))
-
     def _summary(self, track: Track, target: ExportTarget) -> None:
         fmt = self._formats.get(track.track_id, DEFAULT_FORMAT)
         with ui.element("div").classes("sf-export-summary"):
+            with ui.element("div").classes("sf-fact"):
+                ui.label(EXPORT_SOURCE).classes("sf-fact-key")
+                ui.label(target.label).classes("sf-fact-value").mark("export-source-label")
             with ui.element("div").classes("sf-fact"):
                 ui.label(EXPORT_DEFAULT_NAME).classes("sf-fact-key")
                 ui.label(f"{target.base_name}{fmt.suffix}").classes("sf-fact-value").mark(
@@ -304,32 +278,11 @@ class ExportSheet:
     def _selected_target(
         self, track: Track, targets: tuple[ExportTarget, ...]
     ) -> ExportTarget | None:
-        key = self._targets.get(track.track_id)
-        found = next((target for target in targets if target.key == key), None)
-        if found is not None:
-            return found
-        first = targets[0] if targets else None
-        if first is not None:
-            self._targets[track.track_id] = first.key
-        return first
+        return next((target for target in targets if target.key == self._target_key), None)
 
     def _choose_format(self, track: Track, fmt: ExportFormat) -> None:
         self._formats[track.track_id] = fmt
         self._render(busy=False)
-
-    def _choose_target(self, track: Track, target: ExportTarget) -> None:
-        self._targets[track.track_id] = target.key
-        self._on_target_selected(track.track_id, target.key)
-        self._render(busy=False)
-
-    def _target_meta(self, target: ExportTarget) -> str:
-        scope = {
-            "master": "master",
-            "separation": "stem",
-        }.get(target.scope, "render")
-        if target.render_key is not None and target.semitones:
-            return f"{scope} · {target.semitones:+d} st"
-        return scope
 
     @staticmethod
     def _estimate(track: Track, fmt: ExportFormat) -> str:
@@ -404,10 +357,7 @@ class ExportSheet:
         )
 
     def _default_directory(self) -> Path | None:
-        preferred = self._service.settings.preferred_export_dir
-        if preferred is not None and preferred.is_dir():
-            return preferred
-        return None
+        return self._service.preferred_export_dir()
 
     def _destination_label(self) -> str:
         preferred = self._default_directory()
