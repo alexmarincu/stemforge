@@ -33,6 +33,12 @@ pytestmark = pytest.mark.ui
 MISSING_HEADLINE = "The licence files are missing from this installation."
 
 
+def _only(user, marker: str):
+    elements = list(user.find(marker=marker).elements)
+    assert len(elements) == 1, f"expected exactly one {marker}, found {len(elements)}"
+    return elements[0]
+
+
 @pytest.fixture(autouse=True)
 def _no_network(no_external_network: None) -> None:
     """The About modal must work offline (ticket 13 §10)."""
@@ -199,6 +205,11 @@ async def test_modal_shows_version_licence_notices_and_source_offer(harness: Har
         await user.should_see(marker="clear-cached-audio")
         await user.should_see(marker="clear-recent")
         await user.should_see(marker="clear-youtube-cache")
+        await user.should_see(marker="open-log-folder")
+        await user.should_see(marker="about-close-note")
+        await user.should_see("There is no close prompt.")
+        await user.should_see(marker="about-partial-note")
+        await user.should_see(".partial")
         assert harness.service.licence_files().complete is True
 
 
@@ -213,6 +224,16 @@ async def test_open_licences_folder_calls_the_injected_opener(harness: Harness) 
         assert harness.opener.calls == [expected]
         assert expected.is_dir()
         assert (expected / "README.md").is_file()
+
+
+async def test_open_log_folder_calls_the_injected_opener(harness: Harness) -> None:
+    async for user, _workspace_page in _open_page(harness):
+        await _open_settings(user)
+        user.find(marker="open-log-folder").click()
+        await asyncio.sleep(0.1)
+
+        assert harness.opener.calls == [harness.service.logs_dir()]
+        assert harness.service.logs_dir().is_dir()
 
 
 async def test_missing_tree_shows_the_coded_fallback_and_never_opens(
@@ -243,6 +264,18 @@ async def test_a_failing_opener_is_a_coded_message_not_a_traceback(harness: Harn
         await asyncio.sleep(0.1)
 
         await user.should_see("Couldn't open the licences folder.")
+
+
+async def test_a_failing_log_opener_uses_the_logging_code(harness: Harness) -> None:
+    harness.context.open_path = FailingOpener()
+    async for user, _workspace_page in _open_page(harness):
+        await _open_settings(user)
+        user.find(marker="open-log-folder").click()
+        await asyncio.sleep(0.1)
+
+        await user.should_see("Couldn't open the log folder.")
+        assert errors.LOGGING_OPEN_FAILED not in _only(user, "about-files-error").text
+        assert errors.LOGGING_OPEN_FAILED in _only(user, "about-files-error-code").text
 
 
 async def test_documents_open_as_safe_plain_text(harness: Harness) -> None:

@@ -360,6 +360,13 @@ def _enabled(user, marker: str) -> bool:
     return bool(_only(user, marker).enabled)
 
 
+def _count(user, marker: str) -> int:
+    try:
+        return len(user.find(marker=marker).elements)
+    except AssertionError:
+        return 0
+
+
 def _assert_no_partial(directory: Path) -> None:
     assert not list(directory.rglob("*.partial")), list(directory.rglob("*"))
 
@@ -380,15 +387,15 @@ async def _open_sheet(user, workspace_page: page.WorkspacePage) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_the_sheet_lists_every_target_and_format_without_batch_or_passthrough(
+async def test_the_sheet_is_format_only_and_keeps_the_entry_point_source(
     harness: Harness,
 ) -> None:
     async for user, workspace_page in _open_page(harness):
         track_id = await _import(harness, user, workspace_page)
         source_id = harness.service.snapshot().tracks[0].source_id
         harness.add_separation(source_id)
-        render_key = harness.add_render(source_id, semitones=3)
-        stems_render = harness.add_render(source_id, semitones=-2, stems=True)
+        harness.add_render(source_id, semitones=3)
+        harness.add_render(source_id, semitones=-2, stems=True)
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
@@ -404,19 +411,10 @@ async def test_the_sheet_lists_every_target_and_format_without_batch_or_passthro
             "export-format-wav24",
             "export-format-flac24",
             "export-format-mp3_320",
-            "export-target-master",
-            "export-target-stem:vocals",
-            "export-target-stem:drums",
-            "export-target-stem:bass",
-            "export-target-stem:other",
-            "export-target-instrumental",
-            f"export-target-render:{render_key}:original",
-            f"export-target-render:{stems_render}:vocals",
-            f"export-target-render:{stems_render}:instrumental",
         ):
             await user.should_see(marker=marker)
         assert "is-active" in _only(user, "export-format-wav24").classes
-        assert "is-active" in _only(user, "export-target-master").classes
+        assert _only(user, "export-source-label").text == "Original"
         assert _only(user, "export-default-name").text.endswith(".wav")
         await user.should_see("about 11.1 MB")
         await user.should_see("about 6.6 MB")
@@ -426,6 +424,9 @@ async def test_the_sheet_lists_every_target_and_format_without_batch_or_passthro
         assert "is-active" in _only(user, "export-format-mp3_320").classes
         assert _only(user, "export-default-name").text.endswith(".mp3")
         assert len(user.find(marker="export-confirm").elements) == 1
+        # Ticket 08 §9: the entry point chooses the source; the sheet does not.
+        assert _count(user, "export-target-master") == 0
+        assert _count(user, "export-target-stem:vocals") == 0
         await user.should_not_see("Save original")
         await user.should_not_see("Export all")
         await user.should_not_see("batch")
@@ -446,13 +447,12 @@ async def test_a_format_and_target_choice_drives_the_native_save_request_and_suc
         user.find(marker=f"track-row-{track_id}").click()
         await asyncio.sleep(0.05)
 
-        await _open_sheet(user, workspace_page)
+        user.find(marker="output-export-vocals").click()
+        await asyncio.sleep(0.05)
+        assert _only(user, "export-source-label").text == "Vocals"
         user.find(marker="export-format-flac24").click()
         await asyncio.sleep(0.05)
         assert "is-active" in _only(user, "export-format-flac24").classes
-        user.find(marker="export-target-stem:vocals").click()
-        await asyncio.sleep(0.05)
-        assert "is-active" in _only(user, "export-target-stem:vocals").classes
         assert _only(user, "export-default-name").text.endswith(" - Vocals.flac")
 
         destination = harness.root / "exports"
@@ -493,9 +493,9 @@ async def test_a_typed_wrong_extension_is_corrected_without_switching_format(
         user.find(marker=f"track-row-{track_id}").click()
         await asyncio.sleep(0.05)
 
-        await _open_sheet(user, workspace_page)
-        user.find(marker="export-target-stem:vocals").click()
+        user.find(marker="output-export-vocals").click()
         await asyncio.sleep(0.05)
+        assert _only(user, "export-source-label").text == "Vocals"
         assert "is-active" in _only(user, "export-format-wav24").classes
 
         destination = harness.root / "exports"
@@ -592,17 +592,19 @@ async def test_output_rows_and_the_transport_open_the_sheet_on_that_target(
         user.find(marker="output-export-original").click()
         await asyncio.sleep(0.05)
         assert _sheet_open(workspace_page)
-        assert "is-active" in _only(user, "export-target-master").classes
+        assert workspace_page._export_sheet._target_key == "master"
+        assert _only(user, "export-source-label").text == "Original"
         user.find(marker="export-cancel").click()
         await asyncio.sleep(0.05)
 
-        # The transport follows what is playing; a render preview selects that set.
+        # The transport exports what is loaded: the active render's first row.
         user.find(marker="ab-preview").click()
         await asyncio.sleep(0.05)
         user.find(marker="export-action").click()
         await asyncio.sleep(0.05)
         assert _sheet_open(workspace_page)
-        assert "is-active" in _only(user, f"export-target-render:{render_key}:original").classes
+        assert workspace_page._export_sheet._target_key == f"render:{render_key}:original"
+        assert _only(user, "export-source-label").text == "Original +3 st"
 
 
 async def test_a_separation_row_export_opens_the_sheet_on_that_stem(
@@ -616,14 +618,14 @@ async def test_a_separation_row_export_opens_the_sheet_on_that_stem(
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
         await asyncio.sleep(0.05)
-        user.find(marker="separation-show-more").click()
+        user.find(marker="outputs-show-more").click()
         await asyncio.sleep(0.05)
 
-        user.find(marker="stem-export-drums").click()
+        user.find(marker="output-export-drums").click()
         await asyncio.sleep(0.05)
         assert _sheet_open(workspace_page)
-        assert "is-active" in _only(user, "export-target-stem:drums").classes
-        assert workspace_page.export_selection(track_id) == "stem:drums"
+        assert workspace_page._export_sheet._target_key == "stem:drums"
+        assert _only(user, "export-source-label").text == "Drums"
 
 
 # ---------------------------------------------------------------------------
@@ -646,9 +648,9 @@ async def test_a_write_failure_is_inline_with_retry_and_leaves_no_file_or_partia
         user.find(marker=f"track-row-{track_id}").click()
         await asyncio.sleep(0.05)
 
-        await _open_sheet(user, workspace_page)
+        user.find(marker="output-export-vocals").click()
+        await asyncio.sleep(0.05)
         user.find(marker="export-format-flac24").click()
-        user.find(marker="export-target-stem:vocals").click()
         await asyncio.sleep(0.05)
         destination = harness.root / "exports"
         destination.mkdir()
