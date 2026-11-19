@@ -156,11 +156,39 @@ def test_a_missing_referenced_file_makes_the_set_invalid(
 
 
 @pytest.mark.unit
-def test_a_hash_mismatch_makes_the_set_invalid(store: ArtifactStore) -> None:
+def test_a_routine_lookup_never_reads_audio_bytes(
+    store: ArtifactStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = _commit_source(store, "abc123", data=b"a" * 4096)
+
+    def unexpected(path: Path) -> str:
+        raise AssertionError(f"lookup read {path}")
+
+    monkeypatch.setattr("stemforge.artifacts._sha256_file", unexpected)
+
+    assert store.find_source("abc123") is not None
+    assert artifact.canonical_path is not None
+    assert store.find_source("abc123").files == artifact.files
+
+
+@pytest.mark.unit
+def test_a_hash_mismatch_only_fails_deep_verification(store: ArtifactStore) -> None:
     artifact = _commit_source(store, "abc123")
     payload = json.loads(artifact.manifest_path.read_text(encoding="utf-8"))
     payload["files"][0]["sha256"] = hashlib.sha256(b"other").hexdigest()
     artifact.manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    # A routine lookup validates the manifest, existence, and size only: the
+    # UI must not read hundreds of megabytes on every refresh.
+    assert store.find_source("abc123") is not None
+    assert store.find_source("abc123", verify_hashes=True) is None
+
+
+@pytest.mark.unit
+def test_a_truncated_file_still_makes_the_set_invalid(store: ArtifactStore) -> None:
+    artifact = _commit_source(store, "abc123")
+    assert artifact.canonical_path is not None
+    artifact.canonical_path.write_bytes(b"x")
 
     assert store.find_source("abc123") is None
 
