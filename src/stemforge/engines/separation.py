@@ -41,6 +41,7 @@ from stemforge.worker_protocol import (
     EXIT_INVALID_INPUT,
     EXIT_MODEL_UNAVAILABLE,
     EXIT_OK,
+    INSTRUMENTAL_NAME,
     WORKER_OUTPUT_NAMES,
     ProtocolError,
     WorkerEvent,
@@ -108,7 +109,7 @@ class SeparationOutputs:
     @property
     def stems(self) -> Mapping[str, Path]:
         """The four Stems; Instrumental is an output, not a Stem (GLOSSARY)."""
-        return {role: path for role, path in self.outputs.items() if role != "instrumental"}
+        return {role: path for role, path in self.outputs.items() if role != INSTRUMENTAL_NAME}
 
 
 class WorkerSeparationEngine:
