@@ -310,7 +310,9 @@ def _required_text(
 ) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or (not value and not allow_empty):
-        raise ProtocolError(f"hello event is missing {key}" if key != "stage" else "missing stage")
+        event = payload.get("event")
+        name = event if isinstance(event, str) and event else "protocol"
+        raise ProtocolError(f"{name} event is missing {key}", line=line)
     return value
 
 
