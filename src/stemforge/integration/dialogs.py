@@ -1,14 +1,14 @@
 """Native open/save dialog wrappers: strict filters, trusted paths, extension repair.
 
 pywebview's dialog API has no NiceGUI wrapper. This module owns the two dialogs
-StemForge needs in v0.1.0: the open dialog and the save dialog for Export.
+StemForge needs: the open dialog and the save dialog for Export.
 
 * filter strings follow pywebview's strict grammar (description ``[\\w ]+``,
   patterns ``*.ext`` joined by ``;`` with no spaces; no hyphen or comma);
 * only absolute native paths are trusted; browser artefacts such as
   ``C:\\fakepath\\…`` and ``file://`` URLs are never imported or written;
 * open extensions are matched case-insensitively and with surrounding
-  whitespace ignored, and anything outside the v0.1.0 audio set is a coded selection
+  whitespace ignored, and anything outside the audio set is a coded selection
   error;
 * a save name is Windows-safe and always carries the chosen format's extension.
   A known audio extension the user typed is replaced, never used to switch the
@@ -35,7 +35,7 @@ AUDIO_EXTENSIONS: Final = (".wav", ".mp3", ".flac", ".m4a")
 AUDIO_FILTER: Final = "Audio (*.wav;*.mp3;*.flac;*.m4a)"
 AUDIO_FILE_TYPES: Final = (AUDIO_FILTER,)
 
-# The three v0.1.0 export formats (ticket 05 §7). Descriptions stay within
+# The three export formats (ticket 05 §7). Descriptions stay within
 # pywebview's ``[\w ]+`` grammar: no hyphen, comma, or slash.
 SAVE_AUDIO_EXTENSIONS: Final = (".wav", ".flac", ".mp3")
 SAVE_FILTERS: Final[dict[str, str]] = {
@@ -340,7 +340,7 @@ def is_native_path(path: str) -> bool:
 
 
 def is_supported_audio_path(path: str | Path) -> bool:
-    """Match the v0.1.0 audio extensions case-insensitively, ignoring edge whitespace."""
+    """Match the audio extensions case-insensitively, ignoring edge whitespace."""
     try:
         suffix = Path(str(path).strip()).suffix.strip().lower()
     except (OSError, ValueError):

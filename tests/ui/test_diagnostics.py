@@ -30,7 +30,7 @@ from stemforge.ui.components.diagnostics import BROWSER_COPY_JS
 
 pytestmark = pytest.mark.ui
 
-REPORT = "StemForge 0.1.0 · source · Linux 6.8 x86_64 · x11\nPath: /tmp/home"
+REPORT = "StemForge 9.9.9 · source · Linux 6.8 x86_64 · x11\nPath: /tmp/home"
 
 
 class FailingMedia:

@@ -134,6 +134,9 @@ install -m 0644 packaging/linux/README.md "$bundle/README.md"
 # Ticket 10's layout spells the file README.txt; ship both names so the file
 # manager and the ticket's checks agree.
 install -m 0644 packaging/linux/README.md "$bundle/README.txt"
+for readme in "$bundle/README.md" "$bundle/README.txt"; do
+    sed -i "s/{{version}}/${version}/g" "$readme"
+done
 
 missing_licences=0
 for name in LICENSE THIRD_PARTY_NOTICES.md SOURCE_OFFER.md; do

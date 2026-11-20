@@ -24,11 +24,13 @@ from typing import Any
 
 import pytest
 
+import stemforge
+
 pytestmark = pytest.mark.unit
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 VERIFIER_PATH = PROJECT_ROOT / "packaging" / "linux" / "verify_bundle.py"
-BUNDLE_NAME = "StemForge-0.1.0-linux-x86_64"
+BUNDLE_NAME = f"StemForge-{stemforge.__version__}-linux-x86_64"
 
 
 def _load_verifier() -> Any:

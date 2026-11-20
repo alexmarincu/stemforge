@@ -190,7 +190,7 @@ class PitchSet:
 class SeparationSet:
     """One committed Separation set as the Separation card sees it.
 
-    The v0.1.0 artifact store keeps one Stems set per Source: a re-separation
+    The artifact store keeps one Stems set per Source: a re-separation
     replaces it (ticket 05). The view is still a list so the UI contract does
     not have to change when an archived set appears; ``set_key`` is the stable
     identity used by preview lookups.
@@ -584,7 +584,7 @@ class WorkspaceService:
         """Submit one Pitch Render Job and return its id (ticket 03, ticket 08 §5).
 
         The request is explicit: the UI's stepper never calls this by itself.
-        ``scope`` is ``original`` for the default v0.1.0 flow, or ``stems`` when the
+        ``scope`` is ``original`` for the default flow, or ``stems`` when the
         user asks for the explicit stems action after a Separation.
         """
         shift = validate_semitones(semitones)
@@ -701,7 +701,7 @@ class WorkspaceService:
     def separation_sets(self, track: Track) -> tuple[SeparationSet, ...]:
         """Every committed Separation set for the Track, oldest first (ticket 14).
 
-        The v0.1.0 store replaces the Stems directory on a re-separation, so there is
+        The store replaces the Stems directory on a re-separation, so there is
         at most one set. The newest set is the last item and is the card's
         default; the tuple shape keeps older labelled sets representable.
         """

@@ -30,7 +30,7 @@ pytestmark = pytest.mark.unit
 
 def _facts(**overrides: object) -> diagnostics.DiagnosticsFacts:
     base = diagnostics.DiagnosticsFacts(
-        version="0.1.0",
+        version="9.9.9",
         bundle_kind="source",
         os_name="Linux",
         os_version="6.8.0",
@@ -80,7 +80,7 @@ def test_report_has_the_full_ticket_14_structure() -> None:
     text = diagnostics.render_diagnostics(_facts())
     lines = text.splitlines()
 
-    assert lines[0] == "StemForge 0.1.0 · source · Linux 6.8.0 x86_64 · wayland"
+    assert lines[0] == "StemForge 9.9.9 · source · Linux 6.8.0 x86_64 · wayland"
     assert lines[1] == "Python 3.13.18 · source · PyInstaller 6.22.3"
     assert lines[2] == ("CPU Fixture CPU, 4/8 · RAM 16.0 GB · free disk (cache) 120.0 GB")
     assert lines[3] == "Preflight: window ok | preview ok | bundle ok | storage ok"

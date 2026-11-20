@@ -33,13 +33,13 @@ primary target.
 Unsigned build and SmartScreen
 ------------------------------
 
-StemForge 0.1.0 is unsigned. Windows SmartScreen may show "Windows protected
+StemForge {{version}} is unsigned. Windows SmartScreen may show "Windows protected
 your PC" or "Unknown publisher" the first time you run the download. That is
 expected for an unsigned build.
 
 Check the download before you run it:
 
-    certutil -hashfile StemForge-0.1.0-win64-portable.zip SHA256
+    certutil -hashfile StemForge-{{version}}-win64-portable.zip SHA256
 
 Compare the result with SHA256SUMS from the same release page. If the hashes
 match, choose "More info" and "Run anyway" only if you trust the release page.

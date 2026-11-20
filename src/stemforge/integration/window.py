@@ -27,7 +27,7 @@ WEBKIT_SHM_ENV: Final = "WEBKIT_DMABUF_RENDERER_FORCE_SHM"
 
 
 def configure_window(paths: AppPaths) -> None:
-    """Apply the one v0.1.0 window shape before NiceGUI spawns the window process."""
+    """Apply the one window shape before NiceGUI spawns the window process."""
     if sys.platform.startswith("linux"):
         os.environ.setdefault(WEBKIT_SHM_ENV, "1")
     window_args: dict[str, object] = {

@@ -167,7 +167,7 @@ if (-not $Version) {
     $Version = Get-StemForgeVersion
 }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "version '$Version' is not a release semver (expected e.g. 0.1.0)"
+    throw "version '$Version' is not a release semver (expected e.g. 1.2.3)"
 }
 $declared = Get-StemForgeVersion
 if ($Version -ne $declared) {
@@ -262,6 +262,9 @@ else {
 }
 
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'packaging\windows\README.txt') -Destination (Join-Path $Bundle 'README.txt') -Force
+$readmePath = Join-Path $Bundle 'README.txt'
+$readmeText = [System.IO.File]::ReadAllText($readmePath).Replace('{{version}}', $Version)
+[System.IO.File]::WriteAllText($readmePath, $readmeText, (New-Object System.Text.UTF8Encoding($false)))
 
 $verifyArguments = @(
     $Verify,

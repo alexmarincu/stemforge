@@ -322,12 +322,12 @@ def test_windows_readme_names_the_data_path_smartscreen_and_webview2() -> None:
 
 
 def test_version_info_renders_the_four_part_resource_and_strings() -> None:
-    text = VERSION.render("0.1.0")
+    text = VERSION.render("9.9.9")
 
-    assert "filevers=(0, 1, 0, 0)" in text
-    assert "prodvers=(0, 1, 0, 0)" in text
-    assert "StringStruct('FileVersion', '0.1.0')" in text
-    assert "StringStruct('ProductVersion', '0.1.0')" in text
+    assert "filevers=(9, 9, 9, 0)" in text
+    assert "prodvers=(9, 9, 9, 0)" in text
+    assert "StringStruct('FileVersion', '9.9.9')" in text
+    assert "StringStruct('ProductVersion', '9.9.9')" in text
     assert "StringStruct('OriginalFilename', 'StemForge.exe')" in text
     assert "GPL-3.0-only" in text
     assert "StringTable(" in text
@@ -369,7 +369,7 @@ def test_sha256sums_is_sorted_gnu_format_and_verifies(tmp_path: Path) -> None:
 
 
 def test_sha256sums_detects_tampering(tmp_path: Path) -> None:
-    artifact = tmp_path / "StemForge-0.1.0-win64-setup.exe"
+    artifact = tmp_path / "StemForge-9.9.9-win64-setup.exe"
     artifact.write_bytes(b"original")
     manifest = tmp_path / "SHA256SUMS"
     SUMS.write_manifest([artifact], manifest)

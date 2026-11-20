@@ -105,7 +105,7 @@ class DecodeResult:
 
 
 class ExportFormat(StrEnum):
-    """The three v0.1.0 export formats (ticket 05 §7)."""
+    """The three export formats (ticket 05 §7)."""
 
     WAV24 = "wav24"
     FLAC24 = "flac24"

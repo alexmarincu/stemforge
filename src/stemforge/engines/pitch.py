@@ -46,7 +46,7 @@ MIN_SEMITONES: Final = -12
 MAX_SEMITONES: Final = 12
 
 ENGINE_NAME: Final = "rubberband"
-# The one v0.1.0 render quality (ticket 05 §4): R3 engine, offline, formant on,
+# The one render quality (ticket 05 §4): R3 engine, offline, formant on,
 # ignore clipping, default window. No draft mode and no formant toggle.
 ENGINE_PRESET: Final = "r3-formant-offline-ignore-clipping"
 FORMANT_PRESERVED: Final = True
@@ -296,7 +296,7 @@ class _ProgressReader:
 
 
 class RubberBandEngine:
-    """The v0.1.0 :class:`PitchEngine`: Rubber Band 4.0.0 CLI in R3/formant mode."""
+    """The :class:`PitchEngine`: Rubber Band 4.0.0 CLI in R3/formant mode."""
 
     def __init__(
         self,

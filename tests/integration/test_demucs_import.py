@@ -27,7 +27,7 @@ def test_demucs_api_imports_on_the_pinned_cpu_stack() -> None:
     assert numpy.__version__.startswith("2.")
     assert callable(Separator)
     assert importlib.util.find_spec("torchaudio") is None, (
-        "torchaudio is not part of the v0.1.0 bundle; do not add it as a dependency"
+        "torchaudio is not part of the bundle; do not add it as a dependency"
     )
 
 
