@@ -57,13 +57,20 @@ WEIGHT_SUFFIXES: Final = (
 WEIGHT_MARKERS: Final = ("/models/htdemucs/", "955717e8")
 MEGABYTE: Final = 1_000_000
 
-# Ticket 10 section 9 targets. Exceeding a target fails the release.
-BUDGET_BYTES: Final[dict[str, int]] = {
+# Ticket 10 §9: targets are the release goal; only the failure line fails.
+BUDGET_TARGET_BYTES: Final[dict[str, int]] = {
     "linux-x86_64.tar.gz": 450 * MEGABYTE,
     "linux-x86_64.tar.zst": 320 * MEGABYTE,
     "linux-x86_64.AppImage": 350 * MEGABYTE,
     "win64-portable.zip": 450 * MEGABYTE,
     "win64-setup.exe": 380 * MEGABYTE,
+}
+BUDGET_FAILURE_BYTES: Final[dict[str, int]] = {
+    "linux-x86_64.tar.gz": 600 * MEGABYTE,
+    "linux-x86_64.tar.zst": 420 * MEGABYTE,
+    "linux-x86_64.AppImage": 450 * MEGABYTE,
+    "win64-portable.zip": 600 * MEGABYTE,
+    "win64-setup.exe": 500 * MEGABYTE,
 }
 
 LINUX_PREFIX: Final = "StemForge-{version}-linux-x86_64"
@@ -454,19 +461,37 @@ def _weight_findings(archive: Archive, check: str) -> list[Finding]:
 
 def _budget_findings(directory: Path, version: str) -> list[Finding]:
     findings: list[Finding] = []
-    for suffix, limit in BUDGET_BYTES.items():
+    for suffix, target in BUDGET_TARGET_BYTES.items():
         path = directory / f"StemForge-{version}-{suffix}"
         if not path.is_file():
             continue
         size = path.stat().st_size
-        status = "pass" if size <= limit else "fail"
-        findings.append(
-            Finding(
-                f"budget.{suffix}",
-                status,
-                f"{size} B of {limit} B",
+        failure = BUDGET_FAILURE_BYTES[suffix]
+        if size > failure:
+            findings.append(
+                Finding(
+                    f"budget.{suffix}",
+                    "fail",
+                    f"{size} B above the {failure} B failure line",
+                )
             )
-        )
+        elif size > target:
+            findings.append(
+                Finding(
+                    f"budget.{suffix}",
+                    "pass",
+                    f"{size} B is above the {target} B target but within the "
+                    f"{failure} B failure line",
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    f"budget.{suffix}",
+                    "pass",
+                    f"{size} B of {target} B target",
+                )
+            )
     return findings
 
 
