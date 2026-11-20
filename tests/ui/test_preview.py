@@ -23,7 +23,6 @@ from nicegui.testing.user_simulation import user_simulation
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
 from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
@@ -251,51 +250,6 @@ def _player(user):
 def _enabled(user, marker: str) -> bool:
     element = _only(user, marker)
     return bool(element.enabled)
-
-
-def _track(origin: str, kind: OriginKind, *, title: str = "Song") -> Track:
-    return Track(
-        track_id="track",
-        title=title,
-        source=Source(
-            source_id="source",
-            origin=origin,
-            origin_kind=kind,
-            metadata=SourceMetadata(
-                title=title,
-                duration_s=DURATION_S,
-                sample_rate=SAMPLE_RATE,
-                channels=CHANNELS,
-            ),
-        ),
-    )
-
-
-def test_detail_meta_names_source_duration_and_format() -> None:
-    """Ticket 08 §4: origin · filename or URL · duration · 44.1 kHz stereo."""
-    local = page.WorkspacePage._detail_meta(_track("/music/My Song.WAV", OriginKind.FILE))
-    youtube = page.WorkspacePage._detail_meta(
-        _track("https://www.youtube.com/watch?v=dQw4w9WgXcQ", OriginKind.YOUTUBE)
-    )
-
-    assert local == ["Local file", "My Song.WAV", "3:07", "44.1 kHz", "stereo"]
-    assert youtube == [
-        "YouTube",
-        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        "3:07",
-        "44.1 kHz",
-        "stereo",
-    ]
-
-
-def test_track_icons_distinguish_local_audio_from_youtube_video() -> None:
-    """Ticket 08 §3: the rail's 26 px type icon follows the Source origin."""
-    assert page.WorkspacePage._track_icon(_track("/music/song.wav", OriginKind.FILE)) == (
-        "music_note"
-    )
-    assert page.WorkspacePage._track_icon(
-        _track("https://www.youtube.com/watch?v=dQw4w9WgXcQ", OriginKind.YOUTUBE)
-    ) == ("movie")
 
 
 async def test_one_player_serves_per_row_play_from_every_track(harness: Harness) -> None:

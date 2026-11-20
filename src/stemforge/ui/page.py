@@ -227,17 +227,19 @@ SHELL_CSS: Final = (
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
 .sf-play-lg { width: 42px; min-width: 42px; height: 42px; }
 .sf-play-lg .q-icon { font-size: 20px; }
-.sf-tp-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 7px; }
-.sf-tp-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.sf-transport-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 7px; }
+.sf-transport-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .sf-now-title { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sf-tp-time { flex: none; font-size: 10.5px; color: var(--dim); font-family: var(--mono); }
+.sf-transport-time { flex: none; display: flex; align-items: baseline; gap: 4px;
+  font-size: 10.5px; color: var(--dim); font-family: var(--mono); }
+.sf-time-part { display: inline; }
 .sf-progress { width: 100%; }
 .sf-progress .q-slider { color: var(--accent); }
 .sf-progress .q-slider__track-container--h { padding: 0; }
 .sf-progress .q-slider__track { background: var(--line) !important; border-radius: 999px; }
 .sf-progress .q-slider__selection { border-radius: inherit; }
-.sf-tp-right { display: flex; align-items: center; gap: 8px; flex: none; }
+.sf-transport-right { display: flex; align-items: center; gap: 8px; flex: none; }
 .sf-ab { display: inline-flex; align-items: center; gap: 2px; padding: 2px;
   background: var(--well); border: 1px solid var(--line); border-radius: 8px; }
 .sf-ab-label { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase;
@@ -274,7 +276,7 @@ SHELL_CSS: Final = (
 .sf-output-name { font-size: 12.5px; font-weight: 550; }
 .sf-output-badges { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .sf-output-repair { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  font-size: 10.5px; color: var(--warn); }
+  flex-basis: 100%; font-size: 10.5px; color: var(--warn); }
 .sf-output-duration { font-size: 10.5px; color: var(--dim); font-family: var(--mono); }
 .sf-output-row.is-unavailable .sf-output-name { color: var(--bad-dim); }
 .sf-placeholder { display: flex; align-items: center; gap: 9px; min-height: 40px;
@@ -653,7 +655,7 @@ class WorkspacePage:
                 )
                 with hit:
                     (
-                        ui.icon(self._track_icon(track))
+                        ui.icon(formatting.track_icon(track.source.origin_kind))
                         .classes("sf-track-ic")
                         .mark("track-icon", f"track-icon-{track.track_id}")
                     )
@@ -860,16 +862,12 @@ class WorkspacePage:
             self._empty_state()
             return
         self._youtube_row = None
-        meta = self._detail_meta(track)
+        meta = formatting.detail_meta(track)
         with ui.element("div").classes("sf-detail").mark("track-detail"):
             with ui.element("div").classes("sf-head"):
                 with ui.element("div"):
                     ui.label(track.title).classes("sf-title")
-                    (
-                        ui.label(" · ".join(meta))
-                        .classes("sf-detail-meta")
-                        .mark("detail-meta")
-                    )
+                    (ui.label(" · ".join(meta)).classes("sf-detail-meta").mark("detail-meta"))
                     if track.source.downmixed:
                         ui.label(formatting.DOWNMIX_NOTE).classes("sf-fineprint").mark(
                             "downmix-note"
@@ -1079,9 +1077,8 @@ class WorkspacePage:
         self._seek_max = slider_max
         latest = sets[-1] if sets else None
         active_key = self._active_version(track, sets)
-        unavailable = current is not None and (
-            current.preview is not None
-            and (track.track_id, current.preview.key) in self._unavailable_previews
+        unavailable = self._preview_unavailable(
+            track.track_id, current.preview if current is not None else None
         )
         if current is None or unavailable:
             now_text = formatting.TRANSPORT_PREVIEW_UNAVAILABLE
@@ -1089,7 +1086,12 @@ class WorkspacePage:
             now_text = current.name
             if active_key != "original":
                 now_text = f"{current.name} · {version_label}"
-        with ui.element("section").classes("sf-transport").mark("transport"):
+        with (
+            ui.element("section")
+            .classes("sf-transport")
+            .props("aria-label=Transport")
+            .mark("transport")
+        ):
             play = (
                 ui.button(
                     icon="pause" if playing else "play_arrow",
@@ -1101,22 +1103,20 @@ class WorkspacePage:
             )
             self._apply_play_enabled(
                 play,
-                available=current is not None
-                and current.preview is not None
-                and not unavailable,
+                available=current is not None and current.preview is not None and not unavailable,
             )
-            with ui.element("div").classes("sf-tp-main"):
-                with ui.element("div").classes("sf-tp-line"):
+            with ui.element("div").classes("sf-transport-main"):
+                with ui.element("div").classes("sf-transport-line"):
                     ui.label(now_text).classes("sf-now-title").mark("now-playing")
-                    with ui.element("div").classes("sf-tp-time"):
+                    with ui.element("div").classes("sf-transport-time"):
                         self._elapsed_label = (
                             ui.label(formatting.format_duration(position))
-                            .style("display:inline")
+                            .classes("sf-time-part")
                             .mark("elapsed")
                         )
                         ui.label(
-                            f" / {formatting.format_duration(track.source.metadata.duration_s)}"
-                        ).style("display:inline")
+                            f"/ {formatting.format_duration(track.source.metadata.duration_s)}"
+                        ).classes("sf-time-part")
                 self._seek_slider = (
                     ui.slider(
                         min=0.0,
@@ -1130,7 +1130,7 @@ class WorkspacePage:
                     .mark("seek")
                 )
                 self._seek_slider.set_enabled(self._playback_allowed() and current is not None)
-            with ui.element("div").classes("sf-tp-right"):
+            with ui.element("div").classes("sf-transport-right"):
                 with ui.element("div").classes("sf-ab"):
                     ui.label(formatting.AB_LABEL).classes("sf-ab-label").mark("ab-label")
                     (
@@ -1151,6 +1151,8 @@ class WorkspacePage:
                             color=None,
                         )
                         .props("flat dense no-caps size=sm")
+                        # B names the latest set, so a non-latest render leaves
+                        # neither side lit rather than mislabelling the active set.
                         .classes(
                             "is-active"
                             if latest is not None and active_key == latest.render_key
@@ -1263,6 +1265,10 @@ class WorkspacePage:
                     .mark("output-tab", f"output-tab-{item.render_key}")
                 )
 
+    def _preview_unavailable(self, track_id: str, preview: PreviewTarget | None) -> bool:
+        """Whether the browser already failed to load this artifact (ticket 14)."""
+        return preview is not None and (track_id, preview.key) in self._unavailable_previews
+
     def _output_row(self, track: Track, row: OutputRow) -> None:
         playing = (
             self._loaded_track_id == track.track_id
@@ -1271,9 +1277,7 @@ class WorkspacePage:
             and self._loaded_preview.key == row.preview.key
             and self._is_playing
         )
-        unavailable = row.preview is None or (
-            (track.track_id, row.preview.key) in self._unavailable_previews
-        )
+        unavailable = row.preview is None or self._preview_unavailable(track.track_id, row.preview)
         classes = "sf-output-row"
         if playing:
             classes += " is-playing"
@@ -1622,7 +1626,7 @@ class WorkspacePage:
             for row in self._rows_for(track, key, sets):
                 if row.preview is None:
                     continue
-                if (track_id, row.preview.key) in self._unavailable_previews:
+                if self._preview_unavailable(track_id, row.preview):
                     continue
                 return key, row.preview
         return None
@@ -2335,7 +2339,7 @@ class WorkspacePage:
     def _track_meta(self, track: Track, status: str) -> str:
         parts = [
             formatting.format_duration(track.source.metadata.duration_s),
-            self._origin_label(track),
+            formatting.origin_label(track.source.origin_kind),
             status,
         ]
         return " · ".join(parts)
@@ -2347,36 +2351,6 @@ class WorkspacePage:
     def _track_has_playable(self, track: Track) -> bool:
         rows, _ = self._version_rows(track)
         return any(row.preview is not None for row in rows)
-
-    @staticmethod
-    def _origin_label(track: Track) -> str:
-        return "YouTube" if track.source.origin_kind is OriginKind.YOUTUBE else "Local file"
-
-    @staticmethod
-    def _track_icon(track: Track) -> str:
-        """Ticket 08 §3: the rail icon follows the Source origin, not the title."""
-        return "movie" if track.source.origin_kind is OriginKind.YOUTUBE else "music_note"
-
-    @staticmethod
-    def _detail_meta(track: Track) -> list[str]:
-        """Ticket 08 §4: origin · filename or URL · duration · 44.1 kHz stereo."""
-        source = track.source
-        source_ref = (
-            source.origin
-            if source.origin_kind is OriginKind.YOUTUBE
-            else Path(source.origin).name
-        )
-        meta = [WorkspacePage._origin_label(track)]
-        if source_ref:
-            meta.append(source_ref)
-        meta.append(formatting.format_duration(source.metadata.duration_s))
-        sample_rate = formatting.format_sample_rate(source.metadata.sample_rate)
-        if sample_rate:
-            meta.append(sample_rate)
-        channels = formatting.format_channels(source.metadata.channels)
-        if channels:
-            meta.append(channels)
-        return meta
 
     def _signal_path(self, track: Track) -> None:
         has_stems = self.service.has_separation(track)

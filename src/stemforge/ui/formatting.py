@@ -11,12 +11,15 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from stemforge import errors
+from stemforge.domain.models import OriginKind
 
 if TYPE_CHECKING:
+    from stemforge.domain.models import Track
     from stemforge.models.spec import ModelSpec
 
 MAX_HEADLINE_LENGTH: Final = 90
@@ -579,6 +582,38 @@ def format_channels(channels: int | None) -> str | None:
     if channels == 2:
         return "stereo"
     return f"{channels} ch"
+
+
+def origin_label(kind: OriginKind) -> str:
+    """Name a Source origin the way the rail and detail header do."""
+    return "YouTube" if kind is OriginKind.YOUTUBE else "Local file"
+
+
+def track_icon(kind: OriginKind) -> str:
+    """The rail's music/video type icon for a Source origin (ticket 08 §3)."""
+    return "movie" if kind is OriginKind.YOUTUBE else "music_note"
+
+
+def source_reference(origin: str, kind: OriginKind) -> str:
+    """The local filename or the YouTube URL shown in the detail header."""
+    return origin if kind is OriginKind.YOUTUBE else Path(origin).name
+
+
+def detail_meta(track: Track) -> list[str]:
+    """Ticket 08 §4: origin · filename or URL · duration · 44.1 kHz stereo."""
+    source = track.source
+    meta = [origin_label(source.origin_kind)]
+    reference = source_reference(source.origin, source.origin_kind)
+    if reference:
+        meta.append(reference)
+    meta.append(format_duration(source.metadata.duration_s))
+    sample_rate = format_sample_rate(source.metadata.sample_rate)
+    if sample_rate:
+        meta.append(sample_rate)
+    channels = format_channels(source.metadata.channels)
+    if channels:
+        meta.append(channels)
+    return meta
 
 
 def format_bytes(size: int) -> str:

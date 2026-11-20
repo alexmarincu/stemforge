@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from stemforge import errors
+from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
 from stemforge.ui import formatting
 
 pytestmark = pytest.mark.unit
@@ -28,6 +29,47 @@ def test_audio_facts_read_like_the_prototype() -> None:
     assert formatting.format_channels(2) == "stereo"
     assert formatting.format_channels(6) == "6 ch"
     assert formatting.format_channels(None) is None
+
+
+def _track(origin: str, kind: OriginKind, *, title: str = "Song") -> Track:
+    return Track(
+        track_id="track",
+        title=title,
+        source=Source(
+            source_id="source",
+            origin=origin,
+            origin_kind=kind,
+            metadata=SourceMetadata(
+                title=title,
+                duration_s=187.0,
+                sample_rate=44_100,
+                channels=2,
+            ),
+        ),
+    )
+
+
+def test_detail_meta_names_source_duration_and_format() -> None:
+    """Ticket 08 §4: origin · filename or URL · duration · 44.1 kHz stereo."""
+    local = formatting.detail_meta(_track("/music/My Song.WAV", OriginKind.FILE))
+    youtube = formatting.detail_meta(
+        _track("https://www.youtube.com/watch?v=dQw4w9WgXcQ", OriginKind.YOUTUBE)
+    )
+
+    assert local == ["Local file", "My Song.WAV", "3:07", "44.1 kHz", "stereo"]
+    assert youtube == [
+        "YouTube",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "3:07",
+        "44.1 kHz",
+        "stereo",
+    ]
+
+
+def test_track_icons_distinguish_local_audio_from_youtube_video() -> None:
+    """Ticket 08 §3: the rail's 26 px type icon follows the Source origin."""
+    assert formatting.track_icon(OriginKind.FILE) == "music_note"
+    assert formatting.track_icon(OriginKind.YOUTUBE) == "movie"
 
 
 def test_cache_sizes_use_one_decimal_and_the_ticket_units() -> None:
