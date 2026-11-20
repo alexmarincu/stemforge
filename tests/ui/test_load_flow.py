@@ -25,7 +25,7 @@ from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
-from stemforge.ui import page
+from stemforge.ui import page, theme
 
 pytestmark = pytest.mark.ui
 
@@ -233,6 +233,9 @@ async def test_empty_state_explains_the_way_in(harness: Harness) -> None:
         await user.should_see("Drop audio files here")
         await user.should_see("WAV, MP3, FLAC, M4A — or choose files…")
         await user.should_see("No tracks yet")
+        assert _only(user, "theme-colors").props["primary"] == theme.ACCENT
+        brand = _only(user, "brand-mark")
+        assert brand.content.startswith('<img src="data:image/svg+xml;base64,')
         await user.should_see(marker="empty-model-card")
         await user.should_see(
             "Separation model not installed yet · 84 MB — you can load and preview now; "

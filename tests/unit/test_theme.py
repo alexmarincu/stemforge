@@ -1,0 +1,54 @@
+"""The visual root matches the ticket 08 prototype and ticket 17 marks."""
+
+from __future__ import annotations
+
+import pytest
+
+from stemforge.ui import page, theme
+
+pytestmark = pytest.mark.unit
+
+
+def test_quasar_palette_replaces_the_blue_defaults() -> None:
+    assert theme.ACCENT == "#f2a65a"
+    assert theme.INK == "#1d1204"
+    assert theme.GOOD == "#5ec99a"
+    assert theme.BAD == "#ef7070"
+    assert theme.BG == "#0e1014"
+    assert theme.QUASAR_COLORS["primary"] == theme.ACCENT
+    assert theme.QUASAR_COLORS["positive"] == theme.GOOD
+    assert theme.QUASAR_COLORS["negative"] == theme.BAD
+    assert theme.QUASAR_COLORS["ink"] == theme.INK
+
+
+def test_shell_colours_are_tokens_not_scattered_literals() -> None:
+    # The first block declares the tokens; every rule after it must consume them.
+    after_tokens = page.SHELL_CSS.split(":root", 1)[1].split("}", 1)[1]
+    assert "#" not in after_tokens
+    assert "#f0a83a" not in page.SHELL_CSS
+    for token in (
+        "--bg",
+        "--rail",
+        "--panel",
+        "--accent",
+        "--text",
+        "--muted",
+        "--dim",
+        "--bad-text",
+        "--bad-action",
+        "--bad-dim",
+    ):
+        assert f"{token}:" in page.SHELL_CSS
+
+
+def test_brand_assets_are_available_as_data_urls() -> None:
+    logo = theme.asset_data_url(theme.LOGO_SVG)
+    about = theme.asset_data_url(theme.ABOUT_PNG)
+    assert logo is not None
+    assert logo.startswith("data:image/svg+xml;base64,")
+    assert about is not None
+    assert about.startswith("data:image/png;base64,")
+    html = theme.image_html(theme.LOGO_SVG, size=28, css_class="sf-brand-mark")
+    assert html is not None
+    assert html.startswith('<img src="data:image/svg+xml;base64,')
+    assert 'class="sf-brand-mark"' in html

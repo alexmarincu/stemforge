@@ -41,7 +41,7 @@ from stemforge.integration.dialogs import (
 )
 from stemforge.integration.shell import PathOpener
 from stemforge.platform.preflight import PreflightReport
-from stemforge.ui import formatting
+from stemforge.ui import formatting, theme
 from stemforge.ui.components.about import SettingsDialog
 from stemforge.ui.components.diagnostics import (
     ClipboardWriter,
@@ -65,96 +65,109 @@ OUTPUT_ROLES: Final = SEPARATION_OUTPUT_ROLES
 PRIMARY_ROLES: Final = OUTPUT_ROLES[:2]
 SECONDARY_ROLES: Final = OUTPUT_ROLES[2:]
 
-SHELL_CSS: Final = """
+SHELL_CSS: Final = (
+    theme.TOKENS_CSS
+    + """
 .nicegui-content { padding: 0 !important; gap: 0 !important; align-items: stretch !important; }
+.sf-primary-button { font-weight: 600; }
+.q-btn.bg-primary,
+.q-btn.bg-negative { color: var(--ink) !important; }
+/* Neutral flat controls inherit the muted ink of the prototype, not Quasar's
+   blue primary; active tabs and A/B overrides below still win. */
+.q-btn--flat { color: var(--muted); }
+.q-btn--flat:hover { color: var(--text); }
 .sf-shell { display: grid; grid-template-columns: 292px minmax(0, 1fr);
-  width: 100vw; height: 100vh; overflow: hidden; background: #0e1014; color: #e8edf4;
+  width: 100vw; height: 100vh; overflow: hidden; background: var(--bg); color: var(--text);
   font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
 @media (max-width: 1150px) { .sf-shell { grid-template-columns: 260px minmax(0, 1fr); } }
 .sf-rail { display: flex; flex-direction: column; min-height: 0;
-  background: #11141a; border-right: 1px solid #232833; }
+  background: var(--rail); border-right: 1px solid var(--line); }
 .sf-brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 10px; }
+.sf-brand-mark { flex: none; }
 .sf-brand-name { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
-.sf-brand-sub { font-size: 10.5px; color: #7c8798; }
+.sf-brand-sub { font-size: 10.5px; color: var(--dim); }
 .sf-add { padding: 4px 12px 0; display: flex; flex-direction: column; gap: 6px; }
-.sf-add-hint { font-size: 10.5px; color: #7c8798; text-align: center; }
+.sf-add-hint { font-size: 10.5px; color: var(--dim); text-align: center; }
 .sf-tracks { flex: 1; min-height: 90px; overflow-y: auto; padding: 12px 8px 8px; }
 .sf-rail-label { display: flex; justify-content: space-between; align-items: center;
   padding: 0 6px 6px; font-size: 10.5px; letter-spacing: 0.08em;
-  text-transform: uppercase; color: #7c8798; font-weight: 600; }
-.sf-rail-empty { padding: 4px 8px 8px; font-size: 11.5px; color: #7c8798; }
+  text-transform: uppercase; color: var(--dim); font-weight: 600; }
+.sf-rail-empty { padding: 4px 8px 8px; font-size: 11.5px; color: var(--dim); }
 .sf-track { display: flex; align-items: center; gap: 9px; padding: 7px 7px;
   border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
-.sf-track:hover { background: #171d26; }
-.sf-track.is-selected { background: #1b2230; border-color: #2c3646; }
+.sf-track:hover { background: var(--panel2); }
+.sf-track.is-selected { background: var(--panel2); border-color: var(--line2); }
 .sf-track-hit { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0;
   cursor: pointer; }
 .sf-track-ic { width: 26px; height: 26px; flex: none; display: grid; place-items: center;
-  border-radius: 6px; background: #232b38; color: #9aa6b7; font-size: 16px; }
-.sf-track.is-selected .sf-track-ic { background: #3a2c14; color: #f0a83a; }
+  border-radius: 6px; background: var(--panel2); color: var(--muted); font-size: 16px; }
+.sf-track.is-selected .sf-track-ic { background: var(--accent-soft); color: var(--accent); }
 .sf-track-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
 .sf-track-title { font-size: 12.5px; font-weight: 550; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.sf-track-meta { font-size: 10.5px; color: #7c8798; white-space: nowrap;
+.sf-track-meta { font-size: 10.5px; color: var(--dim); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.sf-dot { width: 7px; height: 7px; border-radius: 50%; background: #5c6675; flex: none; }
-.sf-dot.is-ok { background: #4fbf7a; }
-.sf-dot.is-run { background: #f0a83a; }
-.sf-dot.is-bad { background: #e06c6c; }
+.sf-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+.sf-dot.is-ok { background: var(--good); }
+.sf-dot.is-run { background: var(--accent); }
+.sf-dot.is-bad { background: var(--bad); }
 .sf-track-remove { opacity: 0; }
 .sf-track:hover .sf-track-remove, .sf-track.is-selected .sf-track-remove { opacity: 1; }
-.sf-recent { padding: 10px 8px 6px; border-top: 1px solid #1d222c; }
+.sf-recent { padding: 10px 8px 6px; border-top: 1px solid var(--line); }
 .sf-recent-row { display: flex; align-items: center; gap: 5px; padding: 2px 0;
   border-radius: 6px; min-width: 0; }
 .sf-recent-hit { display: flex; align-items: center; gap: 7px; padding: 3px 7px;
   border-radius: 6px; cursor: pointer; min-width: 0; flex: 1; }
-.sf-recent-hit:hover { background: #171d26; }
+.sf-recent-hit:hover { background: var(--panel2); }
 .sf-recent-row.is-missing { opacity: 0.55; }
 .sf-recent-row.is-off { opacity: 0.55; }
 .sf-recent-hit.is-disabled { cursor: default; }
 .sf-recent-title { flex: 1; min-width: 0; font-size: 11.5px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
-.sf-recent-meta { font-size: 10px; color: #7c8798; flex: none; }
-.sf-foot { border-top: 1px solid #232833; padding: 10px 14px 12px;
+.sf-recent-meta { font-size: 10px; color: var(--dim); flex: none; }
+.sf-foot { border-top: 1px solid var(--line); padding: 10px 14px 12px;
   display: flex; flex-direction: column; gap: 7px; }
-.sf-cache-line { display: flex; justify-content: space-between; font-size: 10.5px; color: #8994a4; }
-.sf-bar { height: 4px; border-radius: 999px; background: #232a35; overflow: hidden; }
-.sf-bar > i { display: block; height: 100%; background: #f0a83a; border-radius: inherit; }
+.sf-cache-line { display: flex; justify-content: space-between; font-size: 10.5px;
+  color: var(--muted); }
+.sf-bar { height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.sf-bar > i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
 .sf-foot-line { display: flex; justify-content: space-between; align-items: center; }
-.sf-fineprint { font-size: 10px; color: #697486; }
+.sf-fineprint { font-size: 10px; color: var(--dim); }
 .sf-main { display: flex; flex-direction: column; min-width: 0; height: 100vh;
-  background: #0e1014; }
+  background: var(--bg); }
 .sf-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 28px 28px; }
 .sf-empty { min-height: 100%; display: flex; align-items: center; justify-content: center; }
 .sf-empty-card { width: min(560px, 100%); display: flex; flex-direction: column; gap: 14px; }
 .sf-empty-title { font-size: 24px; font-weight: 650; letter-spacing: -0.02em; }
-.sf-lede { font-size: 13px; color: #9aa6b7; }
+.sf-lede { font-size: 13px; color: var(--muted); }
 .sf-dropzone { display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 30px 20px; border: 1px dashed #354052; border-radius: 12px;
-  background: #12161d; cursor: pointer; text-align: center; }
-.sf-dropzone:hover { border-color: #55647a; background: #151a22; }
+  padding: 30px 20px; border: 1px dashed var(--line2); border-radius: var(--radius);
+  background: var(--well); cursor: pointer; text-align: center; }
+.sf-dropzone:hover { border-color: var(--accent-line); background: var(--panel2); }
 .sf-dropzone.is-disabled { opacity: 0.55; cursor: default; }
+.sf-drop-icon { color: var(--muted); }
 .sf-drop-title { font-size: 13px; font-weight: 600; }
-.sf-drop-sub { font-size: 11.5px; color: #8b97a8; }
+.sf-drop-sub { font-size: 11.5px; color: var(--muted); }
 .sf-or { display: flex; align-items: center; gap: 10px; font-size: 10.5px;
-  letter-spacing: 0.08em; text-transform: uppercase; color: #7c8798; }
-.sf-or::before, .sf-or::after { content: ""; height: 1px; background: #232833; flex: 1; }
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+.sf-or::before, .sf-or::after { content: ""; height: 1px; background: var(--line); flex: 1; }
 .sf-yt { display: flex; flex-direction: column; gap: 7px; }
 .sf-yt-row { display: flex; align-items: stretch; gap: 8px; }
 .sf-yt-input { flex: 1; min-width: 0; }
 .sf-yt-button { flex: none; }
-.sf-yt-error { font-size: 11.5px; color: #f1b7b7; }
-.sf-yt-status { font-size: 11.5px; color: #9fd3ad; }
-.sf-yt-disclaimer { font-size: 11px; color: #7c8798; line-height: 1.45; }
+.sf-yt-error { font-size: 11.5px; color: var(--bad-text); }
+.sf-yt-status { font-size: 11.5px; color: var(--good); }
+.sf-yt-disclaimer { font-size: 11px; color: var(--dim); line-height: 1.45; }
 .sf-setting-row { display: flex; align-items: center; justify-content: space-between;
   gap: 16px; padding: 8px 0; }
+.sf-settings-mark { flex: none; }
 .sf-setting-main { display: flex; flex-direction: column; gap: 2px; }
 .sf-setting-label { font-size: 12.5px; font-weight: 550; }
-.sf-field-error { color: #f1b7b7; }
+.sf-field-error { color: var(--bad-text); }
 .sf-licence-text { max-height: 58vh; overflow: auto; margin: 8px 0 0; padding: 12px;
-  border: 1px solid #232a35; border-radius: 8px; background: #0e1116;
-  color: #c7d0dc; font-size: 11px; line-height: 1.45;
-  font-family: ui-monospace, "Cascadia Mono", monospace; white-space: pre-wrap; }
+  border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  color: var(--text); font-size: 11px; line-height: 1.45;
+  font-family: var(--mono); white-space: pre-wrap; }
 .sf-detail { display: flex; flex-direction: column; gap: 18px; max-width: 980px; }
 .sf-head { display: flex; align-items: flex-start; justify-content: space-between;
   gap: 16px; }
@@ -163,142 +176,151 @@ SHELL_CSS: Final = """
   gap: 18px; align-items: start; }
 @media (max-width: 1150px) { .sf-two-up { grid-template-columns: minmax(0, 1fr); } }
 .sf-title { font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
-.sf-detail-meta { font-size: 11.5px; color: #8994a4; display: flex; flex-wrap: wrap; gap: 6px; }
-.sf-card { border: 1px solid #232a35; border-radius: 12px; background: #151920; padding: 16px; }
+.sf-detail-meta { font-size: 11.5px; color: var(--muted); display: flex;
+  flex-wrap: wrap; gap: 6px; }
+.sf-card { border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel); padding: 16px; }
 .sf-card-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
-  color: #7c8798; font-weight: 600; margin-bottom: 10px; }
+  color: var(--dim); font-weight: 600; margin-bottom: 10px; }
 .sf-card-head { display: flex; align-items: center; justify-content: space-between;
   gap: 12px; margin-bottom: 10px; }
 .sf-card-head .sf-card-title { margin-bottom: 0; }
 .sf-fact { display: flex; gap: 16px; font-size: 12px; padding: 3px 0; }
-.sf-fact-key { width: 100px; color: #7c8798; flex: none; }
-.sf-fact-value { color: #d8e0eb; min-width: 0; overflow-wrap: anywhere; }
+.sf-fact-key { width: 100px; color: var(--dim); flex: none; }
+.sf-fact-value { color: var(--text); min-width: 0; overflow-wrap: anywhere; }
 .sf-sigpath { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 11px; }
 .sf-chip { display: inline-flex; gap: 6px; align-items: center; padding: 4px 9px;
-  border: 1px solid #2a3240; border-radius: 999px; color: #8b97a8; }
-.sf-chip b { color: #b9c4d3; font-weight: 600; }
-.sf-chip.is-done { border-color: #2f4636; color: #9fd3ad; }
-.sf-notice { border: 1px solid #5b2c2c; background: #241617; border-radius: 10px;
+  border: 1px solid var(--line2); border-radius: 999px; color: var(--muted); }
+.sf-chip b { color: var(--text); font-weight: 600; }
+.sf-chip.is-done { border-color: var(--good-line); color: var(--good); }
+.sf-notice { border: 1px solid var(--bad-line); background: var(--bad-bg); border-radius: 10px;
   padding: 12px 14px; display: flex; flex-direction: column; gap: 5px; margin-bottom: 16px; }
-.sf-notice-headline { font-size: 12.5px; font-weight: 600; color: #f1b7b7; }
-.sf-notice-action { font-size: 11.5px; color: #d5a3a3; }
-.sf-notice-detail { font-size: 10.5px; color: #a47878; font-family: ui-monospace, monospace; }
+.sf-notice-headline { font-size: 12.5px; font-weight: 600; color: var(--bad-text); }
+.sf-notice-action { font-size: 11.5px; color: var(--bad-action); }
+.sf-notice-detail { font-size: 10.5px; color: var(--bad-dim); font-family: var(--mono); }
 .sf-details { width: 100%; }
-.sf-details .q-expansion-item__container { font-size: 11px; color: #9aa6b7; }
+.sf-details .q-expansion-item__container { font-size: 11px; color: var(--muted); }
 .sf-details-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .sf-diagnostics { width: min(720px, 94vw); display: flex; flex-direction: column; gap: 10px; }
-.sf-diagnostics-text { width: 100%; font-family: ui-monospace, monospace; font-size: 11px; }
+.sf-diagnostics-text { width: 100%; font-family: var(--mono); font-size: 11px; }
 .sf-diagnostics-text textarea { min-height: 42vh; white-space: pre; }
 .sf-banner { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-  background: #1d1a12; border-bottom: 1px solid #40341d; color: #e4d3a9; font-size: 12px; }
+  background: var(--warn-bg); border-bottom: 1px solid var(--warn-line);
+  color: var(--warn); font-size: 12px; }
 .sf-jobbar { flex: none; min-height: 44px; display: flex; align-items: center; gap: 12px;
-  padding: 6px 16px; background: #11141a; border-top: 1px solid #232833; }
-.sf-job-text { font-size: 11.5px; color: #b9c4d3; white-space: nowrap; }
-.sf-job-detail { font-size: 10.5px; color: #7c8798; white-space: nowrap;
+  padding: 6px 16px; background: var(--rail); border-top: 1px solid var(--line); }
+.sf-job-text { font-size: 11.5px; color: var(--text); white-space: nowrap; }
+.sf-job-detail { font-size: 10.5px; color: var(--dim); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; max-width: 34%; flex: 0 1 auto; }
 .sf-job-progress { flex: 1; min-width: 80px; }
-.sf-job-pct { font-size: 10.5px; color: #7c8798; font-family: ui-monospace, monospace;
+.sf-job-pct { font-size: 10.5px; color: var(--dim); font-family: var(--mono);
   width: 38px; }
-.sf-banner-degraded { background: #1d1a12; border-bottom: 1px solid #40341d; }
+.sf-banner-degraded { background: var(--warn-bg); border-bottom: 1px solid var(--warn-line); }
 .sf-banner-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sf-banner-headline { font-size: 12px; font-weight: 600; }
-.sf-banner-hint { font-size: 10.5px; color: #b9a77c; }
+.sf-banner-hint { font-size: 10.5px; color: var(--warn); }
 .sf-transport { display: flex; flex-direction: column; gap: 8px; }
 .sf-transport-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .sf-now { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
 .sf-now-title { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
-.sf-now-target { font-size: 10.5px; color: #8994a4; }
-.sf-time { font-size: 10.5px; color: #7c8798; font-family: ui-monospace, monospace; }
-.sf-ab { display: inline-flex; border: 1px solid #2a3240; border-radius: 8px; overflow: hidden; }
+.sf-now-target { font-size: 10.5px; color: var(--muted); }
+.sf-time { font-size: 10.5px; color: var(--dim); font-family: var(--mono); }
+.sf-ab { display: inline-flex; border: 1px solid var(--line2); border-radius: 8px;
+  overflow: hidden; }
 .sf-ab .q-btn { border-radius: 0; font-size: 10.5px; }
-.sf-ab .q-btn.is-active { background: #3a2c14; color: #f0a83a; }
+.sf-ab .q-btn.is-active { background: var(--accent-soft); color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-line); }
 .sf-stepper { display: inline-flex; align-items: center; gap: 8px; }
 .sf-semi { min-width: 86px; text-align: center; display: flex; flex-direction: column;
-  gap: 1px; padding: 4px 10px; border: 1px solid #2a3240; border-radius: 10px;
-  background: #12161d; }
+  gap: 1px; padding: 4px 10px; border: 1px solid var(--line2); border-radius: 10px;
+  background: var(--well); }
 .sf-semi-value { font-size: 20px; font-weight: 650; line-height: 1.15;
-  font-family: ui-monospace, monospace; }
-.sf-semi-unit { font-size: 9.5px; color: #7c8798; text-transform: uppercase;
+  font-family: var(--mono); }
+.sf-semi-unit { font-size: 9.5px; color: var(--dim); text-transform: uppercase;
   letter-spacing: 0.08em; }
-.sf-pitch-status { font-size: 11.5px; color: #9aa6b7; margin: 8px 0 2px; }
+.sf-pitch-status { font-size: 11.5px; color: var(--muted); margin: 8px 0 2px; }
 .sf-versions { display: flex; flex-direction: column; gap: 5px; margin-top: 12px; }
-.sf-versions-label { font-size: 10px; color: #7c8798; text-transform: uppercase;
+.sf-versions-label { font-size: 10px; color: var(--dim); text-transform: uppercase;
   letter-spacing: 0.08em; font-weight: 600; }
 .sf-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.sf-version-tab { border: 1px solid #2a3240; border-radius: 999px; font-size: 10.5px;
-  color: #9aa6b7; padding: 2px 10px; }
-.sf-version-tab.is-active { background: #3a2c14; border-color: #5b4520; color: #f0a83a; }
-.sf-version-tab.is-stale { border-style: dashed; color: #b9a77c; }
-.sf-version-tab.is-stale.is-active { background: #3a2c14; color: #f0a83a; }
+.sf-version-tab { border: 1px solid var(--line2); border-radius: 999px; font-size: 10.5px;
+  color: var(--muted); padding: 2px 10px; }
+.sf-version-tab.is-active { background: var(--accent-soft);
+  border-color: var(--accent-line); color: var(--accent); }
+.sf-version-tab.is-stale { border-style: dashed; color: var(--warn); }
+.sf-version-tab.is-stale.is-active { background: var(--accent-soft); color: var(--accent); }
 .sf-output-row { display: flex; align-items: center; gap: 9px; min-height: 40px;
-  padding: 3px 0; border-top: 1px solid #1d222c; }
+  padding: 3px 0; border-top: 1px solid var(--line); }
 .sf-output-row:first-of-type { border-top: 0; }
-.sf-output-row.is-active { background: #1b2230; border-radius: 8px; }
-.sf-output-row.is-playing { background: #1b2230; border-radius: 8px; }
+.sf-output-row.is-active { background: var(--panel2); border-radius: 8px; }
+.sf-output-row.is-playing { background: var(--panel2); border-radius: 8px; }
 .sf-output-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .sf-output-name { font-size: 12px; }
 .sf-output-badges { display: flex; flex-wrap: wrap; gap: 4px; }
 .sf-output-repair { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  font-size: 10.5px; color: #b9a77c; }
-.sf-output-duration { font-size: 10.5px; color: #7c8798; font-family: ui-monospace, monospace; }
-.sf-output-row.is-unavailable .sf-output-name { color: #a47878; }
+  font-size: 10.5px; color: var(--warn); }
+.sf-output-duration { font-size: 10.5px; color: var(--dim); font-family: var(--mono); }
+.sf-output-row.is-unavailable .sf-output-name { color: var(--bad-dim); }
 .sf-placeholder { display: flex; align-items: center; gap: 9px; min-height: 40px;
-  padding: 3px 10px; margin-top: 4px; border: 1px dashed #354052; border-radius: 8px;
-  color: #8b97a8; font-size: 11.5px; }
+  padding: 3px 10px; margin-top: 4px; border: 1px dashed var(--line2); border-radius: 8px;
+  color: var(--muted); font-size: 11.5px; }
 .sf-placeholder span { flex: 1; }
-.sf-unavailable { font-size: 11.5px; color: #a47878; margin-bottom: 6px; }
+.sf-unavailable { font-size: 11.5px; color: var(--bad-dim); margin-bottom: 6px; }
 .sf-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .sf-player { display: none; }
-.sf-separation-status { font-size: 11.5px; color: #9aa6b7; margin: 2px 0 6px; }
+.sf-separation-status { font-size: 11.5px; color: var(--muted); margin: 2px 0 6px; }
 .sf-gate { display: flex; flex-direction: column; gap: 6px; padding: 12px;
-  border: 1px solid #2a3240; border-radius: 10px; background: #12161d; margin: 4px 0 10px; }
+  border: 1px solid var(--line2); border-radius: 10px; background: var(--well);
+  margin: 4px 0 10px; }
 .sf-gate-title { font-size: 13px; font-weight: 600; }
-.sf-model-card { padding: 10px 12px; border: 1px solid #2a3240; border-radius: 10px;
-  background: #12161d; font-size: 11.5px; color: #b9c4d3; line-height: 1.45; }
-.sf-gate-summary { font-size: 11.5px; color: #b9c4d3; }
-.sf-gate-meta { font-size: 10.5px; color: #8994a4; font-family: ui-monospace, monospace; }
-.sf-gate-notice { font-size: 11px; color: #b9a77c; line-height: 1.45; }
+.sf-model-card { padding: 10px 12px; border: 1px solid var(--line2); border-radius: 10px;
+  background: var(--well); font-size: 11.5px; color: var(--text); line-height: 1.45; }
+.sf-gate-summary { font-size: 11.5px; color: var(--text); }
+.sf-gate-meta { font-size: 10.5px; color: var(--muted); font-family: var(--mono); }
+.sf-gate-notice { font-size: 11px; color: var(--warn); line-height: 1.45; }
 .sf-stem-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: #8b97a8; border: 1px solid #2a3240; border-radius: 999px; padding: 0 6px; }
-.sf-stall { border: 1px solid #40341d; background: #1d1a12; border-radius: 10px;
+  color: var(--muted); border: 1px solid var(--line2); border-radius: 999px; padding: 0 6px; }
+.sf-stall { border: 1px solid var(--warn-line); background: var(--warn-bg); border-radius: 10px;
   padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
-.sf-stall-text { font-size: 11.5px; color: #e4d3a9; }
+.sf-stall-text { font-size: 11.5px; color: var(--warn); }
 .sf-export-modal { width: min(480px, 94vw); display: flex; flex-direction: column;
   gap: 12px; }
 .sf-export-body { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 .sf-export-title { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
 .sf-format-list { display: flex; flex-direction: column; gap: 6px; }
 .sf-format-row { display: flex; align-items: center; gap: 10px;
-  padding: 7px 10px; border: 1px solid #2a3240; border-radius: 9px; cursor: pointer;
-  background: #12161d; }
-.sf-format-row:hover { border-color: #55647a; }
-.sf-format-row.is-active { border-color: #5b4520; background: #3a2c14; }
+  padding: 7px 10px; border: 1px solid var(--line2); border-radius: 9px; cursor: pointer;
+  background: var(--well); }
+.sf-format-row:hover { border-color: var(--line-hover); }
+.sf-format-row.is-active { border-color: var(--accent-line); background: var(--accent-soft); }
 .sf-format-radio { width: 12px; height: 12px; flex: none; border-radius: 50%;
-  border: 1px solid #55647a; }
+  border: 1px solid var(--line-hover); }
 .sf-format-row.is-active .sf-format-radio {
-  border-color: #f0a83a; background: #f0a83a; box-shadow: inset 0 0 0 2px #3a2c14; }
+  border-color: var(--accent); background: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent-deep); }
 .sf-format-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .sf-format-name { font-size: 12.5px; font-weight: 550; }
-.sf-format-size { font-size: 10.5px; color: #8994a4; }
-.sf-export-summary { border-top: 1px solid #232a35; padding-top: 8px;
+.sf-format-size { font-size: 10.5px; color: var(--muted); }
+.sf-export-summary { border-top: 1px solid var(--line); padding-top: 8px;
   display: flex; flex-direction: column; gap: 2px; }
 .sf-export-footer { display: flex; justify-content: flex-end; gap: 8px;
-  border-top: 1px solid #232a35; padding-top: 10px; }
-.sf-export-confirm { background: #f0a83a; color: #141414; font-weight: 600; }
+  border-top: 1px solid var(--line); padding-top: 10px; }
+.sf-export-confirm { font-weight: 600; }
 .sf-exportbar { flex: none; display: flex; align-items: center; gap: 10px;
-  padding: 7px 16px; background: #11141a; border-top: 1px solid #232833; }
-.sf-exportbar.is-failure { background: #241617; border-top-color: #5b2c2c; }
-.sf-exportbar-icon { color: #9fd3ad; }
-.sf-exportbar.is-failure .sf-exportbar-icon { color: #f1b7b7; }
+  padding: 7px 16px; background: var(--rail); border-top: 1px solid var(--line); }
+.sf-exportbar.is-failure { background: var(--bad-bg); border-top-color: var(--bad-line); }
+.sf-exportbar-icon { color: var(--good); }
+.sf-exportbar.is-failure .sf-exportbar-icon { color: var(--bad-text); }
 .sf-exportbar-main { display: flex; flex-direction: column; gap: 1px;
   min-width: 0; flex: 1; }
-.sf-exportbar-title { font-size: 11.5px; font-weight: 600; color: #d8e0eb;
+.sf-exportbar-title { font-size: 11.5px; font-weight: 600; color: var(--text);
   overflow-wrap: anywhere; }
-.sf-exportbar-detail { font-size: 10.5px; color: #9aa6b7; }
-.sf-exportbar-code { font-size: 10.5px; color: #a47878;
-  font-family: ui-monospace, monospace; }
+.sf-exportbar-detail { font-size: 10.5px; color: var(--muted); }
+.sf-exportbar-code { font-size: 10.5px; color: var(--bad-dim);
+  font-family: var(--mono); }
 """
+)
 
 
 @dataclass(slots=True)
@@ -524,6 +546,7 @@ class WorkspacePage:
         self._client = context.client
         ui.page_title(TITLE)
         ui.add_css(SHELL_CSS)
+        theme.apply().mark("theme-colors")
         ui.dark_mode(True)
         with ui.element("div").classes("sf-shell"):
             self._build_rail()
@@ -559,7 +582,9 @@ class WorkspacePage:
     def _build_rail(self) -> None:
         with ui.element("aside").classes("sf-rail"):
             with ui.element("div").classes("sf-brand"):
-                ui.icon("graphic_eq").classes("text-2xl").style("color:#f0a83a")
+                mark = theme.image_html(theme.LOGO_SVG, size=28, css_class="sf-brand-mark")
+                if mark is not None:
+                    ui.html(mark, sanitize=False).mark("brand-mark")
                 with ui.element("div"):
                     ui.label("StemForge").classes("sf-brand-name")
                     ui.label("local · offline").classes("sf-brand-sub")
@@ -567,8 +592,7 @@ class WorkspacePage:
                 self._add_button = (
                     ui.button("Add audio", icon="add", on_click=self._open_files)
                     .props("unelevated no-caps")
-                    .classes("w-full")
-                    .style("background:#f0a83a;color:#141414;font-weight:600")
+                    .classes("w-full sf-primary-button")
                     .mark("add-audio")
                 )
                 ui.label("or drop files anywhere").classes("sf-add-hint")
@@ -620,6 +644,7 @@ class WorkspacePage:
                     ui.button(
                         icon="pause" if playing else "play_arrow",
                         on_click=lambda _=None, item=track: self._play_from_row(item.track_id),
+                        color=None,
                     )
                     .props("flat dense round size=sm")
                     .mark("track-play", f"track-play-{track.track_id}")
@@ -627,7 +652,9 @@ class WorkspacePage:
                 self._apply_play_enabled(play, available=self._track_has_playable(track))
                 (
                     ui.button(
-                        icon="close", on_click=lambda _=None, item=track: self._confirm_remove(item)
+                        icon="close",
+                        on_click=lambda _=None, item=track: self._confirm_remove(item),
+                        color=None,
                     )
                     .props("flat dense round size=sm")
                     .classes("sf-track-remove")
@@ -680,6 +707,7 @@ class WorkspacePage:
                         ui.button(
                             icon="close",
                             on_click=lambda _=None, item=entry: self._remove_recent(item),
+                            color=None,
                         )
                         .props("flat dense round size=xs")
                         .mark("forget-recent")
@@ -688,6 +716,7 @@ class WorkspacePage:
             ui.button(
                 "Show less" if self._recent_expanded else "Show all",
                 on_click=self._toggle_recent,
+                color=None,
             ).props("flat dense no-caps size=sm").classes("sf-fineprint")
 
     @ui.refreshable_method
@@ -703,7 +732,7 @@ class WorkspacePage:
             ui.element("i").style(f"width:{percent}%")
         with ui.element("div").classes("sf-foot-line"):
             (
-                ui.button(formatting.SETTINGS_TITLE, on_click=self._open_settings)
+                ui.button(formatting.SETTINGS_TITLE, on_click=self._open_settings, color=None)
                 .props("flat dense no-caps size=sm")
                 .classes("sf-fineprint")
                 .mark("settings-about")
@@ -742,6 +771,7 @@ class WorkspacePage:
                         ui.button(
                             formatting.RESOURCE_WARNING_DISMISS,
                             on_click=self._dismiss_resource_warning,
+                            color=None,
                         )
                         .props("flat dense no-caps size=sm")
                         .mark("resource-dismiss")
@@ -750,9 +780,9 @@ class WorkspacePage:
                 with ui.element("div").classes("sf-banner").mark("recovery-banner"):
                     ui.icon("info")
                     ui.label(formatting.RECOVERY_HEADLINE).classes("flex-1")
-                    ui.button(formatting.RECOVERY_DISMISS, on_click=self._dismiss_recovery).props(
-                        "flat dense no-caps size=sm"
-                    )
+                    ui.button(
+                        formatting.RECOVERY_DISMISS, on_click=self._dismiss_recovery, color=None
+                    ).props("flat dense no-caps size=sm")
 
     def _resource_warning(self) -> str | None:
         report = self.context.preflight
@@ -808,7 +838,7 @@ class WorkspacePage:
                         )
                 with ui.element("div").classes("sf-head-actions"):
                     (
-                        ui.button(icon="settings", on_click=self._open_settings)
+                        ui.button(icon="settings", on_click=self._open_settings, color=None)
                         .props("flat dense round size=sm")
                         .mark("detail-settings")
                         .tooltip(formatting.SETTINGS_TITLE)
@@ -817,6 +847,7 @@ class WorkspacePage:
                         ui.button(
                             icon="delete",
                             on_click=lambda _=None, item=track: self._confirm_remove(item),
+                            color=None,
                         )
                         .props("flat dense round size=sm")
                         .mark("detail-remove")
@@ -849,7 +880,7 @@ class WorkspacePage:
                 .on("click", self._open_files)
             )
             with dropzone:
-                ui.icon("upload_file").classes("text-3xl").style("color:#8b97a8")
+                ui.icon("upload_file").classes("text-3xl sf-drop-icon")
                 ui.label("Drop audio files here").classes("sf-drop-title")
                 ui.label("WAV, MP3, FLAC, M4A — or choose files…").classes("sf-drop-sub")
             if youtube_on:
@@ -1020,7 +1051,6 @@ class WorkspacePage:
                             on_click=lambda _=None: self._toggle_transport(track.track_id),
                         )
                         .props("unelevated round")
-                        .style("background:#f0a83a;color:#141414")
                         .mark("transport-play")
                     )
                     self._apply_play_enabled(
@@ -1067,6 +1097,7 @@ class WorkspacePage:
                             ui.button(
                                 formatting.AB_ORIGINAL,
                                 on_click=lambda _=None: self._select_ab(track, "original"),
+                                color=None,
                             )
                             .props("flat dense no-caps size=sm")
                             .classes("is-active" if active_key == "original" else "")
@@ -1081,6 +1112,7 @@ class WorkspacePage:
                                     else formatting.AB_LATEST_FALLBACK
                                 ),
                                 on_click=lambda _=None: self._select_ab(track, "latest"),
+                                color=None,
                             )
                             .props("flat dense no-caps size=sm")
                             .classes("is-active" if active_key != "original" else "")
@@ -1093,6 +1125,7 @@ class WorkspacePage:
                             formatting.TRANSPORT_EXPORT,
                             icon="file_download",
                             on_click=lambda _=None: self._open_export(track, export_key=export_key),
+                            color=None,
                         )
                         .props("flat dense no-caps size=sm")
                         .mark("export-action")
@@ -1131,6 +1164,7 @@ class WorkspacePage:
                         ui.button(
                             formatting.OUTPUTS_SHOW_LESS,
                             on_click=lambda _=None: self._toggle_stems(track),
+                            color=None,
                         )
                         .props("flat dense no-caps size=sm")
                         .classes("sf-fineprint")
@@ -1142,6 +1176,7 @@ class WorkspacePage:
                             formatting.OUTPUTS_SHOW_MORE,
                             icon="expand_more",
                             on_click=lambda _=None: self._toggle_stems(track),
+                            color=None,
                         )
                         .props("flat dense no-caps size=sm")
                         .classes("sf-fineprint")
@@ -1160,6 +1195,7 @@ class WorkspacePage:
                 ui.button(
                     formatting.PITCH_ORIGINAL,
                     on_click=lambda _=None: self._select_version(track.track_id, "original"),
+                    color=None,
                 )
                 .props("flat dense no-caps size=sm")
                 .classes("sf-version-tab" + (" is-active" if active_key == "original" else ""))
@@ -1180,6 +1216,7 @@ class WorkspacePage:
                         on_click=lambda _=None, key=item.render_key: self._select_version(
                             track.track_id, key
                         ),
+                        color=None,
                     )
                     .props("flat dense no-caps size=sm")
                     .classes(classes)
@@ -1207,6 +1244,7 @@ class WorkspacePage:
                 ui.button(
                     icon="pause" if playing else "play_arrow",
                     on_click=lambda _=None, item=row: self._toggle_row(track, item),
+                    color=None,
                 )
                 .props("flat dense round size=sm")
                 .mark("output-play", f"output-play-{row.key}")
@@ -1229,6 +1267,7 @@ class WorkspacePage:
                     on_click=lambda _=None, item=row: self._open_export(
                         track, export_key=item.export_key
                     ),
+                    color=None,
                 )
                 .props("flat dense round size=sm")
                 .mark("output-export", f"output-export-{row.key}")
@@ -1250,6 +1289,7 @@ class WorkspacePage:
                     ui.button(
                         formatting.OUTPUTS_REPAIR_RENDER_ACTION,
                         on_click=lambda _=None: self._rerender(track, active_key),
+                        color=None,
                     )
                     .props("flat dense no-caps size=sm")
                     .mark("output-repair-render")
@@ -1260,6 +1300,7 @@ class WorkspacePage:
                     ui.button(
                         formatting.OUTPUTS_REPAIR_IMPORT_ACTION,
                         on_click=self._open_files,
+                        color=None,
                     )
                     .props("flat dense no-caps size=sm")
                     .mark("output-repair-import")
@@ -1270,6 +1311,7 @@ class WorkspacePage:
                     ui.button(
                         formatting.OUTPUTS_REPAIR_SEPARATE_ACTION,
                         on_click=lambda _=None: self._separation.request_separation(track),
+                        color=None,
                     )
                     .props("flat dense no-caps size=sm")
                     .mark("output-repair-separate")
@@ -1311,6 +1353,7 @@ class WorkspacePage:
                     ui.button(
                         formatting.OUTPUTS_SEPARATE,
                         on_click=lambda _=None: self._separation.request_separation(track),
+                        color=None,
                     )
                     .props("flat dense no-caps size=sm")
                     .mark("outputs-separate")
@@ -1558,7 +1601,7 @@ class WorkspacePage:
             )
             ui.label(f"{round(snapshot.progress * 100)}%").classes("sf-job-pct").mark("job-percent")
             (
-                ui.button("Cancel", on_click=self._cancel_job)
+                ui.button("Cancel", on_click=self._cancel_job, color=None)
                 .props("flat dense no-caps size=sm")
                 .mark("cancel-job")
             )
@@ -1995,7 +2038,7 @@ class WorkspacePage:
                 "The file on disk is not touched."
             ).classes("sf-lede")
             with ui.row().classes("w-full justify-end gap-2"):
-                ui.button("Cancel", on_click=dialog.close).props("flat no-caps")
+                ui.button("Cancel", on_click=dialog.close, color=None).props("flat no-caps")
                 (
                     ui.button("Remove", on_click=lambda: self._remove_track(track, dialog))
                     .props("unelevated no-caps color=negative")

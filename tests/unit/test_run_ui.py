@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import inspect
 import os
+import sys
 from pathlib import Path
 
 import pytest
+import webview
 
 from stemforge import __main__
 from stemforge.integration.window import MIN_WINDOW_SIZE, WEBKIT_SHM_ENV, configure_window
@@ -25,6 +28,11 @@ def test_window_configuration_sets_the_minimum_and_no_downloads(tmp_path: Path) 
     assert MIN_WINDOW_SIZE == (1024, 700)
     assert app.native.window_args["min_size"] == MIN_WINDOW_SIZE
     assert app.native.window_args["resizable"] is True
+    expected_icon = "stemforge.ico" if sys.platform.startswith("win") else "stemforge-512.png"
+    assert Path(app.native.start_args["icon"]).name == expected_icon
+    assert "icon" not in app.native.window_args  # pywebview 6 takes it on start()
+    start_parameters = inspect.signature(webview.start).parameters
+    assert set(app.native.start_args) <= set(start_parameters)
     assert app.native.start_args["private_mode"] is False
     assert app.native.start_args["storage_path"] == str(paths.webview)
     assert app.native.settings["ALLOW_DOWNLOADS"] is False
@@ -115,6 +123,50 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     assert context.clipboard is not None
     assert len(startup) == 1
     assert len(shutdown) == 1
+
+
+def test_native_window_uses_the_ico_icon_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NiceGUI's Windows icon path calls LoadImageW, which needs the .ico."""
+    from nicegui import app, ui
+
+    from stemforge.ui import page
+
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(ui, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(app, "on_startup", lambda callback: None)
+    monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
+    monkeypatch.setattr(page, "configure", lambda context: None)
+
+    assert __main__._run_ui(paths, PreflightReport(checks=())) == 0
+    favicon = captured["favicon"]
+    assert isinstance(favicon, Path)
+    assert favicon.name == "stemforge.ico"
+
+
+def test_native_window_uses_the_png_icon_off_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """pywebview's GTK/QT window icon takes the raster mark, not the ICO."""
+    from nicegui import app, ui
+
+    from stemforge.ui import page
+
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(ui, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(app, "on_startup", lambda callback: None)
+    monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
+    monkeypatch.setattr(page, "configure", lambda context: None)
+
+    assert __main__._run_ui(paths, PreflightReport(checks=())) == 0
+    favicon = captured["favicon"]
+    assert isinstance(favicon, Path)
+    assert favicon.name == "stemforge-512.png"
 
 
 def test_run_ui_connects_the_separation_engine(

@@ -190,6 +190,7 @@ class SeparationCard:
                     ui.button(
                         formatting.SEPARATION_CANCEL,
                         on_click=lambda _=None: self._on_cancel(),
+                        color=None,
                     )
                     .props("flat no-caps size=sm")
                     .mark("model-download-cancel")
@@ -207,8 +208,7 @@ class SeparationCard:
                 button.set_enabled(not busy)
             (
                 ui.button(
-                    copy.details_label,
-                    on_click=lambda _=None: self._open_about(),
+                    copy.details_label, on_click=lambda _=None: self._open_about(), color=None
                 )
                 .props("flat no-caps size=sm")
                 .mark("model-licence-details")
@@ -264,8 +264,7 @@ class SeparationCard:
         ui.label(formatting.SEPARATION_WORKER_NOTE).classes("sf-fineprint")
         (
             ui.button(
-                formatting.SEPARATION_CANCEL,
-                on_click=lambda _=None: self._on_cancel(),
+                formatting.SEPARATION_CANCEL, on_click=lambda _=None: self._on_cancel(), color=None
             )
             .props("flat no-caps size=sm")
             .mark("separation-cancel")
@@ -282,6 +281,7 @@ class SeparationCard:
                     ui.button(
                         formatting.SEPARATION_KEEP_WAITING,
                         on_click=lambda _=None: self._keep_waiting(),
+                        color=None,
                     )
                     .props("flat no-caps size=sm")
                     .mark("separation-keep-waiting")
@@ -290,6 +290,7 @@ class SeparationCard:
                     ui.button(
                         formatting.SEPARATION_CANCEL,
                         on_click=lambda _=None: self._on_cancel(),
+                        color=None,
                     )
                     .props("flat no-caps size=sm")
                     .mark("separation-stall-cancel")

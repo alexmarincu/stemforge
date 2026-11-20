@@ -28,7 +28,7 @@ from stemforge import __version__, errors
 from stemforge.application import LicenceFiles, WorkspaceService
 from stemforge.errors import StemForgeError
 from stemforge.integration.shell import PathOpener
-from stemforge.ui import formatting
+from stemforge.ui import formatting, theme
 from stemforge.ui.components.diagnostics import (
     ClipboardWriter,
     DiagnosticsProvider,
@@ -66,9 +66,13 @@ class SettingsDialog:
             ui.card().classes("sf-card sf-settings").mark("settings-dialog"),
         ):
             with ui.row().classes("w-full items-center justify-between"):
-                ui.label(formatting.SETTINGS_TITLE).classes("sf-title")
+                with ui.row().classes("items-center gap-3"):
+                    mark = theme.image_html(theme.ABOUT_PNG, size=40, css_class="sf-settings-mark")
+                    if mark is not None:
+                        ui.html(mark, sanitize=False).mark("about-app-mark")
+                    ui.label(formatting.SETTINGS_TITLE).classes("sf-title")
                 (
-                    ui.button(icon="close", on_click=dialog.close)
+                    ui.button(icon="close", on_click=dialog.close, color=None)
                     .props("flat dense round size=sm")
                     .mark("settings-dismiss")
                 )
@@ -77,7 +81,7 @@ class SettingsDialog:
             self._behaviour_section()
             with ui.row().classes("w-full justify-end"):
                 (
-                    ui.button(formatting.SETTINGS_CLOSE, on_click=dialog.close)
+                    ui.button(formatting.SETTINGS_CLOSE, on_click=dialog.close, color=None)
                     .props("flat no-caps")
                     .mark("settings-close")
                 )
@@ -122,8 +126,7 @@ class SettingsDialog:
                 ui.label(str(files.licenses_dir)).classes("sf-fineprint")
             (
                 ui.button(
-                    formatting.SETTINGS_OPEN_LICENCES,
-                    on_click=self._open_licences,
+                    formatting.SETTINGS_OPEN_LICENCES, on_click=self._open_licences, color=None
                 )
                 .props("flat no-caps")
                 .mark("about-open-licences")
@@ -134,8 +137,7 @@ class SettingsDialog:
                 ui.label(formatting.DIAGNOSTICS_NOTICE).classes("sf-fineprint")
             button = (
                 ui.button(
-                    formatting.COPY_DIAGNOSTICS_LABEL,
-                    on_click=self._copy_diagnostics,
+                    formatting.COPY_DIAGNOSTICS_LABEL, on_click=self._copy_diagnostics, color=None
                 )
                 .props("flat no-caps")
                 .mark("about-copy-diagnostics")
@@ -187,6 +189,7 @@ class SettingsDialog:
                 ui.button(
                     formatting.SETTINGS_VIEW,
                     on_click=lambda: self._show_document(title, path),
+                    color=None,
                 )
                 .props("flat no-caps")
                 .mark(button_marker)
@@ -205,14 +208,14 @@ class SettingsDialog:
         ):
             with ui.row().classes("w-full items-center justify-between"):
                 ui.label(title).classes("sf-title")
-                ui.button(icon="close", on_click=dialog.close).props(
+                ui.button(icon="close", on_click=dialog.close, color=None).props(
                     "flat dense round size=sm"
                 ).mark("about-document-dismiss")
             with ui.element("pre").classes("sf-licence-text").mark("about-document-text"):
                 ui.label(text).classes("whitespace-pre-wrap")
             with ui.row().classes("w-full justify-end"):
                 (
-                    ui.button(formatting.SETTINGS_CLOSE, on_click=dialog.close)
+                    ui.button(formatting.SETTINGS_CLOSE, on_click=dialog.close, color=None)
                     .props("flat no-caps")
                     .mark("about-document-close")
                 )
@@ -263,7 +266,7 @@ class SettingsDialog:
                     ui.label(self._size_text()).classes("sf-fineprint").mark("about-cache-size")
                 )
             (
-                ui.button(formatting.SETTINGS_CACHE_CLEAR, on_click=self._clear_cache)
+                ui.button(formatting.SETTINGS_CACHE_CLEAR, on_click=self._clear_cache, color=None)
                 .props("flat no-caps")
                 .mark("clear-cached-audio")
             )
@@ -274,7 +277,7 @@ class SettingsDialog:
                     ui.label(self._recent_text()).classes("sf-fineprint").mark("about-recent-size")
                 )
             (
-                ui.button(formatting.SETTINGS_RECENT_CLEAR, on_click=self._clear_recent)
+                ui.button(formatting.SETTINGS_RECENT_CLEAR, on_click=self._clear_recent, color=None)
                 .props("flat no-caps")
                 .mark("clear-recent")
             )
@@ -292,6 +295,7 @@ class SettingsDialog:
                     ui.button(
                         formatting.YOUTUBE_CACHE_CLEAR,
                         on_click=self._clear_youtube_cache,
+                        color=None,
                     )
                     .props("flat no-caps")
                     .mark("clear-youtube-cache")
@@ -301,10 +305,7 @@ class SettingsDialog:
                 ui.label(formatting.SETTINGS_LOG_LABEL).classes("sf-setting-label")
                 ui.label(formatting.SETTINGS_LOG_HINT).classes("sf-fineprint")
             (
-                ui.button(
-                    formatting.SETTINGS_OPEN_LOG_FOLDER,
-                    on_click=self._open_logs,
-                )
+                ui.button(formatting.SETTINGS_OPEN_LOG_FOLDER, on_click=self._open_logs, color=None)
                 .props("flat no-caps")
                 .mark("open-log-folder")
             )

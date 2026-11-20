@@ -80,9 +80,9 @@ def open_diagnostics_modal(
     ):
         with ui.row().classes("w-full items-center justify-between"):
             ui.label(title).classes("sf-title")
-            ui.button(icon="close", on_click=dialog.close).props("flat dense round size=sm").mark(
-                "diagnostics-dismiss"
-            )
+            ui.button(icon="close", on_click=dialog.close, color=None).props(
+                "flat dense round size=sm"
+            ).mark("diagnostics-dismiss")
         ui.label(formatting.DIAGNOSTICS_NOTICE).classes("sf-fineprint").mark("diagnostics-notice")
         ui.textarea(value=text).props("readonly outlined autogrow").classes(
             "sf-diagnostics-text"
@@ -102,7 +102,7 @@ def open_diagnostics_modal(
                 .mark("diagnostics-copy")
             )
             (
-                ui.button(formatting.DIAGNOSTICS_CLOSE, on_click=dialog.close)
+                ui.button(formatting.DIAGNOSTICS_CLOSE, on_click=dialog.close, color=None)
                 .props("flat no-caps")
                 .mark("diagnostics-close")
             )
@@ -132,6 +132,7 @@ def error_details(
                     ui.button(
                         formatting.OPEN_LOG_LABEL,
                         on_click=lambda: _open_log(open_path, log_path),
+                        color=None,
                     )
                     .props("flat dense no-caps size=sm")
                     .mark("open-log")
@@ -141,6 +142,7 @@ def error_details(
                     ui.button(
                         formatting.COPY_DIAGNOSTICS_LABEL,
                         on_click=lambda: open_diagnostics_modal(diagnostics(job_id), clipboard),
+                        color=None,
                     )
                     .props("flat dense no-caps size=sm")
                     .mark("copy-diagnostics")

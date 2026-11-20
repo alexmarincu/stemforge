@@ -28,6 +28,11 @@ LICENSES_DIRNAME: Final = "LICENSES"
 LICENSE_FILENAME: Final = "LICENSE"
 NOTICES_FILENAME: Final = "THIRD_PARTY_NOTICES.md"
 SOURCE_OFFER_FILENAME: Final = "SOURCE_OFFER.md"
+# Ticket 17's icon set: the scalable mark for the rail, the raster for the
+# About modal and pywebview, and the multi-resolution ICO for Windows.
+APP_LOGO_SVG: Final = "stemforge.svg"
+APP_ICON_PNG: Final = "stemforge-512.png"
+APP_ICON_ICO: Final = "stemforge.ico"
 
 
 def is_frozen() -> bool:
@@ -57,6 +62,12 @@ def bundle_root() -> Path:
 def assets_dir() -> Path:
     """The read-only icon and image assets."""
     return data_root() / ASSETS_DIRNAME
+
+
+def app_icon() -> Path:
+    """The platform-appropriate window icon (ICO on Windows, PNG elsewhere)."""
+    name = APP_ICON_ICO if sys.platform.startswith("win") else APP_ICON_PNG
+    return assets_dir() / name
 
 
 def models_lock_path() -> Path:
