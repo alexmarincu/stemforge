@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stemforge"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Local stem separation, pitch shifting, and export."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -65,9 +65,12 @@ build = ["pyinstaller==6.22.3"]
 [tool.uv]
 default-groups = ["dev"]
 # demucs 4.1.0 declares numpy<2 for macOS x86_64 only (CONTEXT.md, verified
-# 2026-11-16). v0.1.0 targets Linux and Windows, so restricting the resolved
+# 2026-11-16). StemForge targets Linux and Windows, so restricting the resolved
 # environments keeps `uv lock` satisfiable; without this, resolution fails.
 environments = ["sys_platform == 'linux'", "sys_platform == 'win32'"]
+
+[tool.hatch.version]
+path = "src/stemforge/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/stemforge"]

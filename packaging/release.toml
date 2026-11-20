@@ -20,7 +20,7 @@
 #   [repo] source_offer_contact  contact for the GPL-3.0 §6(b) written offer.
 #   [source_offer] years       written-offer term in years (GPL-3.0 §6(b): 3).
 #   [source_offer] start_year  first year the offer is valid (release year).
-#   [source_offer] end_year    last year the offer is valid.
+#                              The end year is derived as `start_year + years`.
 #   [assets] source_archive    first-party source asset name template.
 #   [assets] third_party_sources_archive  third-party source asset name template.
 #   [paths] *                  input/output paths, relative to the repo root.
@@ -44,10 +44,9 @@ source_offer_contact = "https://github.com/alexmarincu/stemforge/issues"
 
 [source_offer]
 # GPL-3.0 §6(b): a written offer valid for three years from the release date.
-# The 0.1.0 release lands in 2026, so the offer runs through 2029.
+# The offer starts in the release year and runs for `years`.
 years = 3
 start_year = 2026
-end_year = 2029
 
 [assets]
 source_archive = "StemForge-{version}-src.tar.gz"

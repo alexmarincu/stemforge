@@ -119,10 +119,14 @@ class ReleaseConfig:
     source_offer_contact: str
     offer_years: int
     start_year: int
-    end_year: int
     source_archive: str
     third_party_sources_archive: str
     paths: Mapping[str, str]
+
+    @property
+    def end_year(self) -> int:
+        """The last year the written offer is valid."""
+        return self.start_year + self.offer_years
 
     def require_valid(self) -> None:
         problems = release_problems(self)
@@ -223,7 +227,6 @@ def load_release(
         source_offer_contact=str(repo.get("source_offer_contact", "")),
         offer_years=int(offer.get("years", 0)),
         start_year=int(offer.get("start_year", 0)),
-        end_year=int(offer.get("end_year", 0)),
         source_archive=str(assets.get("source_archive", "")),
         third_party_sources_archive=str(assets.get("third_party_sources_archive", "")),
         paths=paths,
@@ -262,8 +265,6 @@ def release_problems(config: ReleaseConfig) -> tuple[str, ...]:
         problems.append("source_offer.years must be 3 (GPL-3.0 section 6(b))")
     if config.start_year < 2020:
         problems.append("source_offer.start_year looks unset")
-    if config.end_year != config.start_year + config.offer_years:
-        problems.append("source_offer.end_year must be start_year + years")
     for label, value in (
         ("assets.source_archive", config.source_archive),
         ("assets.third_party_sources_archive", config.third_party_sources_archive),
@@ -343,7 +344,7 @@ def generate(
     overrides = _read_python_overrides(root / config.paths["python_manifest"])
     dist_infos = _dist_info_map(site_packages or _site_packages(root / config.paths["venv"]))
 
-    records = _package_records(lock, dist_infos, overrides, config)
+    records = _package_records(lock, dist_infos, overrides, config, version)
     components = _native_records(native, vendor, lock)
 
     writer = _Writer(destination)
@@ -654,6 +655,7 @@ def _package_records(
     dist_infos: Mapping[str, Path],
     overrides: Mapping[str, Mapping[str, object]],
     config: ReleaseConfig,
+    project_version: str,
 ) -> tuple[PackageRecord, ...]:
     packages = lock["package"]
     if not isinstance(packages, list):
@@ -677,12 +679,11 @@ def _package_records(
     records: list[PackageRecord] = []
     for name in sorted(by_name):
         mapping = by_name[name]
-        version = str(mapping["version"])
         if name == "stemforge":
             records.append(
                 PackageRecord(
                     name=name,
-                    version=version,
+                    version=project_version,
                     spdx=config.license,
                     source=config.repo_url,
                     group="runtime",
@@ -691,6 +692,7 @@ def _package_records(
                 )
             )
             continue
+        version = str(mapping["version"])
         override = overrides.get(name, {})
         group: Group = (
             "runtime"
@@ -863,7 +865,7 @@ def _native_records(
     package_versions = {
         str(entry["name"]): str(entry["version"])
         for entry in lock["package"]
-        if isinstance(entry, dict) and "name" in entry
+        if isinstance(entry, dict) and "name" in entry and "version" in entry
     }
     resolved: list[NativeComponent] = []
     for component in components:
