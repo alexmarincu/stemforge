@@ -115,6 +115,8 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     assert captured["show"] is False
     assert captured["window_size"] == (1280, 820)
     assert captured["title"] == page.TITLE
+    assert captured["storage_secret"] == paths.storage_secret()
+    assert len(str(captured["storage_secret"])) == 64
     context = captured["context"]
     assert isinstance(context, page.UiContext)
     assert context.show_recovery is False
@@ -289,4 +291,5 @@ def test_run_ui_browser_mode_opens_the_web_server(
     assert captured["show"] is True
     assert captured["host"] == "127.0.0.1"
     assert captured["reload"] is False
+    assert captured["storage_secret"] == paths.storage_secret()
     assert "window_size" not in captured

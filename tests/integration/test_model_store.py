@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
@@ -31,9 +31,14 @@ PAYLOAD_SHA256 = hashlib.sha256(PAYLOAD).hexdigest()
 class _FileResponse:
     """A binary response that streams a file from a temp directory."""
 
-    def __init__(self, source: Path) -> None:
+    def __init__(self, source: Path, start: int = 0) -> None:
         self._handle = source.open("rb")
-        self.headers = {"Content-Length": str(source.stat().st_size)}
+        self._handle.seek(start)
+        self.status = 206 if start else 200
+        self.headers = {
+            "Content-Length": str(source.stat().st_size - start),
+            "Content-Range": f"bytes {start}-{source.stat().st_size - 1}/{source.stat().st_size}",
+        }
 
     def read(self, size: int = -1, /) -> bytes:
         return self._handle.read(size)
@@ -42,10 +47,13 @@ class _FileResponse:
         self._handle.close()
 
 
-def _file_transport(source: Path) -> Callable[[str], _FileResponse]:
-    def transport(url: str) -> _FileResponse:
+def _file_transport(source: Path) -> Callable[..., _FileResponse]:
+    def transport(url: str, headers: Mapping[str, str] | None = None) -> _FileResponse:
         assert url
-        return _FileResponse(source)
+        start = 0
+        if headers and (value := headers.get("Range")):
+            start = int(value.removeprefix("bytes=").removesuffix("-"))
+        return _FileResponse(source, start)
 
     return transport
 
@@ -160,7 +168,7 @@ def test_tampering_after_install_is_caught_before_use(
     service.models.path().write_bytes(bytes(tampered))
 
     with pytest.raises(StemForgeError) as raised:
-        service.models.verify_before_use()
+        service.models.require_verified()
     assert raised.value.code == errors.SEPARATION_MODEL_MISSING
     assert raised.value.detail == "reason=checksum"
     assert not service.models.path().exists()

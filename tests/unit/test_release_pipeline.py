@@ -902,3 +902,48 @@ def test_release_notes_name_the_shipped_yt_dlp_and_unsigned_caveat() -> None:
     assert "Windows figures are unmeasured" in text
 
 
+# ---------------------------------------------------------------------------
+# Ticket 10 §9: a target is a goal, the failure line is a gate
+# ---------------------------------------------------------------------------
+
+
+def _size_budget_file(directory: Path, suffix: str, size: int) -> None:
+    path = directory / f"StemForge-{VERSION}-{suffix}"
+    with path.open("wb") as handle:
+        handle.truncate(size)
+
+
+def test_a_size_above_target_but_below_failure_passes_with_a_note(tmp_path: Path) -> None:
+    for suffix, target in release_assets.BUDGET_TARGET_BYTES.items():
+        assert release_assets.BUDGET_FAILURE_BYTES[suffix] > target
+        _size_budget_file(tmp_path, suffix, target + 1)
+
+    findings = release_assets._budget_findings(tmp_path, VERSION)
+
+    assert {finding.status for finding in findings} == {"pass"}
+    assert all("target" in finding.detail for finding in findings)
+
+
+def test_a_size_above_the_failure_line_fails(tmp_path: Path) -> None:
+    suffix = "linux-x86_64.tar.gz"
+    _size_budget_file(tmp_path, suffix, release_assets.BUDGET_FAILURE_BYTES[suffix] + 1)
+
+    findings = release_assets._budget_findings(tmp_path, VERSION)
+
+    assert findings == [
+        release_assets.Finding(
+            f"budget.{suffix}",
+            "fail",
+            f"{release_assets.BUDGET_FAILURE_BYTES[suffix] + 1} B above the "
+            f"{release_assets.BUDGET_FAILURE_BYTES[suffix]} B failure line",
+        )
+    ]
+
+
+def test_a_size_at_the_failure_line_passes(tmp_path: Path) -> None:
+    suffix = "win64-setup.exe"
+    _size_budget_file(tmp_path, suffix, release_assets.BUDGET_FAILURE_BYTES[suffix])
+
+    findings = release_assets._budget_findings(tmp_path, VERSION)
+
+    assert [finding.status for finding in findings] == ["pass"]

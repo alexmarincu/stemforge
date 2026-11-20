@@ -22,11 +22,10 @@ import shutil
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
 
-from stemforge import __version__, errors
+from stemforge import errors
 from stemforge.artifacts import (
     ArtifactStore,
     SourceArtifact,
@@ -46,6 +45,7 @@ from stemforge.engines.youtube import (
 from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.jobs.job import JobContext
 from stemforge.pipeline.import_job import CANONICAL_NAME, PREVIEW_NAME
+from stemforge.pipeline.source_manifest import source_manifest
 
 __all__ = [
     "STAGE_CHECKING",
@@ -539,26 +539,14 @@ def _source_manifest(
     tools: Mapping[str, str],
 ) -> dict[str, object]:
     origin = metadata.canonical_url
-    return {
-        "schema_version": 1,
-        "kind": "source",
-        "source_id": source_id,
-        "created_at": datetime.now(UTC).isoformat(),
-        "origin": origin,
-        "origin_kind": OriginKind.YOUTUBE.value,
-        "origin_url": origin,
-        "video_id": metadata.video_id,
-        "content_hash": native_sha256,
-        "app_version": __version__,
-        "gain_db": gain_db,
-        "downmixed": downmixed,
-        "native_sha256": native_sha256,
-        "native_bytes": native_bytes,
-        "format_id": downloaded.format_id,
-        "extractor": downloaded.extractor,
-        "extractor_version": downloaded.extractor_version,
-        "tools": {name: str(version) for name, version in tools.items()},
-        "metadata": {
+    return source_manifest(
+        source_id=source_id,
+        origin=origin,
+        origin_kind=OriginKind.YOUTUBE,
+        content_hash=native_sha256,
+        gain_db=gain_db,
+        downmixed=downmixed,
+        metadata={
             "title": metadata.title,
             "artist": metadata.artist,
             "album": "",
@@ -576,12 +564,22 @@ def _source_manifest(
             "sample_rate": sample_rate,
             "channels": channels,
         },
-        "files": [
+        files=[
             _file_entry(native_path, "native"),
             _file_entry(canonical_path, "canonical"),
             _file_entry(preview_path, "preview"),
         ],
-    }
+        extra={
+            "origin_url": origin,
+            "video_id": metadata.video_id,
+            "native_sha256": native_sha256,
+            "native_bytes": native_bytes,
+            "format_id": downloaded.format_id,
+            "extractor": downloaded.extractor,
+            "extractor_version": downloaded.extractor_version,
+            "tools": {name: str(version) for name, version in tools.items()},
+        },
+    )
 
 
 def _source_from_artifact(artifact: SourceArtifact, *, fallback_origin: str) -> Source:
@@ -603,6 +601,7 @@ def _source_from_artifact(artifact: SourceArtifact, *, fallback_origin: str) -> 
         origin_kind=OriginKind.YOUTUBE,
         metadata=metadata,
         downmixed=artifact.manifest.get("downmixed") is True,
+        gain_db=artifact.gain_db,
         native_path=artifact.path_for("native"),
         canonical_path=artifact.path_for("canonical"),
         preview_path=artifact.path_for("preview"),

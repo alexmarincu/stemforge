@@ -2,15 +2,18 @@
 
 One function, :func:`run_separation_job`, owns everything a Separation produces
 (ticket 05 §3, ticket 06 §4, ticket 13): it re-verifies the pinned weights before
-spawning anything, runs the worker into ``staging/<job_id>/``, validates all four
-stems and the summed Instrumental, measures one presentation gain, encodes the
+spawning anything, runs the worker into ``staging/<job_id>/``, validates all five
+outputs (the worker writes Instrumental in-process), measures one presentation gain, encodes the
 previews, writes the manifest last, and promotes the directory with one atomic
 rename. A cancel or failure removes the whole staging directory, so no partial
 separation becomes visible and an earlier successful Stems set stays playable.
 
-The Instrumental is the float32 sum of the non-vocal stems via
-:meth:`~stemforge.engines.media.FfmpegTool.sum_wavs` (``amix`` with
-``normalize=0``), never a normalized mix and never a direct Demucs output.
+The worker writes all five outputs, including Instrumental as the float32 sum of
+the non-vocal stems while they are still in memory. The parent validates every
+WAV, measures one presentation gain, encodes the previews, writes the manifest,
+and promotes the directory with one atomic rename. A cancel or failure removes
+the whole staging directory, so no partial separation becomes visible and an
+earlier successful Stems set stays playable.
 
 The manifest records a block-plan fingerprint. A future engine, model, or block
 change produces a different fingerprint, so a cache lookup can tell that an old
@@ -21,7 +24,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -36,6 +38,7 @@ from stemforge.artifacts import (
     free_space_requirement,
     require_free_space,
 )
+from stemforge.domain.roles import INSTRUMENTAL_ROLE, OUTPUT_ROLES, STEM_ROLES
 from stemforge.engines.media import (
     CANONICAL_CHANNELS,
     CANONICAL_CODEC,
@@ -57,13 +60,12 @@ from stemforge.jobs.job import JobContext
 from stemforge.models import ModelStore
 from stemforge.models.store import sha256_file
 from stemforge.pipeline.gain import max_peak_dbfs, presentation_gain
+from stemforge.worker_protocol import block_count
 
 __all__ = [
     "INSTRUMENTAL_ROLE",
-    "NON_VOCAL_ROLES",
     "STAGE_DONE",
     "STAGE_GAIN",
-    "STAGE_INSTRUMENTAL",
     "STAGE_PREVIEWS",
     "STAGE_SAVING",
     "STAGE_SEPARATE",
@@ -75,14 +77,12 @@ __all__ = [
     "run_separation_job",
 ]
 
-STEM_ROLES: Final = ("vocals", "drums", "bass", "other")
-NON_VOCAL_ROLES: Final = ("drums", "bass", "other")
-INSTRUMENTAL_ROLE: Final = "instrumental"
-
+# The four Stems are re-exported here for callers that predate domain.roles;
+# a Separation's full output set lives in ``OUTPUT_ROLES`` (Instrumental is an
+# output, never a Stem).
 STAGE_VERIFY: Final = "Verify"
 STAGE_SEPARATE: Final = "Separate"
 STAGE_VALIDATE: Final = "Validate"
-STAGE_INSTRUMENTAL: Final = "Instrumental"
 STAGE_GAIN: Final = "Gain"
 STAGE_PREVIEWS: Final = "Previews"
 STAGE_SAVING: Final = "Saving"
@@ -91,11 +91,10 @@ STAGE_DONE: Final = "Done"
 ENGINE_NAME: Final = "demucs"
 DEVICE: Final = "cpu"
 
-# The worker owns 2%..88%; the rest is validation, mixing, gain, and previews.
+# The worker owns 2%..88%; the rest is validation, gain, and previews.
 SEPARATE_START: Final = 0.02
 SEPARATE_SPAN: Final = 0.86
 VALIDATE_END: Final = 0.90
-INSTRUMENTAL_END: Final = 0.92
 GAIN_END: Final = 0.94
 PREVIEWS_END: Final = 0.99
 
@@ -198,6 +197,7 @@ def run_separation_job(
             model_path=status.path,
             expected_duration_s=expected_duration,
             threads=threads,
+            model_revision=spec.revision,
             env=_worker_environment(models, threads=threads),
             progress=_scaled(
                 emit,
@@ -211,12 +211,12 @@ def run_separation_job(
         cancel.check()
 
         masters: dict[str, Path] = {}
-        for role in STEM_ROLES:
+        for role in OUTPUT_ROLES:
             path = outputs.path_for(role)
             if path is None:
                 raise StemForgeError(
                     errors.SEPARATION_OUTPUT_INVALID,
-                    "the separation is missing a stem",
+                    "the separation is missing an output",
                     detail=f"missing={role}",
                     context={"role": role, "source_id": source_id},
                 )
@@ -228,29 +228,10 @@ def run_separation_job(
                 code=errors.SEPARATION_OUTPUT_INVALID,
             )
             masters[role] = path
-        emit(VALIDATE_END, STAGE_VALIDATE, "four stems validated")
+        emit(VALIDATE_END, STAGE_VALIDATE, "five outputs validated")
         cancel.check()
 
-        emit(VALIDATE_END, STAGE_INSTRUMENTAL, "summing drums, bass, and other")
-        instrumental = staging / f"{INSTRUMENTAL_ROLE}.wav"
-        media.sum_wavs(
-            [masters[role] for role in NON_VOCAL_ROLES],
-            instrumental,
-            cancel=cancel,
-            log=log,
-        )
-        _validate_wav(
-            media,
-            instrumental,
-            role=INSTRUMENTAL_ROLE,
-            expected_duration=expected_duration,
-            code=errors.SEPARATION_OUTPUT_INVALID,
-        )
-        masters[INSTRUMENTAL_ROLE] = instrumental
-        emit(INSTRUMENTAL_END, STAGE_INSTRUMENTAL, "")
-        cancel.check()
-
-        emit(INSTRUMENTAL_END, STAGE_GAIN, "measuring the set peak")
+        emit(VALIDATE_END, STAGE_GAIN, "measuring the set peak")
         peaks: dict[str, float] = {}
         for role, path in masters.items():
             cancel.check()
@@ -347,7 +328,7 @@ def block_plan(
     block = round(block_seconds * CANONICAL_SAMPLE_RATE)
     fade = round(crossfade_seconds * CANONICAL_SAMPLE_RATE)
     total = round(duration_s * CANONICAL_SAMPLE_RATE)
-    blocks = 1 if total <= block else 1 + math.ceil((total - block) / (block - fade))
+    blocks = block_count(total_frames=total, block_frames=block, fade_frames=fade)
     payload: dict[str, object] = {
         "engine": ENGINE_NAME,
         "engine_version": DEMUCS_VERSION,
@@ -409,7 +390,7 @@ def _manifest(
         "channels": CANONICAL_CHANNELS,
         "block_plan": dict(plan),
         "block_plan_fingerprint": plan["fingerprint"],
-        "instrumental": "float32 sum of drums + bass + other (amix normalize=0)",
+        "instrumental": "float32 sum of drums + bass + other, written by the worker",
         "gain_db": gain_db,
         "peak_dbfs": max_peak_dbfs(peaks.values()),
         "validation": {

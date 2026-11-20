@@ -1,4 +1,4 @@
-"""Immutable domain models: Source, Track, ArtifactRef, ArtifactSet, and the rest.
+"""Immutable domain models: Source, Track, and the Job vocabulary.
 
 Pure dataclasses only: no I/O, no logging, no configuration. Ticket 08 and later
 own behaviour that needs the filesystem; this module owns the shapes and the
@@ -22,15 +22,6 @@ class OriginKind(StrEnum):
 
     FILE = "file"
     YOUTUBE = "youtube"
-
-
-class ArtifactKind(StrEnum):
-    """The role an Artifact plays in a Track's audio."""
-
-    ORIGINAL = "original"
-    STEM = "stem"
-    INSTRUMENTAL = "instrumental"
-    RENDER = "render"
 
 
 class RenderScope(StrEnum):
@@ -95,6 +86,7 @@ class Source:
     origin_kind: OriginKind
     metadata: SourceMetadata
     downmixed: bool = False
+    gain_db: float = 0.0
     native_path: Path | None = None
     canonical_path: Path | None = None
     preview_path: Path | None = None
@@ -121,38 +113,12 @@ class Track:
     def source_id(self) -> str:
         return self.source.source_id
 
+    @property
+    def duration_s(self) -> float | None:
+        """The source's duration, so presentation code never reaches through Source."""
+        return self.source.metadata.duration_s
 
-@dataclass(frozen=True, slots=True)
-class ArtifactRef:
-    """One immutable audio artifact and its manifest provenance."""
-
-    artifact_id: str
-    source_id: str
-    kind: ArtifactKind
-    name: str
-    master_path: Path
-    preview_path: Path | None = None
-    render_key: str | None = None
-    gain_db: float = 0.0
-    manifest_path: Path | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactSet:
-    """The artifacts one Job produced, sharing provenance and presentation gain."""
-
-    source_id: str
-    artifacts: tuple[ArtifactRef, ...]
-    render_key: str | None = None
-    gain_db: float = 0.0
-    peak_dbfs: float | None = None
-    created_at: datetime = field(default_factory=_utcnow)
-
-
-@dataclass(frozen=True, slots=True)
-class RenderRequest:
-    """A requested Pitch Render; it becomes an ArtifactSet only after the Job."""
-
-    track_id: str
-    semitones: int
-    scope: RenderScope = RenderScope.ORIGINAL
+    @property
+    def gain_db(self) -> float:
+        """The Source set's one presentation gain (ticket 05 §5)."""
+        return self.source.gain_db

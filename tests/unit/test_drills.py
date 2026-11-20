@@ -18,6 +18,7 @@ import textwrap
 import threading
 import time
 import urllib.error
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
@@ -122,7 +123,7 @@ def test_a_process_crash_mid_job_leaves_residue_the_sweep_removes(
 
     assert report.deleted_anything is True
     assert not (paths.cache / "staging" / "crashed-job").exists()
-    assert not (paths.cache / "renders" / "crashed-render").exists()
+    assert not (paths.cache / "renders" / "crashed-render" / "original.wav.partial").exists()
     assert reopened.find_source("src-drill") is not None
     # The recovery banner's one and only trigger is this sweep flag.
     show_recovery = report.deleted_anything
@@ -234,8 +235,9 @@ def test_offline_model_install_is_coded_and_leaves_no_partial(tmp_path: Path) ->
     store = ModelStore(paths)
     calls = 0
 
-    def transport(url: str) -> _OfflineResponse:
+    def transport(url: str, headers: Mapping[str, str] | None = None) -> _OfflineResponse:
         nonlocal calls
+        del headers
         calls += 1
         raise urllib.error.URLError(OSError("no route to host"))
 
@@ -319,6 +321,7 @@ def test_disk_full_during_model_install_is_coded_and_leaves_no_partial(
 
     class _Response:
         headers: ClassVar[dict[str, str]] = {"Content-Length": "4096"}
+        status = 200
 
         def read(self, size: int = -1, /) -> bytes:
             return b""
@@ -326,8 +329,9 @@ def test_disk_full_during_model_install_is_coded_and_leaves_no_partial(
         def close(self) -> None:
             pass
 
-    def transport(url: str) -> _Response:
+    def transport(url: str, headers: Mapping[str, str] | None = None) -> _Response:
         nonlocal transport_calls
+        del headers
         transport_calls += 1
         return _Response()
 

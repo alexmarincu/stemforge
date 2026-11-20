@@ -84,6 +84,10 @@ include = ["/src", "/README.md", "/pyproject.toml", "/uv.lock"]
 target-version = "py313"
 line-length = 100
 src = ["src", "tests"]
+# `.scratch/` holds the decision record, prototypes, and benchmark notes. It is
+# not shipped code and is removed by the release handoff, so it stays out of the
+# formatter/linter gate.
+extend-exclude = [".scratch"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "PT", "RUF"]
@@ -157,10 +161,10 @@ exclude_also = [
 # --- Import contracts (ticket 06 §1) ---------------------------------------
 
 # The 06 §1 graph is not a single total order. The layers below take its
-# transitive order, put ui and workers on one independent top layer, and put the
-# stdlib-only foundation packages on one independent bottom layer, so they can
-# import neither each other nor anything above. The explicit forbidden contract
-# carries the rule's named UI prohibition.
+# transitive order, put ui alone on top, and keep workers beside domain so the
+# worker process can reach worker_protocol, platform, and errors but nothing in
+# the server's application pipeline. The explicit forbidden contracts carry the
+# named UI and worker prohibitions.
 [tool.importlinter]
 root_packages = ["stemforge"]
 include_external_packages = false
@@ -169,11 +173,12 @@ include_external_packages = false
 name = "The 06 §1 dependency layers"
 type = "layers"
 layers = [
-  "stemforge.ui | stemforge.workers",
+  "stemforge.ui",
   "stemforge.application | stemforge.integration",
   "stemforge.pipeline",
   "stemforge.jobs | stemforge.engines | stemforge.artifacts | stemforge.models | stemforge.settings",
-  "stemforge.domain | stemforge.worker_protocol",
+  "stemforge.domain | stemforge.workers",
+  "stemforge.worker_protocol",
   "stemforge.platform | stemforge.errors",
 ]
 
@@ -186,8 +191,27 @@ forbidden_modules = [
   "stemforge.workers",
   "stemforge.pipeline",
   "stemforge.jobs",
+  "stemforge.platform",
 ]
 # Ticket 06 §1 says ui may import application; application legitimately imports
 # jobs, pipeline, and engines. The contract forbids the direct UI dependency,
 # not the application's internal ones.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Workers stay below the app"
+type = "forbidden"
+source_modules = ["stemforge.workers"]
+forbidden_modules = [
+  "stemforge.application",
+  "stemforge.pipeline",
+  "stemforge.engines",
+  "stemforge.jobs",
+  "stemforge.artifacts",
+  "stemforge.domain",
+  "stemforge.models",
+  "stemforge.settings",
+  "stemforge.integration",
+  "stemforge.ui",
+]
 allow_indirect_imports = true

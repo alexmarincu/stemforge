@@ -221,6 +221,19 @@ def test_export_targets_adds_unshifted_stems_and_the_instrumental(tmp_path: Path
     assert stems["instrumental"].gain_db == pytest.approx(-2.0)
 
 
+def test_the_instrumental_is_an_output_not_a_stem_key(tmp_path: Path) -> None:
+    service, store, _ = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store)
+    track = _add_track(service, store)
+
+    by_key = {target.key: target for target in service.export_targets(track)}
+
+    assert by_key["instrumental"].role == "instrumental"
+    assert resolve_export_target(store, source_id=SOURCE_ID, key="instrumental") is not None
+    assert resolve_export_target(store, source_id=SOURCE_ID, key="stem:instrumental") is None
+
+
 def test_export_targets_adds_every_member_of_a_pitch_set(tmp_path: Path) -> None:
     service, store, _ = _service(tmp_path)
     _commit_source(store)
@@ -530,3 +543,52 @@ def test_a_tag_verification_failure_is_coded_and_leaves_no_file(tmp_path: Path) 
     assert raised.value.detail == "tags"
     assert list(destination.iterdir()) == []
     assert not (store.staging_dir / "job-tags").exists()
+
+
+def test_mp3_verification_covers_every_tag_field_the_writer_writes(
+    tmp_path: Path,
+) -> None:
+    from stemforge.engines.media import CanonicalMetadata, MediaInfo
+    from stemforge.pipeline import export_job
+
+    metadata = CanonicalMetadata(
+        title="Title",
+        artist="Artist",
+        album="Album",
+        album_artist="Album Artist",
+        track="1",
+        disc="1",
+        date="2026",
+        genre="Genre",
+        composer="Composer",
+        copyright="Copyright",
+    )
+    written = dict(metadata.tags())
+    reported = {
+        key: value
+        for key, value in written.items()
+        if key not in {"album_artist", "composer", "disc"}
+    }
+    info = MediaInfo(
+        codec="mp3",
+        sample_rate=44_100,
+        channels=2,
+        duration_s=1.0,
+        format="mp3",
+        tags=reported,
+    )
+
+    class FakeMedia:
+        def probe(self, path: Path) -> MediaInfo:
+            return info
+
+    with pytest.raises(StemForgeError) as raised:
+        export_job._verify_output(
+            FakeMedia(),  # type: ignore[arg-type]
+            tmp_path / "out.mp3",
+            export_format=ExportFormat.MP3_320,
+            metadata=metadata,
+        )
+
+    assert raised.value.code == errors.MEDIA_VALIDATION_FAILED
+    assert set(raised.value.context["fields"]) >= {"album_artist", "composer", "disc"}

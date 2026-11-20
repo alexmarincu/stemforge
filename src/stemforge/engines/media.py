@@ -90,7 +90,7 @@ class CanonicalMetadata:
 
     def tags(self) -> Mapping[str, str]:
         """The exportable tag fields, in a stable order, omitting empty values."""
-        return {key: value for key in _TAG_FIELDS if (value := getattr(self, key))}
+        return {key: value for key in EXPORT_TAG_FIELDS if (value := getattr(self, key))}
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +122,7 @@ class ExportFormat(StrEnum):
                 return ".mp3"
 
 
-_TAG_FIELDS = (
+EXPORT_TAG_FIELDS = (
     "title",
     "artist",
     "album",
@@ -136,8 +136,18 @@ _TAG_FIELDS = (
     "copyright",
 )
 
-# Ticket 05 §9: WAV carries INFO tags but never the comment tag (ICMT).
-_WAV_TAG_FIELDS = tuple(field for field in _TAG_FIELDS if field != "comment")
+# Ticket 05 §7: WAV carries INFO tags only. The RIFF/INFO mapping has no
+# album-artist, disc, or composer field that FFmpeg persists, so the writer and
+# the verifier share this exact subset; MP3 and FLAC carry all eleven.
+WAV_TAG_FIELDS = (
+    "title",
+    "artist",
+    "album",
+    "track",
+    "date",
+    "genre",
+    "copyright",
+)
 
 _TAG_ALIASES: Mapping[str, tuple[str, ...]] = {
     "album_artist": ("album_artist", "albumartist", "album artist"),
@@ -190,7 +200,7 @@ def _export_codec_args(fmt: ExportFormat) -> list[str]:
             ]
 
 
-def _tag_args(tags: Mapping[str, str], fields: Sequence[str] = _TAG_FIELDS) -> list[str]:
+def _tag_args(tags: Mapping[str, str], fields: Sequence[str] = EXPORT_TAG_FIELDS) -> list[str]:
     arguments: list[str] = []
     for key in fields:
         value = tags.get(key)
@@ -495,7 +505,7 @@ class FfmpegTool:
             argv.extend(["-map", "1:v:0", "-c:v", "copy", "-disposition:v", "attached_pic"])
         argv.extend(["-map_metadata", "-1", "-map_chapters", "-1", "-af", f"volume={gain_db}dB"])
         argv.extend(_export_codec_args(fmt))
-        tag_fields = _WAV_TAG_FIELDS if fmt is ExportFormat.WAV24 else _TAG_FIELDS
+        tag_fields = WAV_TAG_FIELDS if fmt is ExportFormat.WAV24 else EXPORT_TAG_FIELDS
         argv.extend(_tag_args(dict(metadata.tags()), fields=tag_fields))
 
         expect = _Expect(

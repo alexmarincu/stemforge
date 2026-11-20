@@ -38,7 +38,10 @@ from stemforge.artifacts import (
 )
 from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.models import RenderScope
+from stemforge.domain.roles import INSTRUMENTAL_ROLE, OUTPUT_ROLES, STEM_ROLES
 from stemforge.engines.media import (
+    EXPORT_TAG_FIELDS,
+    WAV_TAG_FIELDS,
     CanonicalMetadata,
     ExportFormat,
     MediaInfo,
@@ -67,9 +70,6 @@ __all__ = [
     "run_export_job",
 ]
 
-STEM_ROLES: Final[tuple[str, ...]] = ("vocals", "drums", "bass", "other")
-INSTRUMENTAL_ROLE: Final = "instrumental"
-RENDER_ROLES: Final[tuple[str, ...]] = (*STEM_ROLES, INSTRUMENTAL_ROLE)
 ORIGINAL_ROLE: Final = "original"
 
 STAGE_ENCODING: Final = "Encoding"
@@ -79,28 +79,6 @@ STAGE_WRITING: Final = "Writing file"
 _COPY_CHUNK_BYTES: Final = 1024 * 1024
 _DISK_FULL_ERRNOS: Final = frozenset({errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC)})
 _ProgressSink = Callable[[float, str, str], None]
-_EXPORT_TAG_FIELDS: Final = (
-    "title",
-    "artist",
-    "album",
-    "album_artist",
-    "track",
-    "disc",
-    "date",
-    "genre",
-    "comment",
-    "composer",
-    "copyright",
-)
-_WAV_INFO_FIELDS: Final = (
-    "title",
-    "artist",
-    "album",
-    "track",
-    "date",
-    "genre",
-    "copyright",
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,7 +174,7 @@ def resolve_export_target(
 
     if key == "master":
         return _master_target(source, resolved_title)
-    if key == f"stem:{INSTRUMENTAL_ROLE}" or key == INSTRUMENTAL_ROLE:
+    if key == INSTRUMENTAL_ROLE:
         separation = artifacts.find_separation(source_id, verify_hashes=verify_hashes)
         return (
             _separation_target(separation, INSTRUMENTAL_ROLE, resolved_title)
@@ -430,7 +408,7 @@ def _render_targets(render: RenderArtifact, title: str) -> tuple[ExportTarget, .
     if scope is RenderScope.ORIGINAL:
         roles = (ORIGINAL_ROLE,)
     elif scope is RenderScope.STEMS:
-        roles = RENDER_ROLES
+        roles = OUTPUT_ROLES
     else:
         return ()
     targets: list[ExportTarget] = []
@@ -447,7 +425,7 @@ def _render_target(render: RenderArtifact, role: str, title: str) -> ExportTarge
         return None
     if scope is RenderScope.ORIGINAL and role != ORIGINAL_ROLE:
         return None
-    if scope is RenderScope.STEMS and role not in RENDER_ROLES:
+    if scope is RenderScope.STEMS and role not in OUTPUT_ROLES:
         return None
     path = render.path_for(role)
     if path is None:
@@ -639,7 +617,7 @@ def _verify_output(
 ) -> MediaInfo:
     info = media.probe(path)
     expected = dict(metadata.tags())
-    fields = _WAV_INFO_FIELDS if export_format is ExportFormat.WAV24 else _EXPORT_TAG_FIELDS
+    fields = WAV_TAG_FIELDS if export_format is ExportFormat.WAV24 else EXPORT_TAG_FIELDS
     missing = {
         key: expected[key]
         for key in fields
@@ -720,7 +698,7 @@ def _metadata_record(manifest: Mapping[str, object]) -> CanonicalMetadata:
 def _record_tags(manifest: Mapping[str, object]) -> Mapping[str, str]:
     record = manifest.get("metadata")
     values = record if isinstance(record, Mapping) else {}
-    return {key: value for key in _EXPORT_TAG_FIELDS if (value := _text(values.get(key)))}
+    return {key: value for key in EXPORT_TAG_FIELDS if (value := _text(values.get(key)))}
 
 
 def _record_title(manifest: Mapping[str, object], fallback: str) -> str:

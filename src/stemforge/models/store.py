@@ -209,15 +209,6 @@ class ModelStore:
             },
         )
 
-    def verify_before_use(self) -> ModelStatus:
-        """The Separation re-verification seam.
-
-        The future Separation Job must call this before it starts a worker. It
-        re-hashes the weights, so a corrupted cache is discovered and discarded
-        before any separation work rather than surfacing as an engine error.
-        """
-        return self.require_verified()
-
     def delete(self) -> bool:
         """Delete the weights, any partial download, and the marker."""
         removed = False

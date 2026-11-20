@@ -250,3 +250,9 @@ def test_a_log_folder_failure_is_not_reported_as_a_licence_failure() -> None:
 
     assert copy.headline == "Couldn't open the log folder."
     assert "logs folder" in copy.action
+
+
+def test_the_level_adjusted_badge_is_quiet_and_exact() -> None:
+    assert formatting.level_adjusted_label(0.0) is None
+    assert formatting.level_adjusted_label(-1.5) == "level adjusted \u22121.5 dB"
+    assert formatting.level_adjusted_label(-6.0) == "level adjusted \u22126.0 dB"

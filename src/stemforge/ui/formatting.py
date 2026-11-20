@@ -668,6 +668,13 @@ def format_semitones(semitones: int) -> str:
     return f"+{semitones}" if semitones > 0 else f"\u2212{abs(semitones)}"
 
 
+def level_adjusted_label(gain_db: float) -> str | None:
+    """The quiet ticket 05 §5 badge, or ``None`` when no attenuation was applied."""
+    if gain_db == 0:
+        return None
+    return f"level adjusted \u2212{abs(gain_db):.1f} dB"
+
+
 def format_sample_rate(rate: int | None) -> str | None:
     """Format a sample rate the way the prototype does (44.1 kHz, 48 kHz)."""
     if rate is None or rate <= 0:
@@ -711,7 +718,7 @@ def detail_meta(track: Track) -> list[str]:
     reference = source_reference(source.origin, source.origin_kind)
     if reference:
         meta.append(reference)
-    meta.append(format_duration(source.metadata.duration_s))
+    meta.append(format_duration(track.duration_s))
     sample_rate = format_sample_rate(source.metadata.sample_rate)
     if sample_rate:
         meta.append(sample_rate)

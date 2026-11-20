@@ -773,26 +773,25 @@ class ArtifactStore:
     # -- sweep --------------------------------------------------------------
 
     def sweep_stale(self) -> SweepReport:
-        """Delete crash residue and structurally invalid sets.
+        """Delete crash residue, never a committed artifact set.
 
-        Sets are validated by manifest structure, file existence, and recorded
-        size; hashes are not re-read here. Deep verification is explicit so the
-        startup sweep never reads the whole cache (issue #27).
+        Only staging directories, tmp files, partial files, and the
+        ``.*.old-*`` directories a crashed replacement leaves behind are ours to
+        remove. A committed source, separation, or render with a stray or
+        invalid manifest is left in place: lookups already treat it as absent,
+        and recovery must never delete finished work (ADR 0012).
         """
         self._ensure_roots()
         with self._lock:
             removed_tmp = self._sweep_children(self.tmp_dir)
             removed_staging = self._sweep_children(self.staging_dir)
             removed_partials = self._sweep_partials()
-            removed_sources, removed_separations = self._sweep_sources()
-            removed_renders = self._sweep_renders()
+            removed_residue = self._sweep_residue()
         return SweepReport(
             removed_tmp=removed_tmp,
             removed_staging=removed_staging,
             removed_partials=removed_partials,
-            removed_sources=removed_sources,
-            removed_separations=removed_separations,
-            removed_renders=removed_renders,
+            removed_residue=removed_residue,
         )
 
     def _sweep_children(self, directory: Path) -> tuple[Path, ...]:
@@ -825,81 +824,20 @@ class ArtifactStore:
                 removed.append(path)
         return tuple(removed)
 
-    def _sweep_sources(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
-        removed_sources: list[str] = []
-        removed_separations: list[str] = []
-        if not self.sources_dir.is_dir():
-            return (), ()
-        for entry in sorted(self.sources_dir.iterdir(), key=lambda item: item.name):
-            if entry.is_symlink() or not entry.is_dir():
-                _remove_checked(entry, f"remove stray {entry.name}")
-                removed_sources.append(entry.name)
+    def _sweep_residue(self) -> tuple[Path, ...]:
+        """Remove ``.*.old-*`` directories left by an interrupted replacement."""
+        removed: list[Path] = []
+        for base in (self.sources_dir, self.renders_dir):
+            if not base.is_dir():
                 continue
-            result = _read_manifest(
-                entry / SOURCE_MANIFEST_NAME,
-                base_dir=entry,
-                expect_kind=SOURCE_KIND,
-                identity_field="source_id",
-                identity=entry.name,
-                required_roles=frozenset({"canonical"}),
-            )
-            if result.status is _ManifestStatus.NEWER:
-                continue
-            if result.status is not _ManifestStatus.VALID:
-                _remove_checked(entry, f"remove invalid source {entry.name}")
-                removed_sources.append(entry.name)
-                continue
-            for leftover in sorted(entry.glob(".*.old-*")):
-                _remove_checked(leftover, f"remove replacement residue {leftover.name}")
-            stems = entry / "stems"
-            if not stems.exists() and not stems.is_symlink():
-                continue
-            if stems.is_symlink() or not stems.is_dir():
-                _remove_checked(stems, f"remove invalid separation {entry.name}")
-                removed_separations.append(entry.name)
-                continue
-            separation = _read_manifest(
-                stems / ARTIFACT_MANIFEST_NAME,
-                base_dir=stems,
-                expect_kind=SEPARATION_KIND,
-                identity_field="source_id",
-                identity=entry.name,
-                required_roles=frozenset(),
-            )
-            if separation.status is _ManifestStatus.NEWER:
-                continue
-            if separation.status is not _ManifestStatus.VALID:
-                _remove_checked(stems, f"remove invalid separation {entry.name}")
-                removed_separations.append(entry.name)
-        return tuple(removed_sources), tuple(removed_separations)
-
-    def _sweep_renders(self) -> tuple[str, ...]:
-        removed: list[str] = []
-        if not self.renders_dir.is_dir():
-            return ()
-        for entry in sorted(self.renders_dir.iterdir(), key=lambda item: item.name):
-            if entry.is_symlink() or not entry.is_dir():
-                _remove_checked(entry, f"remove stray {entry.name}")
-                removed.append(entry.name)
-                continue
-            result = _read_manifest(
-                entry / ARTIFACT_MANIFEST_NAME,
-                base_dir=entry,
-                expect_kind=RENDER_KIND,
-                identity_field="render_key",
-                identity=entry.name,
-                required_roles=frozenset(),
-            )
-            if result.status is _ManifestStatus.NEWER:
-                continue
-            if result.status is not _ManifestStatus.VALID:
-                _remove_checked(entry, f"remove invalid render {entry.name}")
-                removed.append(entry.name)
-                continue
-            source_id = result.payload.get("source_id") if result.payload is not None else None
-            if not isinstance(source_id, str) or not source_id:
-                _remove_checked(entry, f"remove invalid render {entry.name}")
-                removed.append(entry.name)
+            for path in sorted(base.rglob(".*.old-*"), key=lambda item: len(item.parts)):
+                if not path.exists() and not path.is_symlink():
+                    continue
+                try:
+                    _remove_tree(path)
+                except OSError as exc:
+                    _raise_wrapped(exc, f"remove replacement residue {path}")
+                removed.append(path)
         return tuple(removed)
 
     # -- cache usage and LRU ------------------------------------------------
@@ -1220,9 +1158,7 @@ class SweepReport:
     removed_tmp: tuple[Path, ...] = ()
     removed_staging: tuple[Path, ...] = ()
     removed_partials: tuple[Path, ...] = ()
-    removed_sources: tuple[str, ...] = ()
-    removed_separations: tuple[str, ...] = ()
-    removed_renders: tuple[str, ...] = ()
+    removed_residue: tuple[Path, ...] = ()
 
     @property
     def deleted_anything(self) -> bool:

@@ -14,6 +14,7 @@ the whole page. Pitch and Separation contribute requests and job state only.
 from __future__ import annotations
 
 import contextlib
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -29,6 +30,7 @@ from stemforge import __version__, errors
 from stemforge.application import (
     SEPARATION_OUTPUT_ROLES,
     PitchSet,
+    PreflightView,
     PreviewTarget,
     WorkspaceService,
 )
@@ -41,7 +43,6 @@ from stemforge.integration.dialogs import (
     filter_drop_paths,
 )
 from stemforge.integration.shell import PathOpener
-from stemforge.platform.preflight import PreflightReport
 from stemforge.ui import formatting, theme
 from stemforge.ui.components.about import SettingsDialog
 from stemforge.ui.components.diagnostics import (
@@ -65,6 +66,18 @@ POLL_INTERVAL_S: Final = 0.4
 RECENT_VISIBLE: Final = 3
 OUTPUT_ROLES: Final = SEPARATION_OUTPUT_ROLES
 PRIMARY_ROLES: Final = OUTPUT_ROLES[:2]
+
+
+def volume_factor(gain_db: float) -> float:
+    """The HTML audio volume that level-matches a set with ``gain_db``.
+
+    Ticket 05 §5 records a non-positive presentation gain; the player applies it
+    as linear amplitude so A/B compares two equally loud sources. The result is
+    clamped to the element's ``0.0..1.0`` range.
+    """
+    return min(1.0, max(0.0, math.pow(10.0, gain_db / 20.0)))
+
+
 SECONDARY_ROLES: Final = OUTPUT_ROLES[2:]
 
 SHELL_CSS: Final = (
@@ -301,6 +314,7 @@ SHELL_CSS: Final = (
 .sf-gate-notice { font-size: 11px; color: var(--warn); line-height: 1.45; }
 .sf-stem-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
   color: var(--muted); border: 1px solid var(--line2); border-radius: 999px; padding: 0 6px; }
+.sf-level-badge { font-size: 10px; color: var(--dim); letter-spacing: 0.01em; }
 .sf-stall { border: 1px solid var(--warn-line); background: var(--warn-bg); border-radius: 10px;
   padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .sf-stall-text { font-size: 11.5px; color: var(--warn); }
@@ -353,7 +367,7 @@ class UiContext:
     open_path: PathOpener | None = None
     show_recovery: bool = False
     recovery_dismissed: bool = False
-    preflight: PreflightReport | None = None
+    preflight: PreflightView | None = None
     diagnostics: DiagnosticsProvider | None = None
     clipboard: ClipboardWriter | None = None
     resource_warning_dismissed: bool = False
@@ -530,6 +544,7 @@ class WorkspacePage:
         self._player: ui.audio | None = None
         self._loaded_track_id: str | None = None
         self._loaded_preview: PreviewTarget | None = None
+        self._player_gain_db = 0.0
         self._is_playing = False
         self._position_s = 0.0
         self._elapsed_label: ui.label | None = None
@@ -887,6 +902,9 @@ class WorkspacePage:
                 with ui.element("div"):
                     ui.label(track.title).classes("sf-title")
                     (ui.label(" · ".join(meta)).classes("sf-detail-meta").mark("detail-meta"))
+                    level_adjusted = formatting.level_adjusted_label(track.gain_db)
+                    if level_adjusted is not None:
+                        ui.label(level_adjusted).classes("sf-level-badge").mark("level-adjusted")
                     if track.source.downmixed:
                         ui.label(formatting.DOWNMIX_NOTE).classes("sf-fineprint").mark(
                             "downmix-note"
@@ -1090,7 +1108,7 @@ class WorkspacePage:
     ) -> None:
         current = self._current_row(track, rows)
         playing = self._loaded_track_id == track.track_id and self._is_playing
-        duration = track.source.metadata.duration_s or 0.0
+        duration = track.duration_s or 0.0
         position = self._position_s if self._loaded_track_id == track.track_id else 0.0
         slider_max = duration if duration > 0 else 0.1
         self._seek_max = slider_max
@@ -1133,9 +1151,9 @@ class WorkspacePage:
                             .classes("sf-time-part")
                             .mark("elapsed")
                         )
-                        ui.label(
-                            f"/ {formatting.format_duration(track.source.metadata.duration_s)}"
-                        ).classes("sf-time-part")
+                        ui.label(f"/ {formatting.format_duration(track.duration_s)}").classes(
+                            "sf-time-part"
+                        )
                 self._seek_slider = (
                     ui.slider(
                         min=0.0,
@@ -1315,11 +1333,15 @@ class WorkspacePage:
                     with ui.element("div").classes("sf-output-badges"):
                         for badge in row.badges:
                             ui.label(badge).classes("sf-stem-badge")
+                        if row.preview is not None and (
+                            level_adjusted := formatting.level_adjusted_label(row.preview.gain_db)
+                        ):
+                            ui.label(level_adjusted).classes("sf-level-badge").mark(
+                                "output-level-adjusted", f"output-level-{row.key}"
+                            )
                 if unavailable:
                     self._repair_action(track, row)
-            ui.label(formatting.format_duration(track.source.metadata.duration_s)).classes(
-                "sf-output-duration"
-            )
+            ui.label(formatting.format_duration(track.duration_s)).classes("sf-output-duration")
             export = (
                 ui.button(
                     icon="file_download",
@@ -1477,6 +1499,7 @@ class WorkspacePage:
                 ):
                     self._player.set_source(first.preview.url)
                     self._player.seek(0.0)
+                    self._apply_player_volume(first.preview)
         self._refresh_playback()
 
     def _toggle_stems(self, track: Track) -> None:
@@ -1532,6 +1555,7 @@ class WorkspacePage:
         if player is None or preview is None or not self._playback_allowed():
             return
         self._unavailable_previews.discard((track.track_id, preview.key))
+        self._apply_player_volume(preview)
         if resume:
             player.play()
         else:
@@ -1546,6 +1570,24 @@ class WorkspacePage:
         self._loaded_preview = preview
         self._is_playing = True
         self._refresh_playback()
+
+    def _apply_player_volume(self, preview: PreviewTarget) -> None:
+        """Level-match the one player to the selected set (ticket 05 §5).
+
+        NiceGUI's audio component has no volume binding, so the element's
+        property is set directly. The recorded gain is metadata: the cached MP3
+        itself already carries the attenuation, and this only keeps A/B from
+        comparing two different loudness levels when the gain changes.
+        """
+        self._player_gain_db = preview.gain_db
+        player = self._player
+        if player is None:
+            return
+        factor = volume_factor(preview.gain_db)
+        ui.run_javascript(
+            f"const player = document.getElementById('c{player.id}');"
+            f"if (player) player.volume = {factor:.6f};"
+        )
 
     def _pause(self) -> None:
         if self._player is not None:
@@ -1618,6 +1660,7 @@ class WorkspacePage:
             if self._player is not None and self._playback_allowed():
                 self._player.set_source(preview.url)
                 self._player.seek(0.0)
+                self._apply_player_volume(preview)
             self._loaded_track_id = track_id
             self._loaded_preview = preview
         toast(formatting.copy_for(errors.PLAYBACK_UNAVAILABLE).headline, type="negative")
@@ -2435,7 +2478,7 @@ class WorkspacePage:
 
     def _track_meta(self, track: Track, status: str) -> str:
         parts = [
-            formatting.format_duration(track.source.metadata.duration_s),
+            formatting.format_duration(track.duration_s),
             formatting.origin_label(track.source.origin_kind),
             status,
         ]

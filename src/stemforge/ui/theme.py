@@ -23,7 +23,7 @@ from typing import Final
 
 from nicegui import ui
 
-from stemforge.platform import resources
+from stemforge.integration import assets
 
 # prototypes/08-ui-layout.html:26-35
 BG: Final = "#0e1014"
@@ -61,8 +61,8 @@ WARN_LINE: Final = "#40341d"
 RADIUS: Final = "12px"
 MONO: Final = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
-LOGO_SVG: Final = resources.APP_LOGO_SVG
-ABOUT_PNG: Final = resources.APP_ICON_PNG
+LOGO_SVG: Final = assets.LOGO_SVG
+ABOUT_PNG: Final = assets.ABOUT_PNG
 
 # Quasar's semantic names, plus ``ink`` for text and icons on an amber field.
 QUASAR_COLORS: Final[dict[str, str]] = {
@@ -134,7 +134,7 @@ TOKENS_CSS: Final = f""":root {{
 @lru_cache(maxsize=8)
 def asset_data_url(name: str) -> str | None:
     """Embed one bundled asset, or ``None`` when the file is unavailable."""
-    path = resources.assets_dir() / name
+    path = assets.asset_path(name)
     try:
         payload = path.read_bytes()
     except OSError:

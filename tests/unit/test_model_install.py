@@ -107,11 +107,15 @@ class _Response:
         content_length: bool = True,
         chunk_size: int = 64 * 1024,
         on_read: Callable[[int], None] | None = None,
+        status: int = 200,
+        fail_after: int | None = None,
     ) -> None:
         self._data = data
         self._offset = 0
         self._chunk_size = chunk_size
         self._on_read = on_read
+        self._fail_after = fail_after
+        self.status = status
         self.headers: Mapping[str, str] = (
             {"Content-Length": str(len(data))} if content_length else {}
         )
@@ -120,7 +124,11 @@ class _Response:
     def read(self, size: int = -1, /) -> bytes:
         if self._on_read is not None:
             self._on_read(self._offset)
+        if self._fail_after is not None and self._offset >= self._fail_after:
+            raise urllib.error.URLError(OSError("connection reset"))
         limit = self._chunk_size if size < 0 else min(size, self._chunk_size)
+        if self._fail_after is not None:
+            limit = min(limit, max(0, self._fail_after - self._offset))
         chunk = self._data[self._offset : self._offset + limit]
         self._offset += len(chunk)
         return chunk
@@ -135,10 +143,12 @@ class _ScriptedTransport:
     def __init__(self, outcomes: list[object]) -> None:
         self.outcomes = outcomes
         self.calls = 0
+        self.requests: list[Mapping[str, str] | None] = []
 
-    def __call__(self, url: str) -> _Response:
+    def __call__(self, url: str, headers: Mapping[str, str] | None = None) -> _Response:
         assert url
         self.calls += 1
+        self.requests.append(headers)
         outcome = self.outcomes[min(self.calls, len(self.outcomes)) - 1]
         if isinstance(outcome, BaseException):
             raise outcome
@@ -166,7 +176,7 @@ def _context(
 
 def _job(
     store: ModelStore,
-    transport: Callable[[str], _Response],
+    transport: Callable[..., _Response],
     *,
     consent: ModelConsent | None = None,
     give_consent: bool = True,
@@ -272,17 +282,6 @@ def test_verify_rehashes_and_discards_a_tampered_copy(store: ModelStore) -> None
     assert not store.marker_path().exists()
 
 
-def test_verify_before_use_is_the_separation_seam(store: ModelStore) -> None:
-    with pytest.raises(StemForgeError) as absent:
-        store.verify_before_use()
-    assert absent.value.code == errors.SEPARATION_MODEL_MISSING
-    assert absent.value.detail == "reason=absent"
-
-    store.install_bytes(PAYLOAD)
-
-    assert store.verify_before_use().verified is True
-
-
 def test_a_missing_file_with_a_stale_marker_is_absent(store: ModelStore) -> None:
     store.install_bytes(PAYLOAD)
     store.path().unlink()
@@ -336,6 +335,10 @@ def test_store_lives_under_the_models_root(app_paths: AppPaths) -> None:
     assert store.path() == app_paths.models / "htdemucs" / "test-weights.safetensors"
 
 
+def test_the_store_has_no_duplicate_verification_middle_man() -> None:
+    assert not hasattr(ModelStore, "verify_before_use")
+
+
 # --- The install Job -------------------------------------------------------
 
 
@@ -374,7 +377,7 @@ def test_progress_follows_content_length_and_never_regresses(store: ModelStore) 
     assert any(abs(value - (0.02 + 0.88 * 0.5)) < 0.15 for value in download)
 
 
-def test_progress_has_a_monotonic_fallback_without_content_length(store: ModelStore) -> None:
+def test_progress_uses_the_pinned_size_without_content_length(store: ModelStore) -> None:
     store = ModelStore(store.paths, spec=_spec(size=len(PROGRESS_PAYLOAD), sha256=PROGRESS_SHA256))
     transport = _ScriptedTransport([_Response(PROGRESS_PAYLOAD, content_length=False)])
     ctx, updates = _context()
@@ -384,11 +387,11 @@ def test_progress_has_a_monotonic_fallback_without_content_length(store: ModelSt
     download = [fraction for fraction, stage, _ in updates if stage == "Download"]
     assert len(download) > 3
     assert download == sorted(download)
-    assert download[-1] < 0.90
+    assert download[-1] == pytest.approx(0.90)
     assert updates[-1][0] == 1.0
 
 
-def test_cancel_deletes_the_partial_and_keeps_no_weights(store: ModelStore) -> None:
+def test_cancel_keeps_the_partial_for_resume(store: ModelStore) -> None:
     token = CancelToken()
     response = _Response(
         PROGRESS_PAYLOAD,
@@ -402,8 +405,60 @@ def test_cancel_deletes_the_partial_and_keeps_no_weights(store: ModelStore) -> N
         _job(store, transport).run(ctx)
 
     assert not store.path().exists()
-    assert not store.partial_path().exists()
     assert not store.marker_path().exists()
+    assert store.partial_path().is_file()
+    assert 0 < store.partial_path().stat().st_size < len(PROGRESS_PAYLOAD)
+
+
+def test_an_interrupted_download_resumes_from_the_retained_partial(store: ModelStore) -> None:
+    first = _Response(PAYLOAD, chunk_size=256, fail_after=1024)
+    remaining = PAYLOAD[1024:]
+    second = _Response(remaining, status=206)
+    transport = _ScriptedTransport([first, second])
+    ctx, _ = _context()
+
+    with pytest.raises(StemForgeError) as raised:
+        _job(store, transport).run(ctx)
+
+    assert raised.value.code == errors.SEPARATION_MODEL_DOWNLOAD_FAILED
+    assert store.partial_path().stat().st_size == 1024
+
+    result = _job(store, transport).run(ctx)
+
+    assert result.status.verified is True
+    assert store.path().read_bytes() == PAYLOAD
+    assert transport.requests[0] is None
+    assert transport.requests[1] == {"Range": "bytes=1024-"}
+
+
+def test_a_server_that_ignores_range_restarts_the_partial(store: ModelStore) -> None:
+    first = _Response(PAYLOAD, chunk_size=256, fail_after=1024)
+    second = _Response(PAYLOAD, status=200)
+    transport = _ScriptedTransport([first, second])
+    ctx, _ = _context()
+
+    with pytest.raises(StemForgeError):
+        _job(store, transport).run(ctx)
+
+    _job(store, transport).run(ctx)
+
+    assert store.path().read_bytes() == PAYLOAD
+    assert transport.requests[1] == {"Range": "bytes=1024-"}
+
+
+def test_a_complete_valid_partial_installs_without_touching_the_network(
+    store: ModelStore,
+) -> None:
+    store.partial_path().parent.mkdir(parents=True, exist_ok=True)
+    store.partial_path().write_bytes(PAYLOAD)
+    transport = _ScriptedTransport([urllib.error.URLError(OSError("must not connect"))])
+    ctx, _ = _context()
+
+    result = _job(store, transport).run(ctx)
+
+    assert result.status.verified is True
+    assert transport.calls == 0
+    assert store.path().read_bytes() == PAYLOAD
 
 
 def test_a_transient_network_failure_is_not_retried(store: ModelStore) -> None:
@@ -469,7 +524,7 @@ def test_a_transient_5xx_is_not_retried(store: ModelStore) -> None:
     assert not store.partial_path().exists()
 
 
-def test_size_mismatch_is_a_checksum_failure_and_leaves_no_files(store: ModelStore) -> None:
+def test_an_incomplete_stream_is_retryable_and_keeps_the_partial(store: ModelStore) -> None:
     store = ModelStore(store.paths, spec=_spec(size=len(PAYLOAD) + 1))
     transport = _ScriptedTransport([_Response(PAYLOAD)])
     ctx, _ = _context()
@@ -477,10 +532,10 @@ def test_size_mismatch_is_a_checksum_failure_and_leaves_no_files(store: ModelSto
     with pytest.raises(StemForgeError) as raised:
         _job(store, transport).run(ctx)
 
-    assert raised.value.code == errors.SEPARATION_MODEL_MISSING
-    assert raised.value.detail == "reason=checksum"
+    assert raised.value.code == errors.SEPARATION_MODEL_DOWNLOAD_FAILED
+    assert raised.value.detail == "reason=incomplete"
     assert not store.path().exists()
-    assert not store.partial_path().exists()
+    assert store.partial_path().is_file()
     assert not store.marker_path().exists()
 
 

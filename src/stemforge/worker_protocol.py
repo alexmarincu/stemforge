@@ -1,20 +1,27 @@
-"""The separation worker's JSONL protocol (stdlib only; ticket 06 §4, ticket 13).
+"""The separation worker's JSONL protocol (stdlib only; ticket 06 §4).
 
 Stdout is protocol only: one UTF-8 JSON object per line, each carrying ``"v": 1``.
 Stderr is human log only. This module owns the event names, the exit codes, and
 the parser used by :class:`~stemforge.engines.separation.WorkerSeparationEngine`.
-It imports nothing outside the standard library because ``platform`` and
-``domain`` modules depend on it (ticket 06 §1).
+It imports nothing outside the standard library because ``platform``,
+``domain``, and ``workers`` depend on it (ticket 06 §1).
 
-Event types (ticket 13)::
+Event types (ticket 06 §4)::
 
-    {"v":1,"event":"ready","engine":"demucs","engine_version":"4.1.0",...}
-    {"v":1,"event":"block","index":1,"total":4,"fraction":0.0}
-    {"v":1,"event":"progress","stage":"Separate","fraction":0.25,
-     "block":1,"blocks":4,"detail":"segment 7 of 60"}
-    {"v":1,"event":"stem","stem":"vocals","path":"vocals.wav"}
-    {"v":1,"event":"done","outputs":["bass","drums","other","vocals"]}
-    {"v":1,"event":"error","code":"separation.engine_error","detail":"..."}
+    {"v":1,"event":"hello","engine":"demucs","engine_version":"4.1.0",
+     "model":"htdemucs","model_revision":"cbc8a9b","device":"cpu",
+     "sample_rate":44100,"threads":8}
+    {"v":1,"event":"stage","stage":"model_load","state":"start"}
+    {"v":1,"event":"stage","stage":"model_load","state":"end","seconds":1.98}
+    {"v":1,"event":"progress","stage":"separate","fraction":0.334,
+     "segment":2,"segments":41,"audio_seconds_done":80.2,
+     "audio_seconds_total":240.0,"eta_seconds":247.0}
+    {"v":1,"event":"output","stem":"vocals","path":"vocals.wav","format":"wav",
+     "sample_rate":44100,"channels":2}
+    {"v":1,"event":"done","elapsed_seconds":374.2,
+     "outputs":["vocals","drums","bass","other","instrumental"]}
+    {"v":1,"event":"error","code":"separation.engine_error","message":"…",
+     "retryable":false,"detail":"…"}
 
 Unknown event names are ignored so a newer worker can add events without
 breaking an older parent. A ``v`` other than :data:`PROTOCOL_VERSION` is a
@@ -24,32 +31,35 @@ protocol mismatch. Exit codes are fixed by ticket 06 §4.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final, cast
 
 PROTOCOL_VERSION: Final = 1
 
-EVENT_READY: Final = "ready"
-EVENT_BLOCK: Final = "block"
+EVENT_HELLO: Final = "hello"
+EVENT_STAGE: Final = "stage"
 EVENT_PROGRESS: Final = "progress"
-EVENT_STEM: Final = "stem"
+EVENT_OUTPUT: Final = "output"
 EVENT_DONE: Final = "done"
 EVENT_ERROR: Final = "error"
 
 KNOWN_EVENTS: Final[frozenset[str]] = frozenset(
     {
-        EVENT_READY,
-        EVENT_BLOCK,
+        EVENT_HELLO,
+        EVENT_STAGE,
         EVENT_PROGRESS,
-        EVENT_STEM,
+        EVENT_OUTPUT,
         EVENT_DONE,
         EVENT_ERROR,
     }
 )
 
 STEM_NAMES: Final[tuple[str, ...]] = ("vocals", "drums", "bass", "other")
-WORKER_OUTPUTS: Final[frozenset[str]] = frozenset(STEM_NAMES)
+INSTRUMENTAL_NAME: Final = "instrumental"
+WORKER_OUTPUT_NAMES: Final[tuple[str, ...]] = (*STEM_NAMES, INSTRUMENTAL_NAME)
+WORKER_OUTPUTS: Final[frozenset[str]] = frozenset(WORKER_OUTPUT_NAMES)
 
 # Ticket 06 §4: 0 success, 2 handled failure, 3 model unavailable, 4 invalid input.
 EXIT_OK: Final = 0
@@ -62,6 +72,9 @@ EXIT_INVALID_INPUT: Final = 4
 CODE_CANCELLED: Final = "cancelled"
 CODE_ENGINE_ERROR: Final = "separation.engine_error"
 CODE_MODEL_MISSING: Final = "separation.model_missing"
+
+STAGE_START: Final = "start"
+STAGE_END: Final = "end"
 
 
 class ProtocolError(ValueError):
@@ -79,18 +92,30 @@ class WorkerEvent:
     event: str
     fraction: float | None = None
     stage: str | None = None
+    state: str | None = None
+    seconds: float | None = None
     detail: str | None = None
-    block: int | None = None
-    blocks: int | None = None
+    segment: int | None = None
+    segments: int | None = None
+    audio_seconds_done: float | None = None
+    audio_seconds_total: float | None = None
+    eta_seconds: float | None = None
     stem: str | None = None
     path: str | None = None
+    output_format: str | None = None
+    sample_rate: int | None = None
+    channels: int | None = None
     code: str | None = None
     message: str | None = None
     retryable: bool = False
+    elapsed_seconds: float | None = None
     outputs: tuple[str, ...] = ()
     engine: str | None = None
     engine_version: str | None = None
     model: str | None = None
+    model_revision: str | None = None
+    device: str | None = None
+    threads: int | None = None
 
 
 def parse_event(line: str) -> WorkerEvent | None:
@@ -123,15 +148,17 @@ def parse_event(line: str) -> WorkerEvent | None:
     if name not in KNOWN_EVENTS:
         return None
 
-    if name in (EVENT_READY, EVENT_ERROR):
-        return _parse_status_event(name, payload, line)
+    if name == EVENT_HELLO:
+        return _parse_hello(payload, line)
+    if name == EVENT_STAGE:
+        return _parse_stage(payload, line)
     if name == EVENT_PROGRESS:
         return _parse_progress(payload, line)
-    if name == EVENT_BLOCK:
-        return _parse_block(payload, line)
-    if name == EVENT_STEM:
-        return _parse_stem(payload, line)
-    return _parse_done(payload, line)
+    if name == EVENT_OUTPUT:
+        return _parse_output(payload, line)
+    if name == EVENT_DONE:
+        return _parse_done(payload, line)
+    return _parse_error(payload, line)
 
 
 def format_event(payload: dict[str, object]) -> str:
@@ -151,91 +178,122 @@ def is_safe_relative_output(path: str) -> bool:
     return pure.name not in {"", ".", ".."} and pure.suffix == ".wav"
 
 
-def _parse_status_event(name: str, payload: dict[str, object], line: str) -> WorkerEvent:
-    if name == EVENT_ERROR:
-        code = payload.get("code")
-        if not isinstance(code, str) or not code:
-            raise ProtocolError("error event has no code", line=line)
-        retryable = payload.get("retryable", False)
-        if not isinstance(retryable, bool):
-            raise ProtocolError("error.retryable must be a boolean", line=line)
-        detail = _optional_text(payload, "detail", line)
-        message = _optional_text(payload, "message", line)
-        return WorkerEvent(
-            event=name,
-            code=code,
-            detail=detail,
-            message=message,
-            retryable=retryable,
-        )
+def block_count(*, total_frames: int, block_frames: int, fade_frames: int) -> int:
+    """The block plan's count, shared by the worker and the manifest."""
+    if total_frames <= 0:
+        return 0
+    if block_frames <= 0 or fade_frames < 0 or fade_frames >= block_frames:
+        raise ValueError("invalid block or fade length")
+    if total_frames <= block_frames:
+        return 1
+    return 1 + math.ceil((total_frames - block_frames) / (block_frames - fade_frames))
+
+
+def _parse_hello(payload: dict[str, object], line: str) -> WorkerEvent:
+    engine = _required_text(payload, "engine", line)
+    engine_version = _required_text(payload, "engine_version", line)
+    model = _required_text(payload, "model", line)
+    model_revision = _required_text(payload, "model_revision", line, allow_empty=True)
+    device = _required_text(payload, "device", line)
+    sample_rate = _required_int(payload, "sample_rate", line)
+    threads = _required_int(payload, "threads", line)
     return WorkerEvent(
-        event=name,
-        engine=_optional_text(payload, "engine", line),
-        engine_version=_optional_text(payload, "engine_version", line),
-        model=_optional_text(payload, "model", line),
+        event=EVENT_HELLO,
+        engine=engine,
+        engine_version=engine_version,
+        model=model,
+        model_revision=model_revision,
+        device=device,
+        sample_rate=sample_rate,
+        threads=threads,
     )
 
 
+def _parse_stage(payload: dict[str, object], line: str) -> WorkerEvent:
+    stage = _required_text(payload, "stage", line)
+    state = _required_text(payload, "state", line)
+    if state not in {STAGE_START, STAGE_END}:
+        raise ProtocolError("stage.state must be start or end", line=line)
+    seconds = _optional_number(payload, "seconds", line)
+    return WorkerEvent(event=EVENT_STAGE, stage=stage, state=state, seconds=seconds)
+
+
 def _parse_progress(payload: dict[str, object], line: str) -> WorkerEvent:
+    stage = _required_text(payload, "stage", line)
     fraction = payload.get("fraction")
     if isinstance(fraction, bool) or not isinstance(fraction, (int, float)):
         raise ProtocolError("progress.fraction must be a number", line=line)
     value = float(fraction)
     if not 0.0 <= value <= 1.0:
         raise ProtocolError("progress.fraction must be within 0..1", line=line)
-    stage = _optional_text(payload, "stage", line)
-    detail = _optional_text(payload, "detail", line)
-    block = _optional_index(payload, "block", line)
-    blocks = _optional_index(payload, "blocks", line)
-    if block is not None and blocks is not None and block > blocks:
-        raise ProtocolError("progress.block exceeds progress.blocks", line=line)
+    segment = _optional_index(payload, "segment", line)
+    segments = _optional_index(payload, "segments", line)
+    if segment is not None and segments is not None and segment > segments:
+        raise ProtocolError("progress.segment exceeds progress.segments", line=line)
     return WorkerEvent(
         event=EVENT_PROGRESS,
         fraction=value,
         stage=stage,
-        detail=detail,
-        block=block,
-        blocks=blocks,
+        segment=segment,
+        segments=segments,
+        audio_seconds_done=_optional_number(payload, "audio_seconds_done", line),
+        audio_seconds_total=_optional_number(payload, "audio_seconds_total", line),
+        eta_seconds=_optional_number(payload, "eta_seconds", line),
     )
 
 
-def _parse_block(payload: dict[str, object], line: str) -> WorkerEvent:
-    index = _optional_index(payload, "index", line)
-    total = _optional_index(payload, "total", line)
-    if index is None or total is None:
-        raise ProtocolError("block event needs index and total", line=line)
-    if index > total:
-        raise ProtocolError("block.index exceeds block.total", line=line)
-    fraction = payload.get("fraction")
-    value: float | None = None
-    if fraction is not None:
-        if isinstance(fraction, bool) or not isinstance(fraction, (int, float)):
-            raise ProtocolError("block.fraction must be a number", line=line)
-        value = float(fraction)
-        if not 0.0 <= value <= 1.0:
-            raise ProtocolError("block.fraction must be within 0..1", line=line)
-    return WorkerEvent(event=EVENT_BLOCK, block=index, blocks=total, fraction=value)
-
-
-def _parse_stem(payload: dict[str, object], line: str) -> WorkerEvent:
+def _parse_output(payload: dict[str, object], line: str) -> WorkerEvent:
     stem = payload.get("stem")
     if not isinstance(stem, str) or stem not in WORKER_OUTPUTS:
-        raise ProtocolError(f"unknown stem name: {stem!r}", line=line)
+        raise ProtocolError(f"unknown output name: {stem!r}", line=line)
     path = payload.get("path")
     if not isinstance(path, str) or not is_safe_relative_output(path):
-        raise ProtocolError(f"unsafe stem path: {path!r}", line=line)
-    return WorkerEvent(event=EVENT_STEM, stem=stem, path=path)
+        raise ProtocolError(f"unsafe output path: {path!r}", line=line)
+    output_format = payload.get("format")
+    if output_format != "wav":
+        raise ProtocolError("output.format must be wav", line=line)
+    sample_rate = _required_int(payload, "sample_rate", line)
+    channels = _required_int(payload, "channels", line)
+    return WorkerEvent(
+        event=EVENT_OUTPUT,
+        stem=stem,
+        path=path,
+        output_format="wav",
+        sample_rate=sample_rate,
+        channels=channels,
+    )
 
 
 def _parse_done(payload: dict[str, object], line: str) -> WorkerEvent:
-    raw = payload.get("outputs", [])
+    elapsed = _optional_number(payload, "elapsed_seconds", line)
+    if elapsed is None:
+        raise ProtocolError("done.elapsed_seconds is required", line=line)
+    raw = payload.get("outputs")
     if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
         raise ProtocolError("done.outputs must be a list of names", line=line)
     outputs = tuple(cast("list[str]", raw))
     unknown = set(outputs) - WORKER_OUTPUTS
     if unknown:
         raise ProtocolError(f"done.outputs has unknown names: {sorted(unknown)}", line=line)
-    return WorkerEvent(event=EVENT_DONE, outputs=outputs)
+    if set(outputs) != WORKER_OUTPUTS:
+        raise ProtocolError("done.outputs must name all five outputs", line=line)
+    return WorkerEvent(event=EVENT_DONE, elapsed_seconds=elapsed, outputs=outputs)
+
+
+def _parse_error(payload: dict[str, object], line: str) -> WorkerEvent:
+    code = payload.get("code")
+    if not isinstance(code, str) or not code:
+        raise ProtocolError("error event has no code", line=line)
+    retryable = payload.get("retryable", False)
+    if not isinstance(retryable, bool):
+        raise ProtocolError("error.retryable must be a boolean", line=line)
+    return WorkerEvent(
+        event=EVENT_ERROR,
+        code=code,
+        detail=_optional_text(payload, "detail", line),
+        message=_optional_text(payload, "message", line),
+        retryable=retryable,
+    )
 
 
 def _optional_text(payload: dict[str, object], key: str, line: str) -> str | None:
@@ -244,6 +302,34 @@ def _optional_text(payload: dict[str, object], key: str, line: str) -> str | Non
         return None
     if not isinstance(value, str):
         raise ProtocolError(f"{key} must be a string", line=line)
+    return value
+
+
+def _required_text(
+    payload: dict[str, object], key: str, line: str, *, allow_empty: bool = False
+) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or (not value and not allow_empty):
+        raise ProtocolError(f"hello event is missing {key}" if key != "stage" else "missing stage")
+    return value
+
+
+def _optional_number(payload: dict[str, object], key: str, line: str) -> float | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ProtocolError(f"{key} must be a number", line=line)
+    number = float(value)
+    if number < 0:
+        raise ProtocolError(f"{key} must not be negative", line=line)
+    return number
+
+
+def _required_int(payload: dict[str, object], key: str, line: str) -> int:
+    value = payload.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ProtocolError(f"{key} must be a positive integer", line=line)
     return value
 
 

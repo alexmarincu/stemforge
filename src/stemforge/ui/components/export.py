@@ -298,7 +298,7 @@ class ExportSheet:
 
     @staticmethod
     def _estimate(track: Track, fmt: ExportFormat) -> str:
-        minutes = max(0.0, track.source.metadata.duration_s or 0.0) / 60
+        minutes = max(0.0, track.duration_s or 0.0) / 60
         return f"about {minutes * _MB_PER_MINUTE[fmt]:.1f} MB"
 
     # -- submission ---------------------------------------------------------

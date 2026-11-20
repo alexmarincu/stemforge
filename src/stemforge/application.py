@@ -12,11 +12,11 @@ import hashlib
 import json
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -39,6 +39,7 @@ from stemforge.domain.models import (
     Source,
     Track,
 )
+from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
 from stemforge.engines.media import ExportFormat as ExportFormat
 from stemforge.engines.media import MediaTool
@@ -79,18 +80,35 @@ from stemforge.pipeline.model_job import (
     consent_is_current,
     require_model_consent,
 )
-from stemforge.pipeline.pitch_job import STEM_ROLES, find_pitch_render, run_pitch_job
-from stemforge.pipeline.separation_job import (
-    INSTRUMENTAL_ROLE,
-    run_separation_job,
-)
-from stemforge.pipeline.separation_job import (
-    STEM_ROLES as SEPARATION_STEM_ROLES,
-)
+from stemforge.pipeline.pitch_job import find_pitch_render, run_pitch_job
+from stemforge.pipeline.separation_job import run_separation_job
 from stemforge.pipeline.youtube_job import run_youtube_import
 from stemforge.platform import resources
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
+
+
+class PreflightCheckView(Protocol):
+    """One preflight result as the banner reads it."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def status(self) -> str: ...
+
+    @property
+    def message(self) -> str: ...
+
+
+class PreflightView(Protocol):
+    """The preflight facts the UI reads, kept out of the platform layer."""
+
+    @property
+    def degraded(self) -> bool: ...
+
+    @property
+    def checks(self) -> Sequence[PreflightCheckView]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +143,7 @@ class PreviewTarget:
     key: str
     label: str
     url: str
+    gain_db: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -493,18 +512,33 @@ class WorkspaceService:
             key=f"render:{view.artifact.render_key}:{role}",
             label=_SEPARATION_ROLE_LABELS.get(role, role.title()),
             url=url,
+            gain_db=view.artifact.gain_db,
         )
 
     def _preview_targets(self, track: Track) -> tuple[PreviewTarget, ...]:
         targets: list[PreviewTarget] = []
         source_url = self._preview_url(track.source.preview_path)
         if source_url is not None:
-            targets.append(PreviewTarget(key="original", label="Original", url=source_url))
+            targets.append(
+                PreviewTarget(
+                    key="original",
+                    label="Original",
+                    url=source_url,
+                    gain_db=track.gain_db,
+                )
+            )
         for view in self._render_views(track.source_id):
             url = self._render_preview_url(view)
             if url is None:
                 continue
-            targets.append(PreviewTarget(key=view.artifact.render_key, label=view.label, url=url))
+            targets.append(
+                PreviewTarget(
+                    key=view.artifact.render_key,
+                    label=view.label,
+                    url=url,
+                    gain_db=view.artifact.gain_db,
+                )
+            )
         return tuple(targets)
 
     # -- Pitch -------------------------------------------------------------
@@ -713,7 +747,7 @@ class WorkspaceService:
                 set_key=_separation_key(artifact),
                 created_at=artifact.created_at,
                 label="Separation",
-                stem_roles=SEPARATION_STEM_ROLES,
+                stem_roles=STEM_ROLES,
                 based_on_earlier_separation=False,
             ),
         )
@@ -741,6 +775,7 @@ class WorkspaceService:
             key=f"{set_key}:{stem}",
             label=_SEPARATION_ROLE_LABELS[stem],
             url=url,
+            gain_db=artifact.gain_db,
         )
 
     def separate(self, track: Track) -> str:
