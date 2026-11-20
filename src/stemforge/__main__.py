@@ -323,7 +323,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
 
     app.on_startup(runner.start)
     app.on_shutdown(shutdown)
-    favicon = resources.assets_dir() / "stemforge-512.png"
+    favicon = resources.app_icon()
     if _browser_mode():
         print(
             "StemForge: browser mode is on; opening http://127.0.0.1:8080",

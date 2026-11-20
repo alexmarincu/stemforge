@@ -260,7 +260,7 @@ class ExportSheet:
     def _footer(self, *, busy: bool, can_submit: bool) -> None:
         with ui.element("div").classes("sf-export-footer"):
             cancel = (
-                ui.button(EXPORT_CANCEL, on_click=lambda _=None: self.close())
+                ui.button(EXPORT_CANCEL, on_click=lambda _=None: self.close(), color=None)
                 .props("flat no-caps size=sm")
                 .mark("export-cancel")
             )
@@ -404,7 +404,7 @@ class ExportStatusBar:
                         f"for {FORMAT_LABELS[notice.spec.fmt]}."
                     ).classes("sf-exportbar-detail").mark("export-correction")
             (
-                ui.button(EXPORT_DISMISS, on_click=lambda _=None: on_dismiss())
+                ui.button(EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None)
                 .props("flat dense no-caps size=sm")
                 .mark("export-dismiss")
             )
@@ -449,7 +449,7 @@ class ExportStatusBar:
                 )
                 retry.set_enabled(not busy)
             (
-                ui.button(EXPORT_DISMISS, on_click=lambda _=None: on_dismiss())
+                ui.button(EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None)
                 .props("flat dense no-caps size=sm")
                 .mark("export-dismiss")
             )

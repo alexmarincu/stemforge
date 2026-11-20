@@ -147,7 +147,7 @@ class YouTubeRow:
             ui.label(formatting.YOUTUBE_CONSENT_BODY).classes("sf-lede")
             with ui.row().classes("w-full justify-end gap-2"):
                 (
-                    ui.button(formatting.YOUTUBE_CONSENT_CANCEL, on_click=self._decline)
+                    ui.button(formatting.YOUTUBE_CONSENT_CANCEL, on_click=self._decline, color=None)
                     .props("flat no-caps")
                     .mark("youtube-consent-cancel")
                 )

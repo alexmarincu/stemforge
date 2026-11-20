@@ -14,6 +14,7 @@ from typing import Final
 
 from nicegui import app
 
+from stemforge.platform import resources
 from stemforge.platform.paths import AppPaths
 
 MIN_WINDOW_SIZE: Final = (1024, 700)
@@ -29,12 +30,16 @@ def configure_window(paths: AppPaths) -> None:
     """Apply the one v0.1.0 window shape before NiceGUI spawns the window process."""
     if sys.platform.startswith("linux"):
         os.environ.setdefault(WEBKIT_SHM_ENV, "1")
-    app.native.window_args.update(
-        {
-            "resizable": True,
-            "min_size": MIN_WINDOW_SIZE,
-        }
-    )
+    window_args: dict[str, object] = {
+        "resizable": True,
+        "min_size": MIN_WINDOW_SIZE,
+    }
+    # pywebview 6 takes the window icon on ``webview.start()``, not
+    # ``create_window()``; GTK/QT use the raster mark, Windows the ICO.
+    icon = resources.app_icon()
+    if icon.is_file():
+        app.native.start_args["icon"] = str(icon)
+    app.native.window_args.update(window_args)
     app.native.start_args["private_mode"] = False
     app.native.start_args["storage_path"] = str(paths.webview)
     # Ticket 21: Windows has exactly one supported web engine. The startup

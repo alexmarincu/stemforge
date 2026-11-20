@@ -195,6 +195,7 @@ async def test_modal_shows_version_licence_notices_and_source_offer(harness: Har
         await _open_settings(user)
 
         await user.should_see("Settings & About")
+        await user.should_see(marker="about-app-mark")
         await user.should_see(marker="about-version")
         await user.should_see(f"StemForge {__version__}")
         await user.should_see("GPL-3.0-only")

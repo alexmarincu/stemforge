@@ -99,10 +99,7 @@ class PitchCard:
     def _stepper(self, track: Track, semitones: int) -> None:
         with ui.element("div").classes("sf-stepper"):
             (
-                ui.button(
-                    icon="remove",
-                    on_click=lambda _=None: self._step(track, -1),
-                )
+                ui.button(icon="remove", on_click=lambda _=None: self._step(track, -1), color=None)
                 .props("flat dense round size=sm")
                 .mark("pitch-down")
                 .set_enabled(semitones > MIN_SEMITONES)
@@ -113,10 +110,7 @@ class PitchCard:
                 )
                 ui.label(formatting.PITCH_SEMITONES_UNIT).classes("sf-semi-unit")
             (
-                ui.button(
-                    icon="add",
-                    on_click=lambda _=None: self._step(track, 1),
-                )
+                ui.button(icon="add", on_click=lambda _=None: self._step(track, 1), color=None)
                 .props("flat dense round size=sm")
                 .mark("pitch-up")
                 .set_enabled(semitones < MAX_SEMITONES)
@@ -165,6 +159,7 @@ class PitchCard:
                 ui.button(
                     f"{formatting.PITCH_OPEN} {existing.label} version",
                     on_click=lambda _=None: self._select(track, existing.render_key),
+                    color=None,
                 )
                 .props("flat no-caps size=sm")
                 .mark("pitch-primary", "pitch-open")
