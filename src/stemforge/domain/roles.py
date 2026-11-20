@@ -22,4 +22,3 @@ STEM_ROLES: Final[tuple[str, ...]] = ("vocals", "drums", "bass", "other")
 NON_VOCAL_ROLES: Final[tuple[str, ...]] = ("drums", "bass", "other")
 INSTRUMENTAL_ROLE: Final = "instrumental"
 OUTPUT_ROLES: Final[tuple[str, ...]] = (*STEM_ROLES, INSTRUMENTAL_ROLE)
-
