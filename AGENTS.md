@@ -1,6 +1,6 @@
-# StemForge v0.1.0 handoff
+# StemForge
 
-Implementation starts at [`HANDOFF.md`](HANDOFF.md). The decision record is `.scratch/stemforge/map.md` and its resolved tickets; where the handoff and a ticket disagree, the ticket wins.
+The decision record is `.scratch/stemforge/map.md` and its resolved tickets; where a ticket and the map disagree, the ticket wins.
 
 ## Agent skills
 

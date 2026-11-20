@@ -5,7 +5,9 @@ from __future__ import annotations
 import ast
 import importlib
 import os
+import re
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -161,8 +163,18 @@ def _main_guard(source: str) -> ast.If:
 
 
 @pytest.mark.unit
-def test_version_is_the_release_version() -> None:
-    assert stemforge.__version__ == "0.1.0"
+def test_version_is_a_release_semver() -> None:
+    assert re.fullmatch(r"\d+\.\d+\.\d+", stemforge.__version__)
+
+
+@pytest.mark.unit
+def test_pyproject_reads_the_version_from_the_package() -> None:
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+
+    assert "version" not in payload["project"]
+    assert payload["project"]["dynamic"] == ["version"]
+    assert payload["tool"]["hatch"]["version"]["path"] == "src/stemforge/__init__.py"
 
 
 @pytest.mark.unit

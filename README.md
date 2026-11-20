@@ -4,8 +4,7 @@ StemForge is a local desktop app for splitting a song into stems, shifting pitch
 exporting the result. Everything runs on your machine: no account, no telemetry, and no
 audio leaves the computer.
 
-This repository is at the start of the v0.1.0 implementation: it contains the package
-skeleton, the error taxonomy, and the quality gate that later work builds on.
+The repository contains the application, tests, packaging, and release pipeline.
 
 ## Development quickstart
 

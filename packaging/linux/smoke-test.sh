@@ -7,7 +7,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 cd "$repo_root"
 
-bundle="$repo_root/dist/StemForge-0.1.0-linux-x86_64"
+bundle=""
 reports="$repo_root/build/reports"
 with_separation=0
 appimage=""
@@ -48,6 +48,16 @@ while (($# > 0)); do
         *) bundle="$1"; shift ;;
     esac
 done
+
+if [[ -z "$bundle" ]]; then
+    python="$repo_root/.venv/bin/python"
+    if [[ ! -x "$python" ]]; then
+        echo "smoke-test.sh: $python is missing; run uv sync or pass --bundle" >&2
+        exit 1
+    fi
+    version="$("$python" -c 'import stemforge; print(stemforge.__version__)')"
+    bundle="$repo_root/dist/StemForge-${version}-linux-x86_64"
+fi
 
 if [[ ! -x "$bundle/StemForge" ]]; then
     echo "smoke-test.sh: $bundle/StemForge is missing; run packaging/linux/build.sh" >&2

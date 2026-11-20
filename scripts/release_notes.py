@@ -110,7 +110,7 @@ def render(root: Path) -> str:
         "",
         "## Unsigned build",
         "",
-        "StemForge v0.1.0 is **unsigned**. Windows SmartScreen may show",
+        f"StemForge v{version} is **unsigned**. Windows SmartScreen may show",
         '"Windows protected your PC" or "Unknown publisher" the first time a',
         "download runs. That is expected for an unsigned build. Compare each file",
         "with `SHA256SUMS` from this release page before choosing **More info** and",

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "vendor_root": "vendor",
-  "description": "The pinned vendor set for StemForge v0.1.0 (ticket 19). Read by scripts/vendor-fetch.sh, scripts/vendor-fetch.ps1, platform/binaries.py, platform/preflight.py, and the CI cache key. Binaries are never committed; only this lock and its provenance record are.",
+  "description": "The pinned vendor set for StemForge (ticket 19). Read by scripts/vendor-fetch.sh, scripts/vendor-fetch.ps1, platform/binaries.py, platform/preflight.py, and the CI cache key. Binaries are never committed; only this lock and its provenance record are.",
   "targets": {
     "linux-x86_64": {
       "system": "linux",

@@ -25,7 +25,7 @@ from stemforge.platform.storage import DEFAULT_CACHE_CAP_BYTES
 SCHEMA_VERSION: Final = 1
 MAX_RECENT_FILES: Final = 10
 SETTINGS_FILENAME: Final = "settings.json"
-# Ticket 09 §7: the shipped YouTube consent wording has one version in v0.1.0.
+# Ticket 09 §7: the shipped YouTube consent wording has one version.
 YOUTUBE_NOTICE_VERSION: Final = 1
 
 _LOG = logging.getLogger(__name__)

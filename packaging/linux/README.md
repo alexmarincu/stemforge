@@ -5,13 +5,13 @@ vendored tools, and the notices. Extract it anywhere; nothing is installed
 system-wide and no root access is needed.
 
 ```sh
-tar -xzf StemForge-0.1.0-linux-x86_64.tar.gz
-cd StemForge-0.1.0-linux-x86_64
+tar -xzf StemForge-{{version}}-linux-x86_64.tar.gz
+cd StemForge-{{version}}-linux-x86_64
 ./run.sh
 ```
 
 The `.tar.zst` holds the same tree; extract it with
-`tar --zstd -xf StemForge-0.1.0-linux-x86_64.tar.zst` if `zstd` is available.
+`tar --zstd -xf StemForge-{{version}}-linux-x86_64.tar.zst` if `zstd` is available.
 The `.tar.gz` is the canonical artifact.
 
 ## What the Bundle contains
@@ -89,8 +89,8 @@ an X11-only driver.
 ## AppImage
 
 ```sh
-chmod +x StemForge-0.1.0-linux-x86_64.AppImage
-./StemForge-0.1.0-linux-x86_64.AppImage
+chmod +x StemForge-{{version}}-linux-x86_64.AppImage
+./StemForge-{{version}}-linux-x86_64.AppImage
 ```
 
 The AppImage is a thin zstd wrapper around the same onedir Bundle. It does not
@@ -101,7 +101,7 @@ AppImages need FUSE 2 on the host. If FUSE is unavailable (containers, some
 locked-down distributions), extract and run without mounting:
 
 ```sh
-./StemForge-0.1.0-linux-x86_64.AppImage --appimage-extract-and-run
+./StemForge-{{version}}-linux-x86_64.AppImage --appimage-extract-and-run
 ```
 
 The tarball is the primary artifact and never needs FUSE.
@@ -154,18 +154,18 @@ codes stop the launch.
 From the source checkout, the same checks plus archive verification are:
 
 ```sh
-bash packaging/linux/smoke-test.sh --bundle dist/StemForge-0.1.0-linux-x86_64 \
-    --with-separation --appimage dist/StemForge-0.1.0-linux-x86_64.AppImage
-python3 packaging/linux/verify_bundle.py --bundle dist/StemForge-0.1.0-linux-x86_64 \
-    --archive dist/StemForge-0.1.0-linux-x86_64.tar.gz \
-    --archive dist/StemForge-0.1.0-linux-x86_64.tar.zst \
-    --archive dist/StemForge-0.1.0-linux-x86_64.AppImage
+bash packaging/linux/smoke-test.sh --bundle dist/StemForge-{{version}}-linux-x86_64 \
+    --with-separation --appimage dist/StemForge-{{version}}-linux-x86_64.AppImage
+python3 packaging/linux/verify_bundle.py --bundle dist/StemForge-{{version}}-linux-x86_64 \
+    --archive dist/StemForge-{{version}}-linux-x86_64.tar.gz \
+    --archive dist/StemForge-{{version}}-linux-x86_64.tar.zst \
+    --archive dist/StemForge-{{version}}-linux-x86_64.AppImage
 ```
 
 ## Unsigned builds and hashes
 
-v0.1.0 release artifacts are **unsigned**: there is no code-signing certificate for
-StemForge 0.1.0. Download from the official release page, not a mirror, and
+release artifacts are **unsigned**: there is no code-signing certificate for
+StemForge {{version}}. Download from the official release page, not a mirror, and
 compare each file with the published `SHA256SUMS`:
 
 ```sh

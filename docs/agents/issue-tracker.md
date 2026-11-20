@@ -2,7 +2,7 @@
 
 Issues, specs, and implementation tickets for this repo live as GitHub issues in `alexmarincu/stemforge`. Use the `gh` CLI for all operations.
 
-The StemForge v0.1.0 wayfinder decision record — the map and its resolved decision tickets — remains local markdown under `.scratch/stemforge/`; it is the design history, not the build backlog. Build tickets produced by `/to-tickets` live in GitHub Issues.
+The StemForge wayfinder decision record — the map and its resolved decision tickets — remains local markdown under `.scratch/stemforge/`; it is the design history, not the build backlog. Build tickets produced by `/to-tickets` live in GitHub Issues.
 
 ## Conventions
 

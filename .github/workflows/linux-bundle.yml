@@ -2,8 +2,8 @@ name: Linux bundle
 
 # Full Linux packaging: onedir, tar.gz, tar.zst, and the thin AppImage. This is
 # too expensive for every PR (ticket 11 keeps the PR job to frozen-linux), so it
-# runs on demand and on a packaging change merged to integration/v0.1.0. The tag
-# path lands in release.yml (ticket 23).
+# runs on demand and from the nightly. The tag path lands in release.yml
+# (ticket 23).
 on:
   # Ticket 11 §5: the nightly reuses this job instead of duplicating the build.
   workflow_call:
@@ -22,14 +22,6 @@ on:
         description: Run the real one-second separation (downloads the pinned weights)
         type: boolean
         default: true
-  push:
-    branches: [integration/v0.1.0]
-    paths:
-      - packaging/linux/**
-      - packaging/pyinstaller/**
-      - packaging/vendor.lock.json
-      - scripts/vendor-fetch.sh
-      - .github/workflows/linux-bundle.yml
 
 concurrency:
   group: linux-bundle-${{ github.ref }}
@@ -115,13 +107,13 @@ jobs:
             *) echo "preflight exited $code" >&2; exit "$code" ;;
           esac
       - name: Install the pinned model for the separation gate
-        if: github.event_name != 'push' && inputs.separation
+        if: inputs.separation
         run: |
           mkdir -p "$STEMFORGE_HOME"
           "$BUNDLE/StemForge" --install-model --accept-model-licence \
             --report build/reports/model-install.json
       - name: Run the real separation gate
-        if: github.event_name != 'push' && inputs.separation
+        if: inputs.separation
         run: |
           "$BUNDLE/StemForge" --smoke-separation --report build/reports/smoke-separation.json
       - name: AppImage extraction self-test

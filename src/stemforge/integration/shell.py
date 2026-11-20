@@ -5,7 +5,7 @@ The About modal needs one OS action that is not a dialog: reveal the bundle's
 implementation sits behind a tiny protocol so every unit and UI test injects a
 scripted opener and never launches a file manager.
 
-Resolution is Linux/Windows only (the v0.1.0 target matrix). A missing path is a
+Resolution is Linux/Windows only (the target matrix). A missing path is a
 coded ``licensing.files_missing`` failure, not a traceback; a launcher that
 cannot start is ``licensing.open_failed``.
 """

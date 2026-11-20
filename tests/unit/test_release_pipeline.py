@@ -29,6 +29,8 @@ import pytest
 import yaml
 from scripts import fetch_sources, release_assets, release_notes, vendor_unpack
 
+import stemforge
+
 pytestmark = pytest.mark.unit
 POSIX_ONLY = pytest.mark.skipif(os.name == "nt", reason="POSIX shell verifier")
 
@@ -69,7 +71,6 @@ source_offer_contact = "https://github.com/alexmarincu/stemforge/issues"
 [source_offer]
 years = 3
 start_year = 2026
-end_year = 2029
 
 [assets]
 source_archive = "StemForge-{version}-src.tar.gz"
@@ -428,7 +429,7 @@ def _make_assets(
         "scripts/vendor-fetch.sh": b"#!/bin/sh\n",
         "scripts/vendor-fetch.ps1": b"# ps1\n",
         "src/stemforge/__init__.py": f'__version__ = "{VERSION}"\n'.encode(),
-        "HANDOFF.md": b"handoff",
+        "docs/history/v0.1.0-handoff.md": b"handoff",
     }
     (assets / f"{src_prefix}-src.tar.gz").write_bytes(
         gzip.compress(_tar_bytes(src_prefix, src_files), mtime=0)
@@ -894,7 +895,7 @@ def test_vendor_unpack_rejects_a_path_escape(tmp_path: Path) -> None:
 
 def test_release_notes_name_the_shipped_yt_dlp_and_unsigned_caveat() -> None:
     text = release_notes.render(REPO_ROOT)
-    assert "StemForge 0.1.0" in text
+    assert f"StemForge {stemforge.__version__}" in text
     assert "yt-dlp 2026.10.26" in text
     assert "unsigned" in text.lower()
     assert "SmartScreen" in text
@@ -992,7 +993,7 @@ def test_release_checklist_has_the_budget_and_publish_gate_tables() -> None:
         "Both frozen `--smoke-separation` runs pass",
         "The 10 \u00a79 bundle budgets pass",
         "`docs/qa/release-checklist.md` is complete",
-        "Version `0.1.0` also has counsel sign-off",
+        "This release also has counsel sign-off",
     ):
         assert gate in text, gate
     for column in ("Pass/fail", "OS build", "Date", "Tester", "Artifact SHA-256"):

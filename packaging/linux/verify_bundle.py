@@ -10,10 +10,10 @@ tooling is installed.
 Usage::
 
     python3 packaging/linux/verify_bundle.py \
-        --bundle dist/StemForge-0.1.0-linux-x86_64 \
-        --archive dist/StemForge-0.1.0-linux-x86_64.tar.gz \
-        --archive dist/StemForge-0.1.0-linux-x86_64.tar.zst \
-        --archive dist/StemForge-0.1.0-linux-x86_64.AppImage \
+        --bundle dist/StemForge-<version>-linux-x86_64 \
+        --archive dist/StemForge-<version>-linux-x86_64.tar.gz \
+        --archive dist/StemForge-<version>-linux-x86_64.tar.zst \
+        --archive dist/StemForge-<version>-linux-x86_64.AppImage \
         --json
 
 ``--self-check`` builds a synthetic bundle in a temporary directory and proves
@@ -472,7 +472,7 @@ def _make_self_check_bundle(root: Path) -> Path:
 
 def _self_check() -> int:
     with tempfile.TemporaryDirectory(prefix="stemforge-verify-") as temporary:
-        root = Path(temporary) / "StemForge-0.1.0-linux-x86_64"
+        root = Path(temporary) / "StemForge-9.9.9-linux-x86_64"
         lock = _make_self_check_bundle(root)
         good = verify_bundle(root, lock_path=lock)
         if not good.ok:
