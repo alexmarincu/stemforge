@@ -26,6 +26,8 @@ from scripts.generate_notices import (
     release_problems,
 )
 
+import stemforge
+
 pytestmark = pytest.mark.licensing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -69,8 +71,11 @@ def test_every_lock_package_has_a_coverage_row(generated: GeneratedTree) -> None
 
     missing = [package["name"] for package in _lock_packages() if package["name"] not in rows]
     assert missing == []
+    versionless = [package["name"] for package in _lock_packages() if "version" not in package]
+    assert versionless == ["stemforge"]
     for package in _lock_packages():
-        assert rows[package["name"]] == package["version"]
+        expected = str(package["version"]) if "version" in package else stemforge.__version__
+        assert rows[package["name"]] == expected
 
 
 def test_every_package_row_declares_an_spdx_id_or_curated_expression(

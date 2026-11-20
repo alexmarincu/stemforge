@@ -11,7 +11,7 @@ uv run mypy src/stemforge
 uv run lint-imports
 uv run python scripts/generate_notices.py --check-release
 uv run python scripts/generate_notices.py --check
-uv run pytest -m "unit or ui"
+uv run pytest -m "unit or ui or licensing"
 
 self_test_home="$(mktemp -d "${TMPDIR:-/tmp}/stemforge-selftest.XXXXXX")"
 trap 'rm -rf "$self_test_home"' EXIT
