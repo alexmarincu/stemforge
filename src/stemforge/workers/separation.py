@@ -1,4 +1,4 @@
-"""The Separation worker: reads one canonical WAV, writes four stems as JSONL events.
+"""The Separation worker: reads one canonical WAV, writes five outputs as JSONL.
 
 Invoked by the frozen binary as ``stemforge --worker separation`` or in
 development as ``python -m stemforge.workers.separation`` (ticket 06 §4). Stdout
@@ -9,16 +9,18 @@ without the heavyweight stack.
 The 30-minute source is processed in 8-minute blocks with a 1-second linear
 crossfade (ticket 12, ADR 0008), so peak memory stays bounded independent of
 track length. Blocks use ``shifts=0``: the random equivariant shift is disabled
-in block mode so it cannot change timbre at a block boundary. Each stem is
-written to ``<stem>.partial.wav`` inside ``--out`` and renamed into place only
-after every block succeeded; a cancel, an error, or a closed stdin removes the
-partials and leaves no stem behind.
+in block mode so it cannot change timbre at a block boundary. Instrumental is the
+float32 sum of drums + bass + other, written in the same pass while the stems are
+in memory (ticket 05 §3). Each output is written to ``<role>.partial.wav`` inside
+``--out`` and renamed into place only after every block succeeded; a cancel, an
+error, or a closed stdin removes the partials and leaves no output behind.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import math
 import os
 import signal
 import struct
@@ -35,17 +37,21 @@ from stemforge.worker_protocol import (
     CODE_CANCELLED,
     CODE_ENGINE_ERROR,
     CODE_MODEL_MISSING,
-    EVENT_BLOCK,
     EVENT_DONE,
     EVENT_ERROR,
+    EVENT_HELLO,
+    EVENT_OUTPUT,
     EVENT_PROGRESS,
-    EVENT_READY,
-    EVENT_STEM,
+    EVENT_STAGE,
     EXIT_HANDLED,
     EXIT_INVALID_INPUT,
     EXIT_MODEL_UNAVAILABLE,
     EXIT_OK,
+    INSTRUMENTAL_NAME,
+    STAGE_END,
+    STAGE_START,
     STEM_NAMES,
+    WORKER_OUTPUT_NAMES,
     block_count,
     format_event,
 )
@@ -56,6 +62,7 @@ DEFAULT_OVERLAP: Final = 0.25
 DEFAULT_SHIFTS: Final = 0
 SAMPLE_RATE: Final = 44_100
 CHANNELS: Final = 2
+NON_VOCAL_STEMS: Final = ("drums", "bass", "other")
 MAX_DURATION_S: Final = 1800.0
 DURATION_TOLERANCE_S: Final = 0.050
 STDIN_WATCH_ENV: Final = "STEMFORGE_WORKER_STDIN_WATCH"
@@ -168,10 +175,11 @@ def run(argv: Sequence[str] | None = None) -> int:
         _remove_partials(out_dir)
         _emit(
             protocol,
-            EVENT_READY,
+            EVENT_HELLO,
             engine="demucs",
             engine_version=str(getattr(demucs, "__version__", "")),
             model=args.model,
+            model_revision=args.model_revision,
             device=args.device,
             sample_rate=SAMPLE_RATE,
             threads=args.threads,
@@ -183,7 +191,8 @@ def run(argv: Sequence[str] | None = None) -> int:
             _validate_input(info, expected_duration_s=args.expected_duration)
             threads = max(1, int(args.threads))
             _configure_torch(torch, threads)
-            _emit(protocol, EVENT_PROGRESS, stage="Load model", fraction=0.0)
+            _emit(protocol, EVENT_STAGE, stage="model_load", state=STAGE_START)
+            load_started = time.monotonic()
             try:
                 separator = LocalSeparator(
                     model="htdemucs",
@@ -203,7 +212,16 @@ def run(argv: Sequence[str] | None = None) -> int:
                 raise _ModelUnavailable(
                     f"model expects {separator.samplerate} Hz / {separator.audio_channels} channels"
                 )
+            _emit(
+                protocol,
+                EVENT_STAGE,
+                stage="model_load",
+                state=STAGE_END,
+                seconds=round(time.monotonic() - load_started, 3),
+            )
             _start_stdin_watch(stop)
+            separate_started = time.monotonic()
+            _emit(protocol, EVENT_STAGE, stage="separate", state=STAGE_START)
             _separate(
                 args=args,
                 info=info,
@@ -212,6 +230,14 @@ def run(argv: Sequence[str] | None = None) -> int:
                 stop=stop,
                 numpy=np,
                 torch=torch,
+                started=started,
+            )
+            _emit(
+                protocol,
+                EVENT_STAGE,
+                stage="separate",
+                state=STAGE_END,
+                seconds=round(time.monotonic() - separate_started, 3),
             )
         except _StopRequested:
             _remove_partials(out_dir)
@@ -246,7 +272,7 @@ def run(argv: Sequence[str] | None = None) -> int:
             protocol,
             EVENT_DONE,
             elapsed_seconds=round(elapsed, 3),
-            outputs=list(STEM_NAMES),
+            outputs=list(WORKER_OUTPUT_NAMES),
         )
         return EXIT_OK
     finally:
@@ -263,17 +289,20 @@ def _separate(
     stop: _Stop,
     numpy: Any,
     torch: Any,
+    started: float,
 ) -> None:
-    """Run the block plan and write every stem through a partial file."""
+    """Run the block plan and write all five outputs through partial files."""
     block_frames = max(1, round(float(args.block_seconds) * info.sample_rate))
     fade_frames = max(0, round(float(args.crossfade_seconds) * info.sample_rate))
     if fade_frames >= block_frames:
         raise _InvalidInput("crossfade must be shorter than the block")
     blocks = _plan_blocks(info.frames, block_frames, fade_frames)
-    total_segments = _segment_frames(separator)
+    segment_frames = _segment_frames(separator)
+    total_segments = max(1, math.ceil(info.frames / max(1, segment_frames)))
+    total_audio_seconds = info.frames / info.sample_rate
     writers = {
-        stem: _FloatWavWriter(Path(args.out) / f"{stem}.partial.wav", sample_rate=info.sample_rate)
-        for stem in STEM_NAMES
+        role: _FloatWavWriter(Path(args.out) / f"{role}.partial.wav", sample_rate=info.sample_rate)
+        for role in WORKER_OUTPUT_NAMES
     }
     tail: dict[str, Any] | None = None
     try:
@@ -283,10 +312,14 @@ def _separate(
                     raise _StopRequested()
                 _emit(
                     protocol,
-                    EVENT_BLOCK,
-                    index=block.index + 1,
-                    total=len(blocks),
-                    fraction=block.index / len(blocks),
+                    EVENT_PROGRESS,
+                    stage="separate",
+                    fraction=round(block.index / len(blocks), 6),
+                    segment=min(total_segments, block.index + 1),
+                    segments=total_segments,
+                    audio_seconds_done=round(block.start / info.sample_rate, 3),
+                    audio_seconds_total=round(total_audio_seconds, 3),
+                    eta_seconds=_eta_seconds(started, block.index / len(blocks)),
                 )
                 audio = _read_block(numpy, handle, info, block)
                 if stop.requested:
@@ -300,7 +333,10 @@ def _separate(
                             block=block,
                             blocks=len(blocks),
                             audio_length=block.length,
-                            segment_frames=total_segments,
+                            segment_frames=segment_frames,
+                            total_segments=total_segments,
+                            total_audio_seconds=total_audio_seconds,
+                            started=started,
                         )
                     )
                     _origin, separated = separator.separate_tensor(wav, info.sample_rate)
@@ -313,6 +349,7 @@ def _separate(
                     raise _InvalidInput(f"{type(exc).__name__}: {exc}") from exc
                 current = _block_stems(numpy, separated, block.length)
                 del separated
+                current[INSTRUMENTAL_NAME] = _instrumental(numpy, current)
                 is_last = block.index == len(blocks) - 1
                 _write_block(
                     numpy,
@@ -324,7 +361,7 @@ def _separate(
                     is_last=is_last,
                 )
                 if not is_last and fade_frames > 0:
-                    tail = {stem: current[stem][-fade_frames:] for stem in STEM_NAMES}
+                    tail = {role: current[role][-fade_frames:] for role in WORKER_OUTPUT_NAMES}
                 else:
                     tail = None
                 del current
@@ -334,15 +371,38 @@ def _separate(
                     raise _StopRequested()
         for writer in writers.values():
             writer.close()
-        for stem in STEM_NAMES:
-            partial = Path(args.out) / f"{stem}.partial.wav"
-            os.replace(partial, Path(args.out) / f"{stem}.wav")
-            _emit(protocol, EVENT_STEM, stem=stem, path=f"{stem}.wav")
+        for role in WORKER_OUTPUT_NAMES:
+            partial = Path(args.out) / f"{role}.partial.wav"
+            os.replace(partial, Path(args.out) / f"{role}.wav")
+            _emit(
+                protocol,
+                EVENT_OUTPUT,
+                stem=role,
+                path=f"{role}.wav",
+                format="wav",
+                sample_rate=info.sample_rate,
+                channels=info.channels,
+            )
     except BaseException:
         for writer in writers.values():
             writer.abort()
         _remove_partials(Path(args.out))
         raise
+
+
+def _instrumental(numpy: Any, current: dict[str, Any]) -> Any:
+    """The float32 sum of drums, bass, and other, computed while in memory."""
+    total = current[NON_VOCAL_STEMS[0]].astype("float32", copy=True)
+    for role in NON_VOCAL_STEMS[1:]:
+        total += current[role]
+    return numpy.ascontiguousarray(total, dtype="float32")
+
+
+def _eta_seconds(started: float, fraction: float) -> float:
+    if fraction <= 0:
+        return 0.0
+    elapsed = time.monotonic() - started
+    return round(max(0.0, elapsed * (1.0 - fraction) / fraction), 3)
 
 
 def _block_stems(numpy: Any, separated: Any, length: int) -> dict[str, Any]:
@@ -364,9 +424,9 @@ def _write_block(
     is_first: bool,
     is_last: bool,
 ) -> None:
-    fade = max(0, min(fade_frames, current[STEM_NAMES[0]].shape[0]))
+    fade = max(0, min(fade_frames, current[WORKER_OUTPUT_NAMES[0]].shape[0]))
     if is_first:
-        for stem in STEM_NAMES:
+        for stem in WORKER_OUTPUT_NAMES:
             array = current[stem]
             if is_last or fade == 0:
                 writers[stem].write(array)
@@ -376,13 +436,13 @@ def _write_block(
     if tail is None:
         raise RuntimeError("missing crossfade tail")
     if fade == 0:
-        for stem in STEM_NAMES:
+        for stem in WORKER_OUTPUT_NAMES:
             writers[stem].write(current[stem])
         return
     weights = numpy.arange(1, fade + 1, dtype="float32") / fade
     fade_out = (1.0 - weights)[:, None]
     fade_in = weights[:, None]
-    for stem in STEM_NAMES:
+    for stem in WORKER_OUTPUT_NAMES:
         previous = tail[stem][-fade:]
         array = current[stem]
         blended = previous * fade_out + array[:fade] * fade_in
@@ -401,6 +461,9 @@ def _progress_callback(
     blocks: int,
     audio_length: int,
     segment_frames: int,
+    total_segments: int,
+    total_audio_seconds: float,
+    started: float,
 ) -> Any:
     def callback(payload: dict[str, object]) -> None:
         if stop.requested:
@@ -414,14 +477,24 @@ def _progress_callback(
         total = length if isinstance(length, int) and length > 0 else audio_length
         local = min(1.0, (offset + max(1, segment_frames)) / max(1, total))
         overall = min(1.0, (block.index + local) / blocks)
+        done = min(
+            total_audio_seconds,
+            (block.start + offset + min(segment_frames, total)) / SAMPLE_RATE,
+        )
+        segment = min(
+            total_segments,
+            math.floor((block.start + offset) / max(1, segment_frames)) + 1,
+        )
         _emit(
             protocol,
             EVENT_PROGRESS,
-            stage="Separate",
+            stage="separate",
             fraction=round(overall, 6),
-            block=block.index + 1,
-            blocks=blocks,
-            detail=f"block {block.index + 1} of {blocks}",
+            segment=segment,
+            segments=total_segments,
+            audio_seconds_done=round(done, 3),
+            audio_seconds_total=round(total_audio_seconds, 3),
+            eta_seconds=_eta_seconds(started, overall),
         )
 
     return callback
@@ -611,6 +684,7 @@ def _configure_torch(torch: Any, threads: int) -> None:
 def _parser() -> argparse.ArgumentParser:
     parser = _Parser(prog="stemforge --worker separation", add_help=True)
     parser.add_argument("--model", default="htdemucs")
+    parser.add_argument("--model-revision", default="")
     parser.add_argument("--model-path", required=True, type=Path)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--input", required=True, type=Path)
@@ -688,9 +762,9 @@ def _pipe_stream(fd: int) -> TextIO | None:
 
 
 def _remove_partials(out_dir: Path) -> None:
-    for stem in STEM_NAMES:
+    for role in WORKER_OUTPUT_NAMES:
         with contextlib.suppress(FileNotFoundError, OSError):
-            (out_dir / f"{stem}.partial.wav").unlink()
+            (out_dir / f"{role}.partial.wav").unlink()
 
 
 def _tail(text: str, limit: int = ERROR_DETAIL_CHARS) -> str:

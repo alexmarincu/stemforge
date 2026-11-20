@@ -15,7 +15,7 @@ import io
 import logging
 import re
 import urllib.error
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -156,7 +156,8 @@ def _model_missing(probe: Probe) -> str:
 def _model_download_failed(probe: Probe) -> str:
     store = ModelStore(probe.paths)
 
-    def transport(url: str) -> object:
+    def transport(url: str, headers: Mapping[str, str] | None = None) -> object:
+        del headers
         raise urllib.error.URLError(OSError("offline"))
 
     job = model_job.ModelInstallJob(

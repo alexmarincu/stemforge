@@ -22,12 +22,12 @@ from stemforge.domain.cancellation import CancelToken
 from stemforge.engines.separation import SeparationOutputs, WorkerSeparationEngine
 from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.worker_protocol import (
-    EVENT_BLOCK,
     EVENT_DONE,
     EVENT_ERROR,
+    EVENT_HELLO,
+    EVENT_OUTPUT,
     EVENT_PROGRESS,
-    EVENT_READY,
-    EVENT_STEM,
+    EVENT_STAGE,
     EXIT_INVALID_INPUT,
     EXIT_OK,
     PROTOCOL_VERSION,
@@ -42,6 +42,12 @@ pytestmark = pytest.mark.unit
 STUB_WORKER = Path(__file__).resolve().parents[1] / "fixtures" / "stub_worker.py"
 LOG = logging.getLogger("test.worker-protocol")
 
+HELLO = (
+    '{"v":1,"event":"hello","engine":"demucs","engine_version":"4.1.0",'
+    '"model":"htdemucs","model_revision":"cbc8a9b","device":"cpu",'
+    '"sample_rate":44100,"threads":8}'
+)
+
 
 # ---------------------------------------------------------------------------
 # Parser
@@ -49,24 +55,58 @@ LOG = logging.getLogger("test.worker-protocol")
 
 
 def test_format_event_adds_the_protocol_version_and_round_trips() -> None:
-    line = format_event({"event": EVENT_PROGRESS, "fraction": 0.25, "stage": "Separate"})
+    line = format_event(
+        {
+            "event": EVENT_PROGRESS,
+            "stage": "separate",
+            "fraction": 0.25,
+            "segment": 2,
+            "segments": 4,
+            "audio_seconds_done": 10.0,
+            "audio_seconds_total": 40.0,
+            "eta_seconds": 30.0,
+        }
+    )
 
     assert line.endswith("\n")
+    assert '"v":1' in line
     event = parse_event(line)
     assert event is not None
     assert event.event == EVENT_PROGRESS
     assert event.fraction == 0.25
-    assert event.stage == "Separate"
+    assert event.stage == "separate"
+    assert event.segment == 2
+    assert event.segments == 4
+    assert event.audio_seconds_done == 10.0
+    assert event.audio_seconds_total == 40.0
+    assert event.eta_seconds == 30.0
 
 
 @pytest.mark.parametrize(
     ("line", "expected"),
     [
-        ('{"v":1,"event":"ready","engine":"demucs","engine_version":"4.1.0"}', EVENT_READY),
-        ('{"v":1,"event":"block","index":1,"total":3,"fraction":0.0}', EVENT_BLOCK),
-        ('{"v":1,"event":"progress","fraction":0.5,"stage":"Separate"}', EVENT_PROGRESS),
-        ('{"v":1,"event":"stem","stem":"vocals","path":"vocals.wav"}', EVENT_STEM),
-        ('{"v":1,"event":"done","outputs":["vocals"]}', EVENT_DONE),
+        (HELLO, EVENT_HELLO),
+        ('{"v":1,"event":"stage","stage":"model_load","state":"start"}', EVENT_STAGE),
+        (
+            '{"v":1,"event":"stage","stage":"model_load","state":"end","seconds":1.98}',
+            EVENT_STAGE,
+        ),
+        (
+            '{"v":1,"event":"progress","stage":"separate","fraction":0.5,'
+            '"segment":1,"segments":2,"audio_seconds_done":1.0,'
+            '"audio_seconds_total":2.0,"eta_seconds":1.0}',
+            EVENT_PROGRESS,
+        ),
+        (
+            '{"v":1,"event":"output","stem":"vocals","path":"vocals.wav",'
+            '"format":"wav","sample_rate":44100,"channels":2}',
+            EVENT_OUTPUT,
+        ),
+        (
+            '{"v":1,"event":"done","elapsed_seconds":1.5,"outputs":'
+            '["vocals","drums","bass","other","instrumental"]}',
+            EVENT_DONE,
+        ),
         ('{"v":1,"event":"error","code":"separation.engine_error"}', EVENT_ERROR),
     ],
 )
@@ -86,17 +126,45 @@ def test_unknown_events_are_ignored_for_forward_compatibility() -> None:
         ("", "empty"),
         ("not json", "non-JSON"),
         ("[]", "not a JSON object"),
-        ('{"event":"ready"}', "integer v"),
-        ('{"v":2,"event":"ready"}', "unsupported protocol version"),
+        ('{"event":"hello"}', "integer v"),
+        ('{"v":2,"event":"hello"}', "unsupported protocol version"),
         ('{"v":1}', "no event name"),
-        ('{"v":1,"event":"progress"}', "fraction"),
-        ('{"v":1,"event":"progress","fraction":1.5}', "0..1"),
-        ('{"v":1,"event":"progress","fraction":0.5,"block":2,"blocks":1}', "exceeds"),
-        ('{"v":1,"event":"block","index":1}', "index and total"),
-        ('{"v":1,"event":"stem","stem":"vocals","path":"/tmp/vocals.wav"}', "unsafe"),
-        ('{"v":1,"event":"stem","stem":"vocals","path":"../vocals.wav"}', "unsafe"),
-        ('{"v":1,"event":"stem","stem":"guitar","path":"guitar.wav"}', "unknown stem"),
-        ('{"v":1,"event":"done","outputs":["guitar"]}', "unknown names"),
+        ('{"v":1,"event":"hello","engine":"demucs"}', "hello"),
+        ('{"v":1,"event":"stage","stage":"model_load","state":"middle"}', "state"),
+        ('{"v":1,"event":"stage","state":"start"}', "stage"),
+        ('{"v":1,"event":"progress","stage":"separate"}', "fraction"),
+        ('{"v":1,"event":"progress","stage":"separate","fraction":1.5}', "0..1"),
+        (
+            '{"v":1,"event":"progress","stage":"separate","fraction":0.5,"segment":2,"segments":1}',
+            "exceeds",
+        ),
+        (
+            '{"v":1,"event":"output","stem":"vocals","path":"/tmp/vocals.wav",'
+            '"format":"wav","sample_rate":44100,"channels":2}',
+            "unsafe",
+        ),
+        (
+            '{"v":1,"event":"output","stem":"vocals","path":"../vocals.wav",'
+            '"format":"wav","sample_rate":44100,"channels":2}',
+            "unsafe",
+        ),
+        (
+            '{"v":1,"event":"output","stem":"guitar","path":"guitar.wav",'
+            '"format":"wav","sample_rate":44100,"channels":2}',
+            "unknown output",
+        ),
+        (
+            '{"v":1,"event":"output","stem":"vocals","path":"vocals.wav",'
+            '"format":"mp3","sample_rate":44100,"channels":2}',
+            "format",
+        ),
+        ('{"v":1,"event":"done","elapsed_seconds":1.0}', "outputs"),
+        ('{"v":1,"event":"done","outputs":["vocals"]}', "elapsed"),
+        (
+            '{"v":1,"event":"done","elapsed_seconds":1.0,"outputs":'
+            '["vocals","drums","bass","other"]}',
+            "all five",
+        ),
         ('{"v":1,"event":"error"}', "no code"),
         ('{"v":1,"event":"error","code":"x","retryable":"yes"}', "boolean"),
     ],
@@ -208,7 +276,7 @@ def run_engine(
     )
 
 
-def test_ok_returns_four_stems_and_monotonic_progress(
+def test_ok_returns_all_five_outputs_and_monotonic_progress(
     harness: tuple[WorkerSeparationEngine, Path, Path, Path],
 ) -> None:
     engine, canonical, out, weights = harness
@@ -216,8 +284,8 @@ def test_ok_returns_four_stems_and_monotonic_progress(
 
     outputs = run_engine(engine, canonical, out, weights, progress=events)
 
-    assert sorted(outputs.stems) == ["bass", "drums", "other", "vocals"]
-    assert all(path.is_file() for path in outputs.stems.values())
+    assert sorted(outputs.outputs) == ["bass", "drums", "instrumental", "other", "vocals"]
+    assert all(path.is_file() for path in outputs.outputs.values())
     fractions = [fraction for fraction, _stage, _detail in events]
     assert fractions == sorted(fractions)
     assert fractions[-1] == 1.0
@@ -236,7 +304,7 @@ def test_unknown_events_are_skipped_without_failing(
 
     outputs = run_engine(engine, canonical, out, weights)
 
-    assert len(outputs.stems) == 4
+    assert len(outputs.outputs) == 5
 
 
 def test_a_non_json_line_is_a_protocol_mismatch(
@@ -322,7 +390,7 @@ def test_an_unknown_worker_code_falls_back_to_engine_error(
         ("exit3", errors.SEPARATION_MODEL_MISSING),
         ("exit4", errors.SEPARATION_ENGINE_ERROR),
         ("silent", errors.SEPARATION_PROTOCOL_MISMATCH),
-        ("missing-stem", errors.SEPARATION_OUTPUT_INVALID),
+        ("missing-output", errors.SEPARATION_OUTPUT_INVALID),
         ("bad-path", errors.SEPARATION_PROTOCOL_MISMATCH),
     ],
 )
@@ -467,6 +535,25 @@ def test_a_short_track_is_a_single_block() -> None:
 
     assert len(blocks) == 1
     assert blocks[0].length == 44_100
+
+
+@pytest.mark.unit
+def test_the_worker_sums_instrumental_in_memory_not_with_ffmpeg() -> None:
+    import numpy
+
+    from stemforge.workers.separation import _instrumental
+
+    current = {
+        "vocals": numpy.array([[1.0, 1.0]], dtype="float32"),
+        "drums": numpy.array([[0.25, -0.5]], dtype="float32"),
+        "bass": numpy.array([[0.5, 0.25]], dtype="float32"),
+        "other": numpy.array([[-0.25, 0.25]], dtype="float32"),
+    }
+
+    instrumental = _instrumental(numpy, current)
+
+    assert instrumental.dtype == numpy.float32
+    assert instrumental.tolist() == [[0.5, 0.0]]
 
 
 @pytest.mark.unit

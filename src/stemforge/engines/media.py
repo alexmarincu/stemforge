@@ -136,8 +136,18 @@ EXPORT_TAG_FIELDS = (
     "copyright",
 )
 
-# Ticket 05 §9: WAV carries INFO tags but never the comment tag (ICMT).
-WAV_TAG_FIELDS = tuple(field for field in EXPORT_TAG_FIELDS if field != "comment")
+# Ticket 05 §7: WAV carries INFO tags only. The RIFF/INFO mapping has no
+# album-artist, disc, or composer field that FFmpeg persists, so the writer and
+# the verifier share this exact subset; MP3 and FLAC carry all eleven.
+WAV_TAG_FIELDS = (
+    "title",
+    "artist",
+    "album",
+    "track",
+    "date",
+    "genre",
+    "copyright",
+)
 
 _TAG_ALIASES: Mapping[str, tuple[str, ...]] = {
     "album_artist": ("album_artist", "albumartist", "album artist"),

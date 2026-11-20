@@ -480,7 +480,7 @@ def _run_smoke_separation() -> Report:
     from stemforge.domain.cancellation import CancelToken
     from stemforge.engines.separation import WorkerSeparationEngine
     from stemforge.models import ModelStore
-    from stemforge.worker_protocol import STEM_NAMES
+    from stemforge.worker_protocol import WORKER_OUTPUT_NAMES
 
     checks: list[Check] = []
     paths = _check_paths(checks)
@@ -539,6 +539,7 @@ def _run_smoke_separation() -> Report:
                 model_path=status.path,
                 expected_duration_s=SMOKE_SEPARATION_SECONDS,
                 threads=threads,
+                model_revision=spec.revision,
                 env=_smoke_worker_environment(paths, threads=threads),
                 progress=lambda fraction, _stage, _detail: progress.append(fraction),
                 cancel=CancelToken(),
@@ -577,10 +578,10 @@ def _run_smoke_separation() -> Report:
             checks,
             "separation.worker",
             "ok",
-            f"four stems in {wall_seconds:.2f} s",
+            f"five outputs in {wall_seconds:.2f} s",
         )
         problems: list[str] = []
-        for stem in STEM_NAMES:
+        for stem in WORKER_OUTPUT_NAMES:
             path = outputs.path_for(stem)
             if path is None or not path.is_file():
                 problems.append(f"{stem}=missing")
@@ -598,7 +599,7 @@ def _run_smoke_separation() -> Report:
             checks,
             "separation.outputs",
             "failed" if problems else "ok",
-            ", ".join(problems) if problems else "four float32 44.1 kHz stereo stems",
+            ", ".join(problems) if problems else "five float32 44.1 kHz stereo outputs",
         )
         _check(
             checks,
@@ -633,7 +634,7 @@ def _run_smoke_separation() -> Report:
                 "wall_seconds": round(wall_seconds, 3),
                 "peak_rss_bytes": rss,
                 "threads": threads,
-                "outputs": list(STEM_NAMES),
+                "outputs": list(WORKER_OUTPUT_NAMES),
                 "checks": checks,
             }
         )

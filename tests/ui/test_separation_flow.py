@@ -164,11 +164,12 @@ class FakeSeparation:
         cancel: CancelToken,
         log: logging.Logger,
         threads: int | None = None,
+        model_revision: str = "",
         env: Mapping[str, str] | None = None,
         timeout_s: float | None = None,
         on_spawn: object | None = None,
     ) -> SeparationOutputs:
-        del model_path, threads, env, timeout_s, on_spawn
+        del model_path, threads, model_revision, env, timeout_s, on_spawn
         cancel.check()
         emit = progress
         assert callable(emit)
@@ -185,12 +186,12 @@ class FakeSeparation:
                 detail="reason=fake",
             )
         stems: dict[str, Path] = {}
-        for index, role in enumerate(("vocals", "drums", "bass", "other")):
+        for index, role in enumerate(("vocals", "drums", "bass", "other", "instrumental")):
             path = out_dir / f"{role}.wav"
             path.write_bytes(f"stem-{role}-{expected_duration_s}".encode())
             stems[role] = path
             emit(0.2 + 0.2 * index, "Separate", role)
-        return SeparationOutputs(stems=stems)
+        return SeparationOutputs(outputs=stems)
 
 
 class FakeDialog:
@@ -227,6 +228,7 @@ class MemoryResponse:
         self.read_started = threading.Event()
         self.blocked = threading.Event()
         self.headers: Mapping[str, str] = {"Content-Length": str(len(data))}
+        self.status = 200
         self.closed = False
 
     def read(self, size: int = -1, /) -> bytes:
@@ -252,8 +254,9 @@ class ScriptedTransport:
         self.outcomes = outcomes
         self.calls = 0
 
-    def __call__(self, url: str) -> MemoryResponse:
+    def __call__(self, url: str, headers: Mapping[str, str] | None = None) -> MemoryResponse:
         assert url
+        del headers
         self.calls += 1
         outcome = self.outcomes[min(self.calls, len(self.outcomes)) - 1]
         if isinstance(outcome, BaseException):

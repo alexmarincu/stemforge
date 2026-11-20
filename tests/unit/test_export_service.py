@@ -545,7 +545,7 @@ def test_a_tag_verification_failure_is_coded_and_leaves_no_file(tmp_path: Path) 
     assert not (store.staging_dir / "job-tags").exists()
 
 
-def test_wav_verification_covers_every_tag_field_the_writer_writes(
+def test_mp3_verification_covers_every_tag_field_the_writer_writes(
     tmp_path: Path,
 ) -> None:
     from stemforge.engines.media import CanonicalMetadata, MediaInfo
@@ -570,11 +570,11 @@ def test_wav_verification_covers_every_tag_field_the_writer_writes(
         if key not in {"album_artist", "composer", "disc"}
     }
     info = MediaInfo(
-        codec="pcm_s24le",
+        codec="mp3",
         sample_rate=44_100,
         channels=2,
         duration_s=1.0,
-        format="wav",
+        format="mp3",
         tags=reported,
     )
 
@@ -585,8 +585,8 @@ def test_wav_verification_covers_every_tag_field_the_writer_writes(
     with pytest.raises(StemForgeError) as raised:
         export_job._verify_output(
             FakeMedia(),  # type: ignore[arg-type]
-            tmp_path / "out.wav",
-            export_format=ExportFormat.WAV24,
+            tmp_path / "out.mp3",
+            export_format=ExportFormat.MP3_320,
             metadata=metadata,
         )
 

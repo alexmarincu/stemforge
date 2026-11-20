@@ -311,7 +311,6 @@ def test_four_stems_and_instrumental_commit_atomically(
         "Verify",
         "Separate",
         "Validate",
-        "Instrumental",
         "Gain",
         "Previews",
         "Saving",

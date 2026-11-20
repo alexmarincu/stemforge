@@ -31,17 +31,17 @@ from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.platform import binaries, process
 from stemforge.worker_protocol import (
     CODE_CANCELLED,
-    EVENT_BLOCK,
     EVENT_DONE,
     EVENT_ERROR,
+    EVENT_HELLO,
+    EVENT_OUTPUT,
     EVENT_PROGRESS,
-    EVENT_READY,
-    EVENT_STEM,
+    EVENT_STAGE,
     EXIT_HANDLED,
     EXIT_INVALID_INPUT,
     EXIT_MODEL_UNAVAILABLE,
     EXIT_OK,
-    STEM_NAMES,
+    WORKER_OUTPUT_NAMES,
     ProtocolError,
     WorkerEvent,
     parse_event,
@@ -89,6 +89,7 @@ class SeparationEngine(Protocol):
         cancel: CancelToken,
         log: logging.Logger,
         threads: int | None = None,
+        model_revision: str = "",
         env: Mapping[str, str] | None = None,
         timeout_s: float | None = None,
         on_spawn: Callable[[int], None] | None = None,
@@ -97,12 +98,17 @@ class SeparationEngine(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class SeparationOutputs:
-    """The four stem WAVs the worker committed inside ``out_dir``."""
+    """The five output WAVs the worker committed inside ``out_dir``."""
 
-    stems: Mapping[str, Path]
+    outputs: Mapping[str, Path]
 
     def path_for(self, stem: str) -> Path | None:
-        return self.stems.get(stem)
+        return self.outputs.get(stem)
+
+    @property
+    def stems(self) -> Mapping[str, Path]:
+        """The four Stems; Instrumental is an output, not a Stem (GLOSSARY)."""
+        return {role: path for role, path in self.outputs.items() if role != "instrumental"}
 
 
 class WorkerSeparationEngine:
@@ -165,6 +171,7 @@ class WorkerSeparationEngine:
         model_path: Path,
         expected_duration_s: float,
         threads: int | None = None,
+        model_revision: str = "",
     ) -> list[str]:
         """Build the worker argv (exposed for the Job log and tests)."""
         base = (
@@ -176,6 +183,8 @@ class WorkerSeparationEngine:
                 DEFAULT_MODEL,
                 "--model-path",
                 str(model_path),
+                "--model-revision",
+                model_revision,
                 "--device",
                 DEFAULT_DEVICE,
                 "--input",
@@ -211,11 +220,12 @@ class WorkerSeparationEngine:
         cancel: CancelToken,
         log: logging.Logger,
         threads: int | None = None,
+        model_revision: str = "",
         env: Mapping[str, str] | None = None,
         timeout_s: float | None = None,
         on_spawn: Callable[[int], None] | None = None,
     ) -> SeparationOutputs:
-        """Run one separation and return the four validated stem paths."""
+        """Run one separation and return the five validated output paths."""
         cancel.check()
         if not Path(model_path).is_file():
             raise StemForgeError(
@@ -232,6 +242,7 @@ class WorkerSeparationEngine:
             model_path=Path(model_path),
             expected_duration_s=expected_duration_s,
             threads=threads,
+            model_revision=model_revision,
         )
         log.debug("separation: %s", " ".join(argv))
         child_env = dict(env) if env is not None else None
@@ -261,7 +272,7 @@ class WorkerSeparationEngine:
 
         outputs: dict[str, Path] = {}
         last_fraction = 0.0
-        ready: WorkerEvent | None = None
+        hello: WorkerEvent | None = None
         done: WorkerEvent | None = None
         reported: WorkerEvent | None = None
         failure: ProtocolError | None = None
@@ -292,8 +303,15 @@ class WorkerSeparationEngine:
                 if isinstance(item, _ProtocolFailure):
                     failure = item.error
                     break
-                if item.event == EVENT_READY:
-                    ready = item
+                if item.event == EVENT_HELLO:
+                    hello = item
+                elif item.event == EVENT_STAGE:
+                    log.debug(
+                        "separation stage %s %s%s",
+                        item.stage,
+                        item.state,
+                        "" if item.seconds is None else f" in {item.seconds:.2f}s",
+                    )
                 elif item.event == EVENT_PROGRESS:
                     if item.fraction is None:
                         continue
@@ -301,27 +319,19 @@ class WorkerSeparationEngine:
                         last_fraction = item.fraction
                         progress(
                             item.fraction,
-                            item.stage or "Separate",
-                            item.detail or _block_detail(item),
+                            _title(item.stage) or "Separate",
+                            _progress_detail(item),
                         )
-                elif item.event == EVENT_BLOCK:
-                    if item.fraction is not None and item.fraction > last_fraction:
-                        last_fraction = item.fraction
-                        progress(
-                            item.fraction,
-                            "Separate",
-                            f"block {item.block} of {item.blocks}",
-                        )
-                elif item.event == EVENT_STEM:
+                elif item.event == EVENT_OUTPUT:
                     resolved = _resolve_output(out_dir, item.path)
                     if item.stem is None or resolved is None:
-                        failure = ProtocolError(f"unsafe stem path: {item.path!r}")
+                        failure = ProtocolError(f"unsafe output path: {item.path!r}")
                         break
                     if item.stem in outputs:
-                        failure = ProtocolError(f"duplicate stem event: {item.stem}")
+                        failure = ProtocolError(f"duplicate output event: {item.stem}")
                         break
                     if not resolved.is_file():
-                        failure = ProtocolError(f"worker declared a missing stem: {resolved}")
+                        failure = ProtocolError(f"worker declared a missing output: {resolved}")
                         break
                     outputs[item.stem] = resolved
                 elif item.event == EVENT_DONE:
@@ -358,21 +368,21 @@ class WorkerSeparationEngine:
                     stderr_text,
                     returncode,
                 )
-            missing = [stem for stem in STEM_NAMES if stem not in outputs]
+            missing = [stem for stem in WORKER_OUTPUT_NAMES if stem not in outputs]
             if missing:
                 raise StemForgeError(
                     errors.SEPARATION_OUTPUT_INVALID,
-                    "the separation worker did not produce every stem",
+                    "the separation worker did not produce every output",
                     detail=f"missing={','.join(missing)}",
                     context={"missing": missing, "stderr": stderr_text},
                 )
             log.debug(
-                "separation: %s ready=%s outputs=%s",
+                "separation: %s hello=%s outputs=%s",
                 returncode,
-                None if ready is None else ready.engine_version,
+                None if hello is None else hello.engine_version,
                 sorted(outputs),
             )
-            return SeparationOutputs(stems={stem: outputs[stem] for stem in STEM_NAMES})
+            return SeparationOutputs(outputs={stem: outputs[stem] for stem in WORKER_OUTPUT_NAMES})
         if returncode == EXIT_HANDLED:
             if reported is None:
                 raise _protocol_error(
@@ -469,10 +479,18 @@ def _resolve_output(out_dir: Path, relative: str | None) -> Path | None:
     return candidate
 
 
-def _block_detail(event: WorkerEvent) -> str:
-    if event.block is not None and event.blocks is not None:
-        return f"block {event.block} of {event.blocks}"
+def _progress_detail(event: WorkerEvent) -> str:
+    if event.segment is not None and event.segments is not None:
+        return f"segment {event.segment} of {event.segments}"
+    if event.audio_seconds_done is not None and event.audio_seconds_total is not None:
+        return f"{event.audio_seconds_done:.0f} of {event.audio_seconds_total:.0f} s"
     return ""
+
+
+def _title(stage: str | None) -> str:
+    if not stage:
+        return ""
+    return stage.replace("_", " ").title()
 
 
 def _resolved_threads(threads: int | None) -> int:
