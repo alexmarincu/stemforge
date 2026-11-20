@@ -24,7 +24,7 @@ The source code, build scripts, and materials needed to rebuild a distributed bi
 
 ## Degraded mode
 
-A way of running StemForge with one capability missing — in v0.1.0, Preview — while the rest of the app still works. A degraded mode is announced, never silent.
+A way of running StemForge with one capability missing — currently, Preview — while the rest of the app still works. A degraded mode is announced, never silent.
 
 ## Diagnostics report
 
@@ -108,4 +108,4 @@ The session-scoped collection of Tracks and their Artifacts. It is ephemeral and
 
 ## YouTube import
 
-Loading a Track's audio from a YouTube URL. It is the only operation in StemForge that uses the network, and v0.1.0 accepts a single public, non-age-gated video per import — no playlists, channels, accounts, or cookies.
+Loading a Track's audio from a YouTube URL. It is the only operation in StemForge that uses the network, and StemForge accepts a single public, non-age-gated video per import — no playlists, channels, accounts, or cookies.

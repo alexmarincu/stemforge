@@ -62,7 +62,7 @@ Publish only when all of these are true. Record the evidence next to each row.
 | 4 | Both frozen `--smoke-separation` runs pass (< 60 s, < 2 GB, four Stems + Instrumental) | |
 | 5 | The 10 §9 bundle budgets pass; the startup measurement meets the ≤ 4 s target on the reference host, and a reading above 8 s fails | |
 | 6 | `docs/qa/release-checklist.md` is complete for the Linux and Windows matrices, with artifact hashes | |
-| 7 | Version `0.1.0` also has counsel sign-off | |
+| 7 | This release also has counsel sign-off | |
 
 ## Environment coverage
 
@@ -154,7 +154,7 @@ and build in `OS build`.
 | Release manager | | | |
 | Linux QA | | | |
 | Windows QA | | | |
-| Licensing / counsel (0.1.0) | | | |
+| Licensing / counsel | | | |
 
 A published tag and its assets are immutable. If a defect is found after
 publication, edit the release notes to mark the release known-bad and publish a
