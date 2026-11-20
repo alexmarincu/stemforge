@@ -183,3 +183,32 @@ def test_a_relative_home_override_becomes_absolute(
 
     assert paths.data == tmp_path / "relative-portable" / "data"
     assert paths.data.is_absolute()
+
+
+@pytest.mark.unit
+def test_storage_secret_is_32_random_bytes_of_hex_and_stays_put(tmp_path: Path) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+
+    first = paths.storage_secret()
+    second = paths.storage_secret()
+
+    assert len(first) == 64
+    assert int(first, 16) >= 0
+    assert second == first
+    secret_file = paths.config / "storage_secret"
+    assert secret_file.read_text(encoding="utf-8").strip() == first
+    if os.name == "posix":
+        assert secret_file.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.unit
+def test_an_unreadable_storage_secret_is_regenerated(tmp_path: Path) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    secret_file = paths.config / "storage_secret"
+    secret_file.write_text("not a hex secret\n", encoding="utf-8")
+
+    regenerated = paths.storage_secret()
+
+    assert len(regenerated) == 64
+    assert int(regenerated, 16) >= 0
+    assert secret_file.read_text(encoding="utf-8").strip() == regenerated

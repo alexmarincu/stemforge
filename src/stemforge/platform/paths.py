@@ -9,6 +9,7 @@ filesystem; only :meth:`AppPaths.ensure` creates directories.
 from __future__ import annotations
 
 import os
+import secrets
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,8 @@ from typing import Final, Self
 import platformdirs
 
 HOME_ENV_VAR: Final = "STEMFORGE_HOME"
+STORAGE_SECRET_FILENAME: Final = "storage_secret"
+STORAGE_SECRET_BYTES: Final = 32
 
 # Linux follows the lowercase XDG convention; Windows uses the display casing.
 UNIX_APP_NAME: Final = "stemforge"
@@ -93,3 +96,35 @@ class AppPaths:
             cache=self.cache.resolve(),
             logs=self.logs.resolve(),
         )
+
+    def storage_secret(self) -> str:
+        """The per-install NiceGUI storage secret, 32 random bytes as hex.
+
+        Ticket 06 §7 stores it under ``AppPaths.config`` with mode ``0600`` and
+        regenerates it when the file is unreadable. There are no accounts, so a
+        regeneration costs only a fresh browser session.
+        """
+        path = self.config / STORAGE_SECRET_FILENAME
+        try:
+            value = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            value = ""
+        if _is_storage_secret(value):
+            return value
+        secret = secrets.token_hex(STORAGE_SECRET_BYTES)
+        self.config.mkdir(mode=0o700, parents=True, exist_ok=True)
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(secret + "\n")
+        path.chmod(0o600)
+        return secret
+
+
+def _is_storage_secret(value: str) -> bool:
+    if len(value) != STORAGE_SECRET_BYTES * 2:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True

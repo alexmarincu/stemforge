@@ -12,11 +12,11 @@ import hashlib
 import json
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -86,6 +86,29 @@ from stemforge.pipeline.youtube_job import run_youtube_import
 from stemforge.platform import resources
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
+
+
+class PreflightCheckView(Protocol):
+    """One preflight result as the banner reads it."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def status(self) -> str: ...
+
+    @property
+    def message(self) -> str: ...
+
+
+class PreflightView(Protocol):
+    """The preflight facts the UI reads, kept out of the platform layer."""
+
+    @property
+    def degraded(self) -> bool: ...
+
+    @property
+    def checks(self) -> Sequence[PreflightCheckView]: ...
 
 
 @dataclass(frozen=True, slots=True)

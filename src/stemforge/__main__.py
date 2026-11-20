@@ -324,6 +324,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     app.on_startup(runner.start)
     app.on_shutdown(shutdown)
     favicon = resources.app_icon()
+    storage_secret = paths.storage_secret()
     if _browser_mode():
         print(
             "StemForge: browser mode is on; opening http://127.0.0.1:8080",
@@ -341,6 +342,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
                 endpoint_documentation="none",
                 show_welcome_message=False,
                 uvicorn_logging_level="warning",
+                storage_secret=storage_secret,
             )
         finally:
             runner.stop()
@@ -357,6 +359,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
             endpoint_documentation="none",
             show_welcome_message=False,
             uvicorn_logging_level="warning",
+            storage_secret=storage_secret,
         )
     finally:
         runner.stop()

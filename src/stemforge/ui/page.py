@@ -14,6 +14,7 @@ the whole page. Pitch and Separation contribute requests and job state only.
 from __future__ import annotations
 
 import contextlib
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -29,6 +30,7 @@ from stemforge import __version__, errors
 from stemforge.application import (
     SEPARATION_OUTPUT_ROLES,
     PitchSet,
+    PreflightView,
     PreviewTarget,
     WorkspaceService,
 )
@@ -41,7 +43,6 @@ from stemforge.integration.dialogs import (
     filter_drop_paths,
 )
 from stemforge.integration.shell import PathOpener
-from stemforge.platform.preflight import PreflightReport
 from stemforge.ui import formatting, theme
 from stemforge.ui.components.about import SettingsDialog
 from stemforge.ui.components.diagnostics import (
@@ -74,7 +75,7 @@ def volume_factor(gain_db: float) -> float:
     as linear amplitude so A/B compares two equally loud sources. The result is
     clamped to the element's ``0.0..1.0`` range.
     """
-    return min(1.0, max(0.0, 10.0 ** (gain_db / 20.0)))
+    return min(1.0, max(0.0, math.pow(10.0, gain_db / 20.0)))
 
 
 SECONDARY_ROLES: Final = OUTPUT_ROLES[2:]
@@ -366,7 +367,7 @@ class UiContext:
     open_path: PathOpener | None = None
     show_recovery: bool = False
     recovery_dismissed: bool = False
-    preflight: PreflightReport | None = None
+    preflight: PreflightView | None = None
     diagnostics: DiagnosticsProvider | None = None
     clipboard: ClipboardWriter | None = None
     resource_warning_dismissed: bool = False
