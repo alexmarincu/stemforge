@@ -16,6 +16,17 @@ uv run stemforge
 scripts/check.sh
 ```
 
+On Linux, the native window needs GTK 3, WebKitGTK 4.1, and GStreamer installed
+system-wide, plus the matching Python bindings in the venv:
+
+```sh
+uv pip install pygobject pycairo
+```
+
+`scripts/check.sh` syncs with `--inexact`, so it will not remove those bindings.
+Without the native stack, `STEMFORGE_BROWSER=1 uv run stemforge` serves the UI at
+`http://127.0.0.1:8080`.
+
 `scripts/check.sh` runs the same gate as CI: formatting, lint, strict typing, the import
 contracts, and the unit and UI test layers. Integration tests run when `ffmpeg` and
 `ffprobe` are available.

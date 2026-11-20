@@ -4,7 +4,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-uv sync --frozen
+uv sync --frozen --inexact
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy src/stemforge
