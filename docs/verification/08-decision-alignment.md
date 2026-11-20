@@ -29,8 +29,15 @@ its amendments, then fix the concrete interaction defects found by the review.
 - **Live chrome.** The signal path reflects source/Stems/Pitch state, the rail
   dot and meta reflect separating/stems/failure, and the window title follows
   selection, import, and removal.
-- **Detail header and geometry.** The header carries Settings and Remove;
-  Pitch and Separation sit two-up at ≥1150 px and stack below.
+- **Detail header and geometry.** The header carries Settings and Remove and the
+  meta line is origin · filename or URL · duration · 44.1 kHz stereo; the empty
+  state is vertically centred; Pitch and Separation sit two-up at ≥1150 px and
+  stack below.
+- **Outputs rows are one line.** Name and badges share a row, with duration and
+  Export on the right; only an unavailable row adds a second line for its repair.
+- **Transport is one band.** A 42 px play control, `name · version` and elapsed/
+  total over a 5 px progress bar, with A/B and Export on the right. The A/B
+  shortcut is labelled and highlights B only while the latest render is active.
 - **Banner cap.** At most two banners stack, degraded first.
 - **About copy.** Storage gains `Open log folder`; Behaviour gains the
   close/shutdown contract and the force-quit `.partial` note.
@@ -88,6 +95,24 @@ the UI suite:
   §4.8).
 
 `uv run pytest -m "unit or ui"`: 1025 passed, 3 skipped.
+
+## Structural fidelity corrections
+
+The follow-up visual review found the shell geometry sound but the detail,
+transport, and Outputs structure still off-prototype. All six structural items
+are now covered by tests or a rendered check:
+
+- the detail header carries the YouTube URL, duration, sample rate, and channel
+  layout, not just origin and a local filename;
+- the empty state fills and centres in the main pane;
+- the rail's 26 px type icon is music for local files and video for YouTube;
+- Outputs rows put name and badges on one line at the prototype's 40 px height;
+- the transport is a single band with a 42 px play button and a 5 px progress
+  bar, keeping click-to-seek without the default Quasar slider chrome;
+- the A/B control carries its label and lights B only when the latest render is
+  the active version.
+
+`uv run pytest -m "unit or ui"`: 1029 passed, 3 skipped.
 
 ## Remaining structural debt
 
