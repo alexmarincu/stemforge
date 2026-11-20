@@ -509,9 +509,7 @@ def test_sweep_removes_tmp_staging_and_partials_but_keeps_completed_work(
 
 
 @pytest.mark.unit
-def test_sweep_deletes_invalid_sets_without_raising_the_banner_flag(
-    store: ArtifactStore,
-) -> None:
+def test_sweep_keeps_committed_sets_with_an_invalid_manifest(store: ArtifactStore) -> None:
     missing_manifest = store.sources_dir / "no-manifest"
     missing_manifest.mkdir(parents=True)
     (missing_manifest / "canonical.wav").write_bytes(b"x")
@@ -521,15 +519,15 @@ def test_sweep_deletes_invalid_sets_without_raising_the_banner_flag(
 
     report = store.sweep_stale()
 
-    assert report.removed_sources == ("no-manifest",)
-    assert report.removed_renders == ("bad-render",)
     assert report.deleted_anything is False
-    assert not missing_manifest.exists()
-    assert not bad_render.exists()
+    assert missing_manifest.is_dir()
+    assert bad_render.is_dir()
+    assert store.find_source("no-manifest") is None
+    assert store.find_render("bad-render") is None
 
 
 @pytest.mark.unit
-def test_sweep_deletes_an_invalid_separation_but_keeps_its_source(store: ArtifactStore) -> None:
+def test_sweep_keeps_an_invalid_separation_and_its_source(store: ArtifactStore) -> None:
     source = _commit_source(store, "abc123")
     stems = source.directory / "stems"
     stems.mkdir()
@@ -537,14 +535,14 @@ def test_sweep_deletes_an_invalid_separation_but_keeps_its_source(store: Artifac
 
     report = store.sweep_stale()
 
-    assert report.removed_separations == ("abc123",)
     assert report.deleted_anything is False
-    assert not stems.exists()
+    assert stems.is_dir()
     assert store.find_source("abc123") is not None
+    assert store.find_separation("abc123") is None
 
 
 @pytest.mark.unit
-def test_sweep_deletes_a_set_when_a_referenced_file_is_missing(store: ArtifactStore) -> None:
+def test_sweep_keeps_a_set_when_a_referenced_file_is_missing(store: ArtifactStore) -> None:
     source = _commit_source(store, "abc123")
     render = _commit_render(store, "render123")
     source.canonical_path.unlink()
@@ -552,9 +550,11 @@ def test_sweep_deletes_a_set_when_a_referenced_file_is_missing(store: ArtifactSt
 
     report = store.sweep_stale()
 
-    assert report.removed_sources == ("abc123",)
-    assert report.removed_renders == ("render123",)
     assert report.deleted_anything is False
+    assert source.directory.is_dir()
+    assert render.directory.is_dir()
+    assert store.find_source("abc123") is None
+    assert store.find_render("render123") is None
 
 
 @pytest.mark.unit
@@ -572,7 +572,7 @@ def test_sweep_never_touches_the_model_store_or_other_roots(store: ArtifactStore
 
 
 @pytest.mark.unit
-def test_sweep_removes_stray_entries_at_the_cache_root(store: ArtifactStore) -> None:
+def test_sweep_leaves_unknown_root_entries_alone(store: ArtifactStore) -> None:
     stray = store.sources_dir / "stray.txt"
     stray.parent.mkdir(parents=True, exist_ok=True)
     stray.write_text("not a source", encoding="utf-8")
@@ -582,8 +582,8 @@ def test_sweep_removes_stray_entries_at_the_cache_root(store: ArtifactStore) -> 
 
     report = store.sweep_stale()
 
-    assert not stray.exists()
-    assert not stray_render.exists()
+    assert stray.exists()
+    assert stray_render.exists()
     assert report.deleted_anything is False
 
 
@@ -1010,6 +1010,7 @@ def test_sweep_removes_replacement_residue_inside_a_source(store: ArtifactStore)
     report = store.sweep_stale()
 
     assert not residue.exists()
+    assert report.removed_residue == (residue,)
     assert report.deleted_anything is False
     assert store.find_source("abc123") is not None
 
