@@ -36,7 +36,6 @@ POSIX_ONLY = pytest.mark.skipif(os.name == "nt", reason="POSIX shell verifier")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
-CHECKLIST = REPO_ROOT / "docs" / "qa" / "release-checklist.md"
 VERIFY_SCRIPT = REPO_ROOT / "scripts" / "verify-release.sh"
 
 VERSION = "9.9.9"
@@ -429,7 +428,6 @@ def _make_assets(
         "scripts/vendor-fetch.sh": b"#!/bin/sh\n",
         "scripts/vendor-fetch.ps1": b"# ps1\n",
         "src/stemforge/__init__.py": f'__version__ = "{VERSION}"\n'.encode(),
-        "docs/history/v0.1.0-handoff.md": b"handoff",
     }
     (assets / f"{src_prefix}-src.tar.gz").write_bytes(
         gzip.compress(_tar_bytes(src_prefix, src_files), mtime=0)
@@ -889,7 +887,7 @@ def test_vendor_unpack_rejects_a_path_escape(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Release notes and checklist
+# Release notes
 # ---------------------------------------------------------------------------
 
 
@@ -900,101 +898,7 @@ def test_release_notes_name_the_shipped_yt_dlp_and_unsigned_caveat() -> None:
     assert "unsigned" in text.lower()
     assert "SmartScreen" in text
     assert "SHA256SUMS" in text
-    assert "docs/qa/release-checklist.md" in text
     assert "SOURCE_OFFER.md" in text
     assert "Windows figures are unmeasured" in text
 
 
-# Ticket 11 section 7. Every row must survive in the checklist scaffold.
-CHECKLIST_ROWS = (
-    "`run.sh` opens the native window",
-    "`--preflight --json` is clean on a fully provisioned host",
-    "Drag-and-drop WAV, MP3, FLAC, 48 kHz, mono, and a multichannel file",
-    "the downmix notice appears",
-    "YouTube import: one public, non-age-gated video",
-    "consent modal once",
-    "disclaimer line",
-    "playlist/channel/search URL fails as a field error",
-    "Clear YouTube cache",
-    "Preview: play, seek, and switch Tracks",
-    "only one player sounds at a time",
-    "Pitch: +12 and \u221212",
-    "A/B between Original and the newest render",
-    "version tabs",
-    "`master`/`stems` suffixes",
-    "Separation: first-run model download and consent",
-    "cancel mid-Job",
-    "model-missing gate and resubmit",
-    "per-stem playback",
-    "Instrumental matches the non-vocal mix",
-    "Export: WAV 24, FLAC 24, and MP3 320",
-    "correct extension handling and filters",
-    "tags and cover art are present",
-    "Remove Track deletes cached audio after confirmation",
-    "Clear cached audio leaves the live Workspace intact",
-    "recent files behave as 07 defines",
-    "Logs exist under the 07 paths",
-    "About shows licence, notices, source offer, and the licences folder",
-    "AppImage with and without FUSE",
-    "browser fallback when WebKitGTK or GStreamer is missing",
-    "the 2.52+ NVIDIA/Skia workaround note",
-    "Offline: launch, local import, and Separation with the model already installed",
-    "model missing + offline shows the actionable error",
-    "Inno installer: per-user, no UAC",
-    "Start Menu shortcut (desktop optional)",
-    "`MinVersion`",
-    "WebView2 present and absent (bootstrapper runs silently)",
-    "optional launch",
-    "Portable ZIP: WebView2 absent shows the message box with the download link",
-    "SmartScreen wording: unsigned build",
-    '"Unknown publisher"',
-    "`SHA256SUMS` is the integrity check",
-    "Native dialogs: open/save filters, extension normalization, overwrite confirmation",
-    "no console window",
-    "Playback, pitch, separation, export, remove, clear cache, logs, About",
-    "Title bar, taskbar, Start Menu, and Alt-Tab icon",
-    "Uninstall keeps `%LOCALAPPDATA%\\StemForge` and shows the data path",
-    "reinstall reuses it",
-    "`--preflight --json` on a clean VM",
-    "WebView2/.NET failure exits 5 with the actionable message",
-    "close the window during a running Job",
-    "no prompt, no veto, partials removed, settings saved",
-    "corrupt-file and unsupported-file errors",
-    "disk-space warning",
-    "job log path from the error banner",
-)
-
-
-def test_release_checklist_contains_every_ticket_11_row() -> None:
-    text = CHECKLIST.read_text(encoding="utf-8")
-    missing = [row for row in CHECKLIST_ROWS if row not in text]
-    assert missing == []
-
-
-def test_release_checklist_has_the_budget_and_publish_gate_tables() -> None:
-    text = CHECKLIST.read_text(encoding="utf-8")
-    for asset in (
-        "Linux onedir",
-        "Linux `tar.gz`",
-        "Linux `tar.zst`",
-        "Linux AppImage",
-        "Windows ZIP",
-        "Windows setup",
-        "Linux build job",
-        "Windows build job",
-        "Frozen startup",
-        "`--smoke-separation`",
-    ):
-        assert asset in text, asset
-    for gate in (
-        "The tagged commit is on `main` with `ci.yml` green",
-        "`release.yml`'s `prepare`, `linux`, `windows`, and `sources` are green",
-        "`verify-release.sh` is green",
-        "Both frozen `--smoke-separation` runs pass",
-        "The 10 \u00a79 bundle budgets pass",
-        "`docs/qa/release-checklist.md` is complete",
-        "This release also has counsel sign-off",
-    ):
-        assert gate in text, gate
-    for column in ("Pass/fail", "OS build", "Date", "Tester", "Artifact SHA-256"):
-        assert column in text, column

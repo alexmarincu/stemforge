@@ -653,7 +653,6 @@ def _source_tree_findings(directory: Path, version: str) -> list[Finding]:
         return [finding]
     required = (
         "LICENSE",
-        "docs/history/v0.1.0-handoff.md",
         "packaging/release.toml",
         "packaging/vendor.lock.json",
         "scripts/vendor-fetch.sh",

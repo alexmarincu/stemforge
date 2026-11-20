@@ -36,8 +36,6 @@ def _candidate_files() -> list[Path]:
 def test_the_version_lives_only_in_the_package() -> None:
     version = stemforge.__version__
     pattern = re.compile(rf"(?<![\w.])v?{re.escape(version)}(?![\w.])")
-    # The archived handoff's filename is historical, not a live version copy.
-    historical_handoff = f"docs/history/v{version}-handoff.md"
     offenders: list[str] = []
     for path in sorted(_candidate_files()):
         if not path.is_file():
@@ -52,7 +50,6 @@ def test_the_version_lives_only_in_the_package() -> None:
             continue
         text = data.decode("utf-8", errors="ignore")
         for number, line in enumerate(text.splitlines(), start=1):
-            line = line.replace(historical_handoff, "docs/history/<handoff>.md")
             if pattern.search(line):
                 offenders.append(f"{relative}:{number}")
 

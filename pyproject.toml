@@ -84,7 +84,6 @@ include = ["/src", "/README.md", "/pyproject.toml", "/uv.lock"]
 target-version = "py313"
 line-length = 100
 src = ["src", "tests"]
-extend-exclude = [".scratch"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "PT", "RUF"]
