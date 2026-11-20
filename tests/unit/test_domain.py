@@ -165,6 +165,20 @@ def test_track_defaults_to_no_pitch_shift_and_exposes_its_source_id() -> None:
 
 
 @pytest.mark.unit
+def test_track_exposes_duration_and_gain_without_reaching_into_source() -> None:
+    source = _source()
+    source = dataclasses.replace(
+        source,
+        metadata=SourceMetadata(title="Song", duration_s=187.0),
+        gain_db=-1.5,
+    )
+    track = _track(source=source)
+
+    assert track.duration_s == 187.0
+    assert track.gain_db == -1.5
+
+
+@pytest.mark.unit
 def test_dead_domain_types_are_not_kept_alive() -> None:
     import stemforge.domain.models as models
 

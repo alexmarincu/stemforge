@@ -120,6 +120,7 @@ class PreviewTarget:
     key: str
     label: str
     url: str
+    gain_db: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -488,18 +489,33 @@ class WorkspaceService:
             key=f"render:{view.artifact.render_key}:{role}",
             label=_SEPARATION_ROLE_LABELS.get(role, role.title()),
             url=url,
+            gain_db=view.artifact.gain_db,
         )
 
     def _preview_targets(self, track: Track) -> tuple[PreviewTarget, ...]:
         targets: list[PreviewTarget] = []
         source_url = self._preview_url(track.source.preview_path)
         if source_url is not None:
-            targets.append(PreviewTarget(key="original", label="Original", url=source_url))
+            targets.append(
+                PreviewTarget(
+                    key="original",
+                    label="Original",
+                    url=source_url,
+                    gain_db=track.gain_db,
+                )
+            )
         for view in self._render_views(track.source_id):
             url = self._render_preview_url(view)
             if url is None:
                 continue
-            targets.append(PreviewTarget(key=view.artifact.render_key, label=view.label, url=url))
+            targets.append(
+                PreviewTarget(
+                    key=view.artifact.render_key,
+                    label=view.label,
+                    url=url,
+                    gain_db=view.artifact.gain_db,
+                )
+            )
         return tuple(targets)
 
     # -- Pitch -------------------------------------------------------------
@@ -736,6 +752,7 @@ class WorkspaceService:
             key=f"{set_key}:{stem}",
             label=_SEPARATION_ROLE_LABELS[stem],
             url=url,
+            gain_db=artifact.gain_db,
         )
 
     def separate(self, track: Track) -> str:

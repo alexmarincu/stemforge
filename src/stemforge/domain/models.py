@@ -86,6 +86,7 @@ class Source:
     origin_kind: OriginKind
     metadata: SourceMetadata
     downmixed: bool = False
+    gain_db: float = 0.0
     native_path: Path | None = None
     canonical_path: Path | None = None
     preview_path: Path | None = None
@@ -112,5 +113,12 @@ class Track:
     def source_id(self) -> str:
         return self.source.source_id
 
+    @property
+    def duration_s(self) -> float | None:
+        """The source's duration, so presentation code never reaches through Source."""
+        return self.source.metadata.duration_s
 
-
+    @property
+    def gain_db(self) -> float:
+        """The Source set's one presentation gain (ticket 05 §5)."""
+        return self.source.gain_db

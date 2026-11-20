@@ -603,6 +603,7 @@ def _source_from_artifact(artifact: SourceArtifact, *, fallback_origin: str) -> 
         origin_kind=OriginKind.YOUTUBE,
         metadata=metadata,
         downmixed=artifact.manifest.get("downmixed") is True,
+        gain_db=artifact.gain_db,
         native_path=artifact.path_for("native"),
         canonical_path=artifact.path_for("canonical"),
         preview_path=artifact.path_for("preview"),

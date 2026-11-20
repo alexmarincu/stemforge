@@ -41,8 +41,9 @@ DURATION_S = 187.0
 class FakeMedia:
     """A scripted ``MediaTool`` that writes tiny stand-ins, never real audio."""
 
-    def __init__(self, *, duration_s: float = DURATION_S) -> None:
+    def __init__(self, *, duration_s: float = DURATION_S, peak_dbfs: float = -3.0) -> None:
         self.duration_s = duration_s
+        self.peak_dbfs_value = peak_dbfs
         self._gate: threading.Event | None = None
         self.decode_started = threading.Event()
 
@@ -104,7 +105,7 @@ class FakeMedia:
 
     def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
         cancel.check()
-        return -3.0
+        return self.peak_dbfs_value
 
 
 class FakeDialog:
@@ -157,7 +158,7 @@ class Harness:
         path.write_bytes(b"fake source bytes for " + name.encode())
         return path
 
-    def add_render(self, source_id: str, *, semitones: int = 3) -> str:
+    def add_render(self, source_id: str, *, semitones: int = 3, gain_db: float = 0.0) -> str:
         """Commit a real render artifact so the A/B hook sees a newest preview."""
         key = f"render-{source_id[:8]}-{semitones}"
         staging = self.artifacts.stage("preview-ui-test")
@@ -171,7 +172,7 @@ class Harness:
             "created_at": datetime.now(UTC).isoformat(),
             "semitones": semitones,
             "scope": "original",
-            "gain_db": 0.0,
+            "gain_db": gain_db,
             "files": [
                 {
                     "path": "original_preview.mp3",
@@ -653,3 +654,60 @@ async def test_deleting_the_playing_preview_stops_and_reports_unavailable(
         assert _enabled(user, f"track-play-{track_id}") is False
         await user.should_see(marker="preview-unavailable")
         assert len(user.find(marker="player").elements) == 1
+
+
+def test_volume_factor_is_the_recorded_gain_in_linear_amplitude() -> None:
+    assert page.volume_factor(0.0) == pytest.approx(1.0)
+    assert page.volume_factor(-6.0) == pytest.approx(10 ** (-6.0 / 20.0))
+    assert page.volume_factor(-1.5) == pytest.approx(10 ** (-1.5 / 20.0))
+
+
+async def test_the_gain_badge_is_shown_only_when_the_set_was_attenuated(
+    tmp_path: Path,
+) -> None:
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(peak_dbfs=1.0),
+        dialog=FakeDialog(),
+    )
+    harness.runner.start()
+    try:
+        async for user, workspace_page in _open_page(harness):
+            (track_id,) = await _import(harness, user, workspace_page, "Loud.wav")
+            await asyncio.sleep(0.05)
+            user.find(marker=f"track-row-{track_id}").click()
+            await asyncio.sleep(0.05)
+
+            badge = _only(user, "level-adjusted")
+            assert badge.text == "level adjusted \u22122.0 dB"
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_ab_applies_each_side_s_own_recorded_gain(harness: Harness) -> None:
+    async for user, workspace_page in _open_page(harness):
+        (track_id,) = await _import(harness, user, workspace_page, "Level.wav")
+        await asyncio.sleep(0.05)
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        source_id = harness.service.snapshot().tracks[0].source_id
+        render_key = harness.add_render(source_id, semitones=3, gain_db=-5.0)
+        with user:
+            workspace_page.poll()
+        await asyncio.sleep(0.05)
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        user.find(marker="ab-preview").click()
+        await asyncio.sleep(0.05)
+        assert _player(user).props["src"] == f"/media/renders/{render_key}/original_preview.mp3"
+        assert workspace_page._player_gain_db == -5.0
+        assert workspace_page._loaded_preview is not None
+        assert workspace_page._loaded_preview.gain_db == -5.0
+
+        user.find(marker="ab-original").click()
+        await asyncio.sleep(0.05)
+        assert workspace_page._player_gain_db == 0.0
+        assert workspace_page._loaded_preview is not None
+        assert workspace_page._loaded_preview.gain_db == 0.0
