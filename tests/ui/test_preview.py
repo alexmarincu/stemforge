@@ -362,6 +362,37 @@ async def test_a_missing_preview_is_unavailable_instead_of_a_dead_url(harness: H
         assert _enabled(user, f"track-play-{track_id}") is False
 
 
+async def test_a_playback_failure_falls_back_to_the_original_version(
+    harness: Harness,
+) -> None:
+    """Ticket 14 §4.8: the tab falls back to Original or the next existing set."""
+    async for user, workspace_page in _open_page(harness):
+        (track_id,) = await _import(harness, user, workspace_page, "Gone.wav")
+        await asyncio.sleep(0.05)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        render_key = harness.add_render(source_id, semitones=3)
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        user.find(marker=f"output-tab-{render_key}").click()
+        await asyncio.sleep(0.05)
+        user.find(marker="output-play-master").click()
+        original_url = harness.service.preview_targets(track_id)[0].url
+        render_url = f"/media/renders/{render_key}/original_preview.mp3"
+        assert _player(user).props["src"] == render_url
+
+        with user:
+            workspace_page._on_player_error()
+        await asyncio.sleep(0.05)
+
+        # The failed render stays available behind a repair, but the view and
+        # the single player now point at the working Original set.
+        assert _player(user).props["src"] == original_url
+        assert _only(user, "now-playing").text == "Original"
+        assert "is-active" in _only(user, "output-tab-original").classes
+        assert "is-active" not in _only(user, f"output-tab-{render_key}").classes
+
+
 async def test_degraded_preview_keeps_a_banner_and_disables_only_transport(
     tmp_path: Path,
 ) -> None:

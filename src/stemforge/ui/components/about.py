@@ -56,6 +56,8 @@ class SettingsDialog:
         self._cache_size: ui.label | None = None
         self._recent_size: ui.label | None = None
         self._youtube_cache_size: ui.label | None = None
+        self._clear_cache_button: ui.button | None = None
+        self._clear_youtube_button: ui.button | None = None
         self._licence_error: ui.label | None = None
         self._licence_error_code: ui.label | None = None
 
@@ -79,6 +81,11 @@ class SettingsDialog:
             self._app_section(files)
             self._storage_section()
             self._behaviour_section()
+            self._sync_job_actions()
+            timer = ui.timer(0.4, self._sync_job_actions)
+            dialog.on_value_change(
+                lambda event: timer.activate() if event.value else timer.deactivate()
+            )
             with ui.row().classes("w-full justify-end"):
                 (
                     ui.button(formatting.SETTINGS_CLOSE, on_click=dialog.close, color=None)
@@ -265,7 +272,7 @@ class SettingsDialog:
                 self._cache_size = (
                     ui.label(self._size_text()).classes("sf-fineprint").mark("about-cache-size")
                 )
-            (
+            self._clear_cache_button = (
                 ui.button(formatting.SETTINGS_CACHE_CLEAR, on_click=self._clear_cache, color=None)
                 .props("flat no-caps")
                 .mark("clear-cached-audio")
@@ -291,7 +298,7 @@ class SettingsDialog:
                     .classes("sf-fineprint")
                     .mark("youtube-cache-size")
                 )
-                (
+                self._clear_youtube_button = (
                     ui.button(
                         formatting.YOUTUBE_CACHE_CLEAR,
                         on_click=self._clear_youtube_cache,
@@ -310,7 +317,19 @@ class SettingsDialog:
                 .mark("open-log-folder")
             )
 
+    def _any_job_active(self) -> bool:
+        return any(snapshot.active for snapshot in self._service.jobs())
+
+    def _sync_job_actions(self) -> None:
+        """Ticket 14 §6: the two cache clears are disabled while any Job runs."""
+        busy = self._any_job_active()
+        for button in (self._clear_cache_button, self._clear_youtube_button):
+            if button is not None:
+                button.set_enabled(not busy)
+
     def _clear_cache(self) -> None:
+        if self._any_job_active():
+            return
         report = self._service.clear_cache()
         self._refresh_storage()
         ui.notify(
@@ -326,6 +345,8 @@ class SettingsDialog:
         ui.notify(formatting.SETTINGS_RECENT_CLEARED, type="positive")
 
     def _clear_youtube_cache(self) -> None:
+        if self._any_job_active():
+            return
         freed = self._service.clear_youtube_cache()
         if self._youtube_cache_size is not None:
             self._youtube_cache_size.set_text(self._youtube_size_text())

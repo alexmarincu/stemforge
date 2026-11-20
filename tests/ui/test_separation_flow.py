@@ -664,6 +664,8 @@ async def test_a_checksum_failure_shows_the_gate_and_latches_one_resubmit(
             await _poll(harness, user, workspace_page)
 
             await user.should_see(marker="separation-gate")
+            await user.should_see("The separation model needs to be downloaded again.")
+            await user.should_see("The cached copy didn't match its checksum.")
             await user.should_not_see(marker="separation-retry")
             assert harness.service.pending_separation_track_id() == track_id
             assert harness.models.is_installed() is False
@@ -675,6 +677,38 @@ async def test_a_checksum_failure_shows_the_gate_and_latches_one_resubmit(
             kinds = [job.kind.value for job in harness.runner.jobs()]
             assert kinds.count("separate") == 2
             assert kinds.count("model_install") == 1
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_an_install_checksum_mismatch_uses_the_checksum_gate_copy(
+    tmp_path: Path,
+) -> None:
+    """Ticket 14 §4.3: a download that fails its pins is a checksum failure."""
+    corrupt = b"x" * len(PAYLOAD)
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(),
+        separation=FakeSeparation(),
+        dialog=FakeDialog(),
+        transport=ScriptedTransport([MemoryResponse(corrupt)]),
+        tiny_model=True,
+    )
+    harness.runner.start()
+    try:
+        async for user, workspace_page in _open_page(harness):
+            await _import(harness, user, workspace_page)
+            user.find(marker="model-download").click()
+            await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+            await _poll(harness, user, workspace_page)
+
+            await user.should_see(marker="separation-gate")
+            await user.should_see("The separation model needs to be downloaded again.")
+            await user.should_see("The cached copy didn't match its checksum.")
+            await user.should_not_see("Separation model not installed")
+            assert _enabled(user, "model-download-retry") is True
+            assert harness.models.is_installed() is False
+            assert [job for job in harness.runner.jobs() if job.kind.value == "separate"] == []
     finally:
         harness.runner.stop(timeout=10)
 

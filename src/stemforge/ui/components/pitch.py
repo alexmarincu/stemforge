@@ -48,6 +48,7 @@ class PitchFailure:
     detail: str | None
     semitones: int
     scope: RenderScope
+    retryable: bool = False
     job_id: str | None = None
     log_path: Path | None = None
 
@@ -193,15 +194,16 @@ class PitchCard:
                 clipboard=self._clipboard,
                 open_path=self._open_path,
             )
-            retry = (
-                ui.button(
-                    formatting.PITCH_RETRY,
-                    on_click=lambda _=None: self._retry(track),
+            if failure.retryable:
+                retry = (
+                    ui.button(
+                        formatting.RETRY,
+                        on_click=lambda _=None: self._retry(track),
+                    )
+                    .props("unelevated no-caps size=sm")
+                    .mark("pitch-retry")
                 )
-                .props("unelevated no-caps size=sm")
-                .mark("pitch-retry")
-            )
-            retry.set_enabled(not busy)
+                retry.set_enabled(not busy)
 
     # -- actions ------------------------------------------------------------
 
@@ -222,6 +224,7 @@ class PitchCard:
                 detail=error.detail,
                 semitones=semitones,
                 scope=scope,
+                retryable=error.retryable,
             )
             self.build.refresh()
             return
@@ -250,6 +253,7 @@ class PitchCard:
         semitones: int,
         scope: RenderScope,
         *,
+        retryable: bool = False,
         job_id: str | None = None,
         log_path: Path | None = None,
     ) -> None:
@@ -259,6 +263,7 @@ class PitchCard:
             detail=detail,
             semitones=semitones,
             scope=scope,
+            retryable=retryable,
             job_id=job_id,
             log_path=log_path,
         )

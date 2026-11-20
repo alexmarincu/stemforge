@@ -119,6 +119,8 @@ class FakePitch:
 
     def __init__(self) -> None:
         self.fail_next = False
+        self.fail_code = errors.PITCH_RENDER_FAILED
+        self.fail_retryable = True
         self._gate: threading.Event | None = None
         self.shift_started = threading.Event()
 
@@ -144,8 +146,9 @@ class FakePitch:
         if self.fail_next:
             self.fail_next = False
             raise StemForgeError(
-                errors.PITCH_RENDER_FAILED,
+                self.fail_code,
                 "fake render failure",
+                retryable=self.fail_retryable,
                 detail="rubberband exited 1",
             )
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -638,6 +641,24 @@ async def test_a_failed_render_is_inline_coded_and_retry_resubmits_the_request(
             "render_pitch",
             "render_pitch",
         ]
+
+
+async def test_a_non_retryable_render_failure_has_no_retry(harness: Harness) -> None:
+    """Ticket 14 §8: Retry appears iff the raising code marks itself retryable."""
+    async for user, workspace_page in _open_page(harness):
+        await _import(harness, user, workspace_page)
+        _step(user, 3)
+        await asyncio.sleep(0.05)
+
+        harness.pitch.fail_next = True
+        harness.pitch.fail_code = errors.PITCH_ENGINE_MISSING
+        harness.pitch.fail_retryable = False
+        user.find(marker="pitch-render").click()
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        await user.should_see(marker="pitch-error")
+        await user.should_see("The pitch-shift engine is missing.")
+        await user.should_not_see(marker="pitch-retry")
 
 
 # ---------------------------------------------------------------------------

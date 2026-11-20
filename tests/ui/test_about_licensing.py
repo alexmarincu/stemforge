@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,6 +40,10 @@ def _only(user, marker: str):
     return elements[0]
 
 
+def _enabled(user, marker: str) -> bool:
+    return bool(_only(user, marker).enabled)
+
+
 @pytest.fixture(autouse=True)
 def _no_network(no_external_network: None) -> None:
     """The About modal must work offline (ticket 13 §10)."""
@@ -46,6 +51,14 @@ def _no_network(no_external_network: None) -> None:
 
 class FakeMedia:
     """A local-import stand-in so one live Track can prove Clear cache is safe."""
+
+    def __init__(self) -> None:
+        self._gate: threading.Event | None = None
+        self.decode_started = threading.Event()
+
+    def block_decoding(self) -> threading.Event:
+        self._gate = threading.Event()
+        return self._gate
 
     def probe(self, path: Path) -> MediaInfo:
         return MediaInfo(
@@ -60,6 +73,10 @@ class FakeMedia:
     def decode_canonical(
         self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
     ) -> DecodeResult:
+        cancel.check()
+        self.decode_started.set()
+        if self._gate is not None:
+            self._gate.wait(timeout=10)
         cancel.check()
         dst.write_bytes(b"canonical:" + src.read_bytes())
         return DecodeResult(
@@ -128,6 +145,7 @@ class Harness:
     settings: SettingsStore = field(init=False)
     runner: JobRunner = field(init=False)
     service: WorkspaceService = field(init=False)
+    media: FakeMedia = field(default_factory=FakeMedia)
     opener: RecordingOpener = field(default_factory=RecordingOpener)
     context: page.UiContext = field(init=False)
 
@@ -140,7 +158,7 @@ class Harness:
             paths=self.paths,
             artifacts=ArtifactStore(self.paths),
             runner=self.runner,
-            engines=ServiceEngines(media=FakeMedia()),
+            engines=ServiceEngines(media=self.media),
             youtube_delay=lambda _: None,
             bundle_root=self.bundle_root,
         )
@@ -342,6 +360,33 @@ async def test_storage_controls_clear_only_what_they_own(harness: Harness) -> No
 
         assert harness.service.recent_files() == ()
         await user.should_see("Recent files cleared.")
+
+
+async def test_storage_clears_are_disabled_while_a_job_runs(harness: Harness) -> None:
+    """Ticket 14 §6: cache clears are disabled while any Job runs."""
+    source = harness.root / "Busy.wav"
+    source.write_bytes(b"fake local audio")
+    gate = harness.media.block_decoding()
+    harness.service.import_local(source)
+    assert await asyncio.to_thread(harness.media.decode_started.wait, 5) is True
+
+    try:
+        async for user, _workspace_page in _open_page(harness):
+            await _open_settings(user)
+
+            assert _enabled(user, "clear-cached-audio") is False
+            assert _enabled(user, "clear-youtube-cache") is False
+            assert _enabled(user, "clear-recent") is True
+
+            gate.set()
+            assert await asyncio.to_thread(harness.runner.wait_idle, 10) is True
+            await asyncio.sleep(0.6)
+
+            assert _enabled(user, "clear-cached-audio") is True
+            assert _enabled(user, "clear-youtube-cache") is True
+    finally:
+        gate.set()
+        harness.runner.wait_idle(10)
 
 
 async def test_the_youtube_toggle_still_works_from_the_modal(harness: Harness) -> None:

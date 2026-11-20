@@ -227,9 +227,16 @@ async def _open_page(harness: Harness):
         await simulation.__aexit__(None, None, None)
 
 
-async def _finish_jobs(harness: Harness, user, workspace_page: page.WorkspacePage) -> None:
+async def _finish_jobs(
+    harness: Harness,
+    user,
+    workspace_page: page.WorkspacePage,
+    *,
+    expected_jobs: int | None = None,
+) -> None:
     for _ in range(300):
-        if harness.runner.jobs():
+        jobs = harness.runner.jobs()
+        if jobs and (expected_jobs is None or len(jobs) >= expected_jobs):
             break
         await asyncio.sleep(0.01)
     assert await asyncio.to_thread(harness.runner.wait_idle, 10) is True
@@ -333,11 +340,42 @@ async def test_a_failed_import_shows_the_coded_copy(harness: Harness) -> None:
         await user.should_see(marker="import-error")
         await user.should_see(AGE_HEADLINE)
         await user.should_see("Choose a video without an age gate.")
+        await user.should_not_see(marker="import-retry")
         await user.should_not_see(marker="job-bar")
         assert harness.service.snapshot().tracks == ()
         assert harness.service.recent_files() == ()
         staging = harness.paths.cache / "staging"
         assert not staging.exists() or list(staging.iterdir()) == []
+
+
+async def test_a_retryable_failure_resubmits_the_same_url(harness: Harness) -> None:
+    """Ticket 14 §8: Retry re-submits the identical request, not a dialog."""
+    harness.service.accept_youtube_notice()
+    harness.youtube.fail = StemForgeError(
+        errors.IMPORT_NETWORK,
+        "fake offline",
+        retryable=True,
+        detail="reason=network",
+    )
+
+    async for user, workspace_page in _open_page(harness):
+        user.find(marker="youtube-url").type(VALID_URL)
+        user.find(marker="youtube-import").click()
+        await _finish_jobs(harness, user, workspace_page)
+
+        await user.should_see(marker="import-error")
+        await user.should_see("No connection.")
+        await user.should_see(marker="import-retry")
+        assert harness.service.snapshot().tracks == ()
+
+        harness.youtube.fail = None
+        user.find(marker="import-retry").click()
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        await user.should_not_see(marker="import-error")
+        await user.should_see(marker="track-detail")
+        jobs = [job for job in harness.runner.jobs() if job.kind.value == "import_youtube"]
+        assert len(jobs) == 2
 
 
 async def test_the_toggle_hides_the_row_but_local_import_still_works(harness: Harness) -> None:
