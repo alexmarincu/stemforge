@@ -1,7 +1,0 @@
-.venv/
-audio/
-out/
-dist/
-build/
-*.spec
-*.zst
