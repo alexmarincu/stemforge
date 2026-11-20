@@ -38,6 +38,8 @@ from stemforge.artifacts import (
 )
 from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.models import RenderScope
+from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
+from stemforge.domain.roles import OUTPUT_ROLES as RENDER_ROLES
 from stemforge.engines.media import (
     CanonicalMetadata,
     ExportFormat,
@@ -67,9 +69,6 @@ __all__ = [
     "run_export_job",
 ]
 
-STEM_ROLES: Final[tuple[str, ...]] = ("vocals", "drums", "bass", "other")
-INSTRUMENTAL_ROLE: Final = "instrumental"
-RENDER_ROLES: Final[tuple[str, ...]] = (*STEM_ROLES, INSTRUMENTAL_ROLE)
 ORIGINAL_ROLE: Final = "original"
 
 STAGE_ENCODING: Final = "Encoding"

@@ -197,6 +197,22 @@ def test_artifact_models_are_immutable_and_grouped_by_a_set() -> None:
 
 
 @pytest.mark.unit
+def test_roles_have_one_canonical_definition() -> None:
+    from stemforge.domain.roles import (
+        INSTRUMENTAL_ROLE,
+        NON_VOCAL_ROLES,
+        OUTPUT_ROLES,
+        STEM_ROLES,
+    )
+    from stemforge.worker_protocol import STEM_NAMES
+
+    assert STEM_ROLES == STEM_NAMES == ("vocals", "drums", "bass", "other")
+    assert INSTRUMENTAL_ROLE == "instrumental"
+    assert NON_VOCAL_ROLES == ("drums", "bass", "other")
+    assert OUTPUT_ROLES == ("vocals", "drums", "bass", "other", "instrumental")
+
+
+@pytest.mark.unit
 def test_job_kinds_and_states_match_the_decision_record() -> None:
     assert {kind.value for kind in JobKind} == {
         "import_local",

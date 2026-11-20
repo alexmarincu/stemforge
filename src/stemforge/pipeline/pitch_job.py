@@ -30,6 +30,7 @@ from stemforge.artifacts import (
     require_free_space,
 )
 from stemforge.domain.models import RenderScope
+from stemforge.domain.roles import INSTRUMENTAL_ROLE, NON_VOCAL_ROLES, STEM_ROLES
 from stemforge.engines.media import CANONICAL_CHANNELS, CANONICAL_SAMPLE_RATE, MediaTool
 from stemforge.engines.pitch import (
     ENGINE_NAME,
@@ -45,10 +46,7 @@ from stemforge.engines.pitch import (
 from stemforge.jobs.job import JobContext
 from stemforge.pipeline.gain import max_peak_dbfs, presentation_gain
 
-STEM_ROLES: Final = ("vocals", "drums", "bass", "other")
-INSTRUMENTAL_ROLE: Final = "instrumental"
 ORIGINAL_ROLE: Final = "original"
-NON_VOCAL_ROLES: Final = ("drums", "bass", "other")
 
 # Stems are shifted first; summing, gain, and previews share the remainder.
 SHIFT_SHARE: Final = 0.80

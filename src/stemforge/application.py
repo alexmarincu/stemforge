@@ -39,6 +39,7 @@ from stemforge.domain.models import (
     Source,
     Track,
 )
+from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
 from stemforge.engines.media import ExportFormat as ExportFormat
 from stemforge.engines.media import MediaTool
@@ -79,14 +80,8 @@ from stemforge.pipeline.model_job import (
     consent_is_current,
     require_model_consent,
 )
-from stemforge.pipeline.pitch_job import STEM_ROLES, find_pitch_render, run_pitch_job
-from stemforge.pipeline.separation_job import (
-    INSTRUMENTAL_ROLE,
-    run_separation_job,
-)
-from stemforge.pipeline.separation_job import (
-    STEM_ROLES as SEPARATION_STEM_ROLES,
-)
+from stemforge.pipeline.pitch_job import find_pitch_render, run_pitch_job
+from stemforge.pipeline.separation_job import run_separation_job
 from stemforge.pipeline.youtube_job import run_youtube_import
 from stemforge.platform import resources
 from stemforge.platform.paths import AppPaths
@@ -713,7 +708,7 @@ class WorkspaceService:
                 set_key=_separation_key(artifact),
                 created_at=artifact.created_at,
                 label="Separation",
-                stem_roles=SEPARATION_STEM_ROLES,
+                stem_roles=STEM_ROLES,
                 based_on_earlier_separation=False,
             ),
         )

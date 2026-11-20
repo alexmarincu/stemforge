@@ -36,6 +36,7 @@ from stemforge.artifacts import (
     free_space_requirement,
     require_free_space,
 )
+from stemforge.domain.roles import INSTRUMENTAL_ROLE, NON_VOCAL_ROLES, STEM_ROLES
 from stemforge.engines.media import (
     CANONICAL_CHANNELS,
     CANONICAL_CODEC,
@@ -74,10 +75,6 @@ __all__ = [
     "block_plan",
     "run_separation_job",
 ]
-
-STEM_ROLES: Final = ("vocals", "drums", "bass", "other")
-NON_VOCAL_ROLES: Final = ("drums", "bass", "other")
-INSTRUMENTAL_ROLE: Final = "instrumental"
 
 STAGE_VERIFY: Final = "Verify"
 STAGE_SEPARATE: Final = "Separate"
