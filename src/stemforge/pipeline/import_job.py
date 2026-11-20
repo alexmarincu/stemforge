@@ -15,11 +15,10 @@ import hashlib
 import shutil
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
 
-from stemforge import __version__, errors
+from stemforge import errors
 from stemforge.artifacts import (
     ArtifactStore,
     SourceArtifact,
@@ -31,6 +30,7 @@ from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
 from stemforge.engines.media import MAX_DURATION_S, CanonicalMetadata, MediaTool
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import JobContext
+from stemforge.pipeline.source_manifest import source_manifest
 
 __all__ = [
     "CANONICAL_NAME",
@@ -287,18 +287,14 @@ def _source_manifest(
     if cover_path is not None:
         files.append(_file_entry(cover_path, "cover"))
 
-    return {
-        "schema_version": 1,
-        "kind": "source",
-        "source_id": source_id,
-        "created_at": datetime.now(UTC).isoformat(),
-        "origin": str(source_path),
-        "origin_kind": OriginKind.FILE.value,
-        "content_hash": source_id,
-        "app_version": __version__,
-        "gain_db": gain_db,
-        "downmixed": downmixed,
-        "metadata": _metadata_record(
+    return source_manifest(
+        source_id=source_id,
+        origin=str(source_path),
+        origin_kind=OriginKind.FILE,
+        content_hash=source_id,
+        gain_db=gain_db,
+        downmixed=downmixed,
+        metadata=_metadata_record(
             metadata,
             source_id=source_id,
             title=title,
@@ -306,8 +302,8 @@ def _source_manifest(
             sample_rate=decoded_sample_rate,
             channels=decoded_channels,
         ),
-        "files": files,
-    }
+        files=files,
+    )
 
 
 def _metadata_record(
