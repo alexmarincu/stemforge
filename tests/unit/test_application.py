@@ -101,6 +101,19 @@ def test_placeholders_and_engine_fakes_are_injectable(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_youtube_tool_versions_are_the_shipped_trio(tmp_path: Path) -> None:
+    """Ticket 09 §9: About shows all three versions without starting Deno."""
+
+    service, _, _ = _service(tmp_path)
+
+    versions = service.youtube_tool_versions()
+    assert set(versions) == {"yt_dlp", "yt_dlp_ejs", "deno"}
+    assert versions["yt_dlp"]
+    assert versions["yt_dlp_ejs"]
+    assert versions["deno"] == "2.9.8"
+
+
+@pytest.mark.unit
 def test_service_constructs_default_placeholders(tmp_path: Path) -> None:
     service, _, _ = _service(tmp_path)
 

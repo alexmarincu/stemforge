@@ -34,6 +34,7 @@ from stemforge.ui.components.diagnostics import (
     DiagnosticsProvider,
     open_diagnostics_modal,
 )
+from stemforge.ui.toast import toast
 
 
 class SettingsDialog:
@@ -103,6 +104,23 @@ class SettingsDialog:
             f"StemForge {__version__}",
             marker="about-version",
         )
+        versions = self._service.youtube_tool_versions()
+        ui.label(formatting.SETTINGS_BUNDLED_TOOLS).classes("sf-fineprint")
+        self._row(
+            formatting.SETTINGS_YTDLP_LABEL,
+            versions.get("yt_dlp", "unknown"),
+            marker="about-ytdlp-version",
+        )
+        self._row(
+            formatting.SETTINGS_YTDLP_EJS_LABEL,
+            versions.get("yt_dlp_ejs", "unknown"),
+            marker="about-ytdlp-ejs-version",
+        )
+        self._row(
+            formatting.SETTINGS_DENO_LABEL,
+            versions.get("deno", "unknown"),
+            marker="about-deno-version",
+        )
         self._document_row(
             formatting.SETTINGS_LICENCE_LABEL,
             "GPL-3.0-only",
@@ -138,18 +156,6 @@ class SettingsDialog:
                 .props("flat no-caps")
                 .mark("about-open-licences")
             )
-        with ui.element("div").classes("sf-setting-row"):
-            with ui.element("div").classes("sf-setting-main"):
-                ui.label(formatting.COPY_DIAGNOSTICS_LABEL).classes("sf-setting-label")
-                ui.label(formatting.DIAGNOSTICS_NOTICE).classes("sf-fineprint")
-            button = (
-                ui.button(
-                    formatting.COPY_DIAGNOSTICS_LABEL, on_click=self._copy_diagnostics, color=None
-                )
-                .props("flat no-caps")
-                .mark("about-copy-diagnostics")
-            )
-            button.set_enabled(self._diagnostics is not None)
         ui.label(formatting.SETTINGS_WEIGHTS_NOTE).classes("sf-fineprint").mark(
             "about-weights-note"
         )
@@ -316,6 +322,18 @@ class SettingsDialog:
                 .props("flat no-caps")
                 .mark("open-log-folder")
             )
+        with ui.element("div").classes("sf-setting-row"):
+            with ui.element("div").classes("sf-setting-main"):
+                ui.label(formatting.COPY_DIAGNOSTICS_LABEL).classes("sf-setting-label")
+                ui.label(formatting.DIAGNOSTICS_NOTICE).classes("sf-fineprint")
+            button = (
+                ui.button(
+                    formatting.COPY_DIAGNOSTICS_LABEL, on_click=self._copy_diagnostics, color=None
+                )
+                .props("flat no-caps")
+                .mark("about-copy-diagnostics")
+            )
+            button.set_enabled(self._diagnostics is not None)
 
     def _any_job_active(self) -> bool:
         return any(snapshot.active for snapshot in self._service.jobs())
@@ -332,17 +350,12 @@ class SettingsDialog:
             return
         report = self._service.clear_cache()
         self._refresh_storage()
-        ui.notify(
-            formatting.SETTINGS_CACHE_CLEARED.format(
-                size=formatting.format_bytes(report.freed_bytes)
-            ),
-            type="positive",
-        )
+        toast(formatting.cache_cleared_message(report.freed_bytes), type="positive")
 
     def _clear_recent(self) -> None:
         self._service.clear_recent()
         self._refresh_storage()
-        ui.notify(formatting.SETTINGS_RECENT_CLEARED, type="positive")
+        toast(formatting.SETTINGS_RECENT_CLEARED, type="positive")
 
     def _clear_youtube_cache(self) -> None:
         if self._any_job_active():
@@ -350,7 +363,7 @@ class SettingsDialog:
         freed = self._service.clear_youtube_cache()
         if self._youtube_cache_size is not None:
             self._youtube_cache_size.set_text(self._youtube_size_text())
-        ui.notify(
+        toast(
             f"YouTube cache cleared ({formatting.format_bytes(freed)}).",
             type="positive",
         )

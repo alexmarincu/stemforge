@@ -9,6 +9,7 @@ test touches the network.
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import logging
 import threading
@@ -668,7 +669,7 @@ async def test_a_write_failure_is_inline_with_retry_and_leaves_no_file_or_partia
         error_code = _only(user, "export-error-code").text
         assert "export.write_failed" in error_code
         assert error_code.startswith("export.write_failed · job ")
-        await user.should_see("Couldn't save the file.")
+        await user.should_see("Couldn't save the file to exports.")
         await user.should_see("Choose another folder, or check its permissions.")
         assert _enabled(user, "export-retry") is True
         assert list(destination.iterdir()) == []
@@ -762,9 +763,49 @@ async def test_a_full_destination_is_coded_with_the_export_action(
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
         assert errors.STORAGE_DISK_FULL in _only(user, "export-error-code").text
-        await user.should_see("Not enough disk space.")
+        await user.should_see("Not enough space at exports.")
+        await user.should_see("This file needs about")
         await user.should_see("Choose another location.")
+        await user.should_see(marker="export-choose-folder")
         assert _enabled(user, "export-retry") is True
+        assert list(destination.iterdir()) == []
+
+        # Choosing another folder must keep the coded failure and its Retry
+        # until a new Export actually starts (ticket 14 §2/§9).
+        user.find(marker="export-choose-folder").click()
+        await user.should_see(marker="export-sheet")
+        user.find(marker="export-cancel").click()
+        await asyncio.sleep(0.05)
+        await user.should_see(marker="export-failure")
+        await user.should_see(marker="export-retry")
+
+
+async def test_an_enospc_write_names_the_folder_and_needed_size(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ticket 14 §4.6: the write-time ENOSPC path interpolates too."""
+    from stemforge.pipeline import export_job
+
+    async for user, workspace_page in _open_page(harness):
+        await _import(harness, user, workspace_page)
+        await _open_sheet(user, workspace_page)
+        destination = harness.root / "exports"
+        destination.mkdir()
+        harness.save_backend.results = [str(destination / "Song.wav")]
+
+        def fail_copy(*args: object, **kwargs: object) -> None:
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        monkeypatch.setattr(export_job, "_copy_with_fsync", fail_copy)
+        user.find(marker="export-confirm").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        assert errors.STORAGE_DISK_FULL in _only(user, "export-error-code").text
+        await user.should_see("Not enough space at exports.")
+        await user.should_see("This file needs about")
+        await user.should_see("Choose another location.")
         assert list(destination.iterdir()) == []
 
 

@@ -142,6 +142,109 @@ def test_export_disk_full_chooses_another_location() -> None:
     assert copy.action == "Choose another location."
 
 
+def test_import_copy_names_the_actual_duration() -> None:
+    """Ticket 14 §4.1: ``This track is <m:ss> long. The limit is 30:00.``"""
+    copy = formatting.copy_for(errors.IMPORT_TOO_LONG, context={"duration_s": 1_872.0})
+
+    assert copy.headline == "This track is 31:12 long. The limit is 30:00."
+    assert copy.action == "Trim it and import again."
+
+
+def test_youtube_too_long_copy_names_the_actual_duration() -> None:
+    """Ticket 09 §8: ``This video is 24:10 — longer than the 15-minute limit.``"""
+    copy = formatting.copy_for(errors.IMPORT_YOUTUBE_TOO_LONG, context={"duration_s": 1_450.0})
+
+    assert copy.headline == "This video is 24:10 — longer than the 15-minute limit."
+
+
+def test_youtube_no_audio_is_a_video_not_a_file() -> None:
+    """Ticket 09 §8 owns the video wording for the shared import code."""
+    local = formatting.copy_for(errors.IMPORT_NO_AUDIO_STREAM)
+    video = formatting.copy_for(errors.IMPORT_NO_AUDIO_STREAM, origin=OriginKind.YOUTUBE)
+
+    assert local.headline == "This file has no audio track."
+    assert video.headline == "This video has no audio track."
+    assert video.action == "Choose a video with audio."
+
+
+def test_export_write_copy_names_the_folder_not_the_full_path() -> None:
+    """Ticket 14 §4.6: the headline names the last path component."""
+    copy = formatting.copy_for(
+        errors.EXPORT_WRITE_FAILED,
+        "permission",
+        context={"path": "/home/alex/exports"},
+    )
+
+    assert copy.headline == "Couldn't save the file to exports."
+    assert copy.action == "Choose another folder, or check its permissions."
+
+
+def test_export_disk_full_copy_names_the_folder_and_needed_size() -> None:
+    copy = formatting.copy_for(
+        errors.STORAGE_DISK_FULL,
+        "export",
+        context={"path": "/home/alex/exports", "required": 120_000_000, "free": 1_048_576},
+    )
+
+    assert copy.headline == ("Not enough space at exports. This file needs about 114.4 MB.")
+    assert copy.action == "Choose another location."
+
+
+def test_import_disk_full_copy_reports_needed_and_free() -> None:
+    """Ticket 14 §4.1/§4.7: report needed vs free, then the cache action."""
+    copy = formatting.copy_for(
+        errors.STORAGE_DISK_FULL,
+        context={"path": "/home/alex/stemforge", "required": 120_000_000, "free": 10_485_760},
+    )
+
+    assert copy.headline == (
+        "Not enough disk space. This import needs about 114.4 MB and only 10.0 MB is free."
+    )
+    assert copy.action == "Clear cached audio to make room."
+
+
+def test_storage_permission_copy_names_the_path_when_known() -> None:
+    copy = formatting.copy_for(
+        errors.STORAGE_PERMISSION_DENIED,
+        context={"path": "/home/alex/stemforge"},
+    )
+
+    assert copy.headline == "StemForge can't write to /home/alex/stemforge."
+
+
+def test_dynamic_copy_never_exceeds_the_headline_cap() -> None:
+    """Ticket 14 §9: interpolated copy keeps the 90-character ceiling."""
+    folder = "a-very-long-export-folder-name-that-would-overflow"
+    copy = formatting.copy_for(
+        errors.STORAGE_DISK_FULL,
+        "export",
+        context={
+            "path": f"/home/alex/{folder}",
+            "required": 120_000_000,
+            "free": 1_048_576,
+        },
+    )
+
+    assert len(copy.headline) <= formatting.MAX_HEADLINE_LENGTH
+    assert copy.headline.startswith("Not enough space at a-very-long-export-folder-")
+    assert "…" in copy.headline
+
+
+def test_dynamic_copy_falls_back_when_context_is_missing() -> None:
+    """A Job recorded by an older runner still gets the generic sentence."""
+    assert (
+        formatting.copy_for(errors.IMPORT_TOO_LONG).headline
+        == "This track is too long. The limit is 30:00."
+    )
+    assert (
+        formatting.copy_for(errors.EXPORT_WRITE_FAILED, "permission").headline
+        == "Couldn't save the file."
+    )
+    assert (
+        formatting.copy_for(errors.STORAGE_DISK_FULL, "export").headline == "Not enough disk space."
+    )
+
+
 def test_a_log_folder_failure_is_not_reported_as_a_licence_failure() -> None:
     copy = formatting.copy_for(errors.LOGGING_OPEN_FAILED)
 

@@ -35,6 +35,7 @@ from stemforge.ui.components.diagnostics import (
     DiagnosticsProvider,
     error_details,
 )
+from stemforge.ui.toast import toast
 
 if TYPE_CHECKING:
     from stemforge.application import WorkspaceService
@@ -64,6 +65,7 @@ EXPORT_CONFIRM: Final = "Export"
 EXPORT_CANCEL: Final = "Cancel"
 EXPORT_RETRY: Final = "Retry"
 EXPORT_DISMISS: Final = "Dismiss"
+EXPORT_CHOOSE_FOLDER: Final = "Choose another folder…"
 EXPORT_CANCELLED: Final = "Export cancelled."
 EXPORT_NO_TARGETS: Final = "No exportable audio is available for this Track."
 
@@ -91,6 +93,7 @@ class ExportNotice:
     path: Path | None = None
     code: str | None = None
     detail: str | None = None
+    context: Mapping[str, object] | None = None
     retryable: bool = False
     job_id: str | None = None
     log_path: Path | None = None
@@ -111,6 +114,7 @@ class ExportNotice:
         code: str,
         detail: str | None,
         retryable: bool,
+        context: Mapping[str, object] | None = None,
         job_id: str | None = None,
         log_path: Path | None = None,
     ) -> ExportNotice:
@@ -118,6 +122,7 @@ class ExportNotice:
             spec=spec,
             code=code,
             detail=detail,
+            context=context,
             retryable=retryable,
             job_id=job_id,
             log_path=log_path,
@@ -148,7 +153,8 @@ class ExportSheet:
         self._track: Track | None = None
         self._dialog: ui.dialog | None = None
         self._body: ui.column | None = None
-        self._submit_error: tuple[str, str | None] | None = None
+        self._initial_directory: Path | None = None
+        self._submit_error: tuple[str, str | None, Mapping[str, object]] | None = None
         self._saving = False
 
     # -- composition --------------------------------------------------------
@@ -172,11 +178,13 @@ class ExportSheet:
         *,
         target_key: str,
         busy: bool = False,
+        directory: Path | None = None,
     ) -> None:
         """Open the sheet for one Track and the artifact the entry point chose."""
         self.build()
         self._track = track
         self._target_key = target_key
+        self._initial_directory = directory
         self._submit_error = None
         self._saving = False
         self._render(busy=busy)
@@ -244,8 +252,12 @@ class ExportSheet:
     def _submit_error_block(self) -> None:
         if self._submit_error is None:
             return
-        code, detail = self._submit_error
-        copy = formatting.copy_for(code, detail)
+        code, detail, context = self._submit_error
+        copy = formatting.copy_for(
+            code,
+            formatting.reason_from_detail(detail),
+            context=context,
+        )
         with ui.element("div").classes("sf-notice").mark("export-submit-error"):
             ui.label(copy.headline).classes("sf-notice-headline")
             ui.label(copy.action).classes("sf-notice-action")
@@ -318,7 +330,7 @@ class ExportSheet:
             # The await outlived the button slot; attach the toast to the
             # persistent sheet body instead of the deleted click context.
             with body:
-                ui.notify(
+                toast(
                     f"Extension changed to {fmt.suffix} for {FORMAT_LABELS[fmt]}.",
                     type="info",
                 )
@@ -332,7 +344,7 @@ class ExportSheet:
                 destination_name=spec.destination_name,
             )
         except StemForgeError as error:
-            self._submit_error = (error.code, error.detail)
+            self._submit_error = (error.code, error.detail, error.context)
             self._render(busy=False)
             return
         self._submit_error = None
@@ -357,6 +369,8 @@ class ExportSheet:
         )
 
     def _default_directory(self) -> Path | None:
+        if self._initial_directory is not None:
+            return self._initial_directory
         return self._service.preferred_export_dir()
 
     def _destination_label(self) -> str:
@@ -374,6 +388,7 @@ class ExportStatusBar:
         busy: bool,
         on_retry: Callable[[], None],
         on_dismiss: Callable[[], None],
+        on_choose_folder: Callable[[], None] | None = None,
         diagnostics: DiagnosticsProvider | None = None,
         clipboard: ClipboardWriter | None = None,
         open_path: PathOpener | None = None,
@@ -386,6 +401,7 @@ class ExportStatusBar:
             busy=busy,
             on_retry=on_retry,
             on_dismiss=on_dismiss,
+            on_choose_folder=on_choose_folder,
             diagnostics=diagnostics,
             clipboard=clipboard,
             open_path=open_path,
@@ -416,6 +432,7 @@ class ExportStatusBar:
         busy: bool,
         on_retry: Callable[[], None],
         on_dismiss: Callable[[], None],
+        on_choose_folder: Callable[[], None] | None,
         diagnostics: DiagnosticsProvider | None,
         clipboard: ClipboardWriter | None,
         open_path: PathOpener | None,
@@ -426,7 +443,7 @@ class ExportStatusBar:
             if code == errors.STORAGE_DISK_FULL
             else formatting.reason_from_detail(notice.detail)
         )
-        copy = formatting.copy_for(code, reason)
+        copy = formatting.copy_for(code, reason, context=notice.context)
         with ui.element("div").classes("sf-exportbar is-failure").mark("export-failure"):
             ui.icon("error_outline", size="sm").classes("sf-exportbar-icon")
             with ui.element("div").classes("sf-exportbar-main"):
@@ -448,6 +465,20 @@ class ExportStatusBar:
                     .mark("export-retry")
                 )
                 retry.set_enabled(not busy)
+            if on_choose_folder is not None and code in {
+                errors.EXPORT_WRITE_FAILED,
+                errors.STORAGE_DISK_FULL,
+            }:
+                choose = (
+                    ui.button(
+                        EXPORT_CHOOSE_FOLDER,
+                        on_click=lambda _=None: on_choose_folder(),
+                        color=None,
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .mark("export-choose-folder")
+                )
+                choose.set_enabled(not busy)
             (
                 ui.button(EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None)
                 .props("flat dense no-caps size=sm")

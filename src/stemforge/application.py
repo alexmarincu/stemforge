@@ -49,7 +49,13 @@ from stemforge.engines.pitch import (
     validate_semitones,
 )
 from stemforge.engines.separation import SeparationEngine
-from stemforge.engines.youtube import YouTubeTool, YouTubeVideo, YtDlpImporter, parse_youtube_url
+from stemforge.engines.youtube import (
+    YouTubeTool,
+    YouTubeVideo,
+    YtDlpImporter,
+    parse_youtube_url,
+    shipped_tool_versions,
+)
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import Job, JobContext, JobRun
 from stemforge.jobs.models import JobSnapshot
@@ -1130,6 +1136,15 @@ class WorkspaceService:
     def youtube_enabled(self) -> bool:
         """Whether the empty-state YouTube row is enabled (ticket 09 §7)."""
         return self._settings.youtube_enabled
+
+    def youtube_tool_versions(self) -> Mapping[str, str]:
+        """The yt-dlp, yt-dlp-ejs, and Deno versions About must show (09 §9).
+
+        About renders from package metadata and the pinned Deno version. It
+        never instantiates or calls an engine adapter, so opening the modal
+        cannot start a subprocess or block the UI event loop (ADR 0003).
+        """
+        return dict(shipped_tool_versions())
 
     def set_youtube_enabled(self, enabled: bool) -> None:
         self._settings.set_youtube_enabled(enabled)

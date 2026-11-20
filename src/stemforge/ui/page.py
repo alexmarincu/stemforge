@@ -58,6 +58,7 @@ from stemforge.ui.components.export import (
 from stemforge.ui.components.pitch import PitchCard
 from stemforge.ui.components.separation import SeparationCard
 from stemforge.ui.components.youtube import YouTubeRow
+from stemforge.ui.toast import toast
 
 TITLE: Final = "StemForge"
 POLL_INTERVAL_S: Final = 0.4
@@ -80,7 +81,7 @@ SHELL_CSS: Final = (
 .sf-shell { display: grid; grid-template-columns: 292px minmax(0, 1fr);
   width: 100vw; height: 100vh; overflow: hidden; background: var(--bg); color: var(--text);
   font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
-@media (max-width: 1150px) { .sf-shell { grid-template-columns: 260px minmax(0, 1fr); } }
+@media (max-width: 1149.98px) { .sf-shell { grid-template-columns: 260px minmax(0, 1fr); } }
 .sf-rail { display: flex; flex-direction: column; min-height: 0;
   background: var(--rail); border-right: 1px solid var(--line); }
 .sf-brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 10px; }
@@ -114,7 +115,8 @@ SHELL_CSS: Final = (
 .sf-dot.is-bad { background: var(--bad); }
 .sf-track-remove { opacity: 0; }
 .sf-track:hover .sf-track-remove, .sf-track.is-selected .sf-track-remove { opacity: 1; }
-.sf-recent { padding: 10px 8px 6px; border-top: 1px solid var(--line); }
+.sf-recent { padding: 10px 8px 6px; border-top: 1px solid var(--line);
+  flex: 0 1 auto; min-height: 0; max-height: 38vh; overflow-y: auto; }
 .sf-recent-row { display: flex; align-items: center; gap: 5px; padding: 2px 0;
   border-radius: 6px; min-width: 0; }
 .sf-recent-hit { display: flex; align-items: center; gap: 7px; padding: 3px 7px;
@@ -127,7 +129,7 @@ SHELL_CSS: Final = (
   overflow: hidden; text-overflow: ellipsis; }
 .sf-recent-meta { font-size: 10px; color: var(--dim); flex: none; }
 .sf-foot { border-top: 1px solid var(--line); padding: 10px 14px 12px;
-  display: flex; flex-direction: column; gap: 7px; }
+  flex: none; display: flex; flex-direction: column; gap: 7px; }
 .sf-cache-line { display: flex; justify-content: space-between; font-size: 10.5px;
   color: var(--muted); }
 .sf-bar { height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
@@ -178,7 +180,7 @@ SHELL_CSS: Final = (
 .sf-head-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .sf-two-up { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 18px; align-items: start; }
-@media (max-width: 1150px) { .sf-two-up { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1149.98px) { .sf-two-up { grid-template-columns: minmax(0, 1fr); } }
 .sf-title { font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
 .sf-detail-meta { font-size: 11.5px; color: var(--muted); display: flex;
   flex-wrap: wrap; gap: 6px; }
@@ -213,7 +215,8 @@ SHELL_CSS: Final = (
   color: var(--warn); font-size: 12px; }
 .sf-jobbar { flex: none; min-height: 44px; display: flex; align-items: center; gap: 12px;
   padding: 6px 16px; background: var(--rail); border-top: 1px solid var(--line); }
-.sf-job-text { font-size: 11.5px; color: var(--text); white-space: nowrap; }
+.sf-job-text { font-size: 11.5px; color: var(--text); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 42%; }
 .sf-job-detail { font-size: 10.5px; color: var(--dim); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; max-width: 34%; flex: 0 1 auto; }
 .sf-job-progress { flex: 1; min-width: 80px; }
@@ -457,6 +460,9 @@ class JobView(Protocol):
     def error_detail(self) -> str | None: ...
 
     @property
+    def error_context(self) -> Mapping[str, object]: ...
+
+    @property
     def retryable(self) -> bool: ...
 
     @property
@@ -539,6 +545,7 @@ class WorkspacePage:
             self.service,
             on_select=self._select_version,
             on_job_started=self._pitch_job_started,
+            on_clear_cache=self._clear_cache,
             diagnostics=context.diagnostics,
             clipboard=context.clipboard,
             open_path=context.open_path,
@@ -549,6 +556,7 @@ class WorkspacePage:
             on_job_started=self._separation_job_started,
             on_cancel=self._cancel_active_job,
             on_open_about=self._open_settings,
+            on_clear_cache=self._clear_cache,
             diagnostics=context.diagnostics,
             clipboard=context.clipboard,
             open_path=context.open_path,
@@ -854,6 +862,17 @@ class WorkspacePage:
                     .mark("import-retry")
                 )
                 retry.set_enabled(not self._busy())
+            if notice.code in {errors.STORAGE_DISK_FULL, errors.STORAGE_CACHE_FULL}:
+                clear = (
+                    ui.button(
+                        formatting.SETTINGS_CACHE_CLEAR,
+                        on_click=self._clear_cache,
+                        color=None,
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .mark("notice-clear-cache")
+                )
+                clear.set_enabled(not self._busy())
 
     @ui.refreshable_method
     def _detail(self) -> None:
@@ -1224,11 +1243,7 @@ class WorkspacePage:
                         .classes("sf-fineprint")
                         .mark("outputs-show-more")
                     )
-            elif (
-                active_key == "original"
-                and not self.service.has_separation(track)
-                and self.service.model_status().installed
-            ):
+            elif active_key == "original" and not self.service.has_separation(track):
                 self._outputs_placeholder(track, running=self._separation_running(track))
 
     def _version_tabs(self, track: Track, sets: Sequence[PitchSet], active_key: str) -> None:
@@ -1379,6 +1394,7 @@ class WorkspacePage:
                 item.semitones,
                 item.scope,
                 retryable=error.retryable,
+                context=error.context,
             )
             return
         except ValueError:
@@ -1522,6 +1538,9 @@ class WorkspacePage:
             player.pause()
             self._position_s = 0.0
             player.set_source(preview.url)
+            # The element outlives the Track: reset its clock explicitly so a
+            # reused source cannot resume at the previous Track's position.
+            player.seek(0.0)
             player.play()
         self._loaded_track_id = track.track_id
         self._loaded_preview = preview
@@ -1601,7 +1620,7 @@ class WorkspacePage:
                 self._player.seek(0.0)
             self._loaded_track_id = track_id
             self._loaded_preview = preview
-        ui.notify(formatting.copy_for(errors.PLAYBACK_UNAVAILABLE).headline, type="negative")
+        toast(formatting.copy_for(errors.PLAYBACK_UNAVAILABLE).headline, type="negative")
         self._refresh_playback()
 
     def _fallback_version(self, track_id: str) -> tuple[str, PreviewTarget] | None:
@@ -1667,6 +1686,7 @@ class WorkspacePage:
                     busy=self._busy(),
                     on_retry=self._retry_export,
                     on_dismiss=self._dismiss_export,
+                    on_choose_folder=self._choose_export_folder,
                     diagnostics=self.context.diagnostics,
                     clipboard=self.context.clipboard,
                     open_path=self.context.open_path,
@@ -1778,6 +1798,18 @@ class WorkspacePage:
             self._job_bar.refresh()
         self._refresh_all()
 
+    def _clear_cache(self) -> None:
+        """Ticket 14 §4.7: offer the cache action beside a disk-full failure."""
+        if self._busy():
+            return
+        try:
+            report = self.service.clear_cache()
+        except StemForgeError as error:
+            self._show_error(error)
+            return
+        toast(formatting.cache_cleared_message(report.freed_bytes), type="positive")
+        self._refresh_all()
+
     def _pitch_job_started(
         self,
         job_id: str,
@@ -1847,13 +1879,14 @@ class WorkspacePage:
                 self._export_notice = ExportNotice.success(spec, result.path)
                 with contextlib.suppress(OSError):
                     self.service.remember_export_dir(result.path.parent)
-                ui.notify(f"Exported to {result.path}", type="positive")
+                toast(f"Exported to {result.path}", type="positive")
         elif snapshot.state.value == "failed":
             code = snapshot.error_code or errors.INTERNAL_UNEXPECTED
             self._export_notice = ExportNotice.failure(
                 spec,
                 code=code,
                 detail=snapshot.error_detail,
+                context=snapshot.error_context,
                 retryable=snapshot.retryable,
                 job_id=snapshot.job_id or None,
                 log_path=snapshot.log_path,
@@ -1863,9 +1896,12 @@ class WorkspacePage:
                 if code == errors.STORAGE_DISK_FULL
                 else formatting.reason_from_detail(snapshot.error_detail)
             )
-            ui.notify(formatting.copy_for(code, reason).headline, type="negative")
+            toast(
+                formatting.copy_for(code, reason, context=snapshot.error_context).headline,
+                type="negative",
+            )
         elif snapshot.state.value == "cancelled":
-            ui.notify(formatting.EXPORT_CANCELLED, type="info")
+            toast(formatting.EXPORT_CANCELLED, type="info")
         self._job_bar.refresh()
         self._refresh_all()
 
@@ -1887,6 +1923,7 @@ class WorkspacePage:
                 spec,
                 code=error.code,
                 detail=error.detail,
+                context=error.context,
                 retryable=error.retryable,
             )
             self._job_bar.refresh()
@@ -1897,11 +1934,33 @@ class WorkspacePage:
         self._export_notice = None
         self._job_bar.refresh()
 
+    def _choose_export_folder(self) -> None:
+        """Reopen the sheet at the failed destination for another location."""
+        notice = self._export_notice
+        if notice is None or self._busy():
+            return
+        track = next(
+            (
+                item
+                for item in self.service.snapshot().tracks
+                if item.track_id == notice.spec.track_id
+            ),
+            None,
+        )
+        if track is None:
+            return
+        self._export_sheet.open(
+            track,
+            target_key=notice.spec.target_key,
+            busy=False,
+            directory=notice.spec.destination_dir,
+        )
+
     def _open_recent(self, entry: RecentEntry) -> None:
         if self._busy():
             return
         if entry.origin_kind is OriginKind.YOUTUBE and not self.service.youtube_enabled():
-            ui.notify(formatting.YOUTUBE_OFF, type="info")
+            toast(formatting.YOUTUBE_OFF, type="info")
             return
         submit = partial(self.service.open_recent, entry.source_id)
         try:
@@ -1925,9 +1984,9 @@ class WorkspacePage:
             return
         self.service.cancel_job(snapshot.job_id)
         if snapshot.kind.value == "separate":
-            ui.notify(formatting.SEPARATION_CANCELLED, type="info")
+            toast(formatting.SEPARATION_CANCELLED, type="info")
         elif snapshot.kind.value == "model_install":
-            ui.notify(formatting.SEPARATION_MODEL_CANCELLED, type="info")
+            toast(formatting.SEPARATION_MODEL_CANCELLED, type="info")
         self._job_bar.refresh()
         self._separation.observe(None)
 
@@ -1995,7 +2054,7 @@ class WorkspacePage:
             elif snapshot.state.value == "failed":
                 self._on_import_failure(snapshot, retry=retry)
             elif snapshot.state.value == "cancelled":
-                ui.notify("Import cancelled.", type="info")
+                toast("Import cancelled.", type="info")
                 self._refresh_all()
 
     def _finish_separation_job(self, snapshot: JobView) -> None:
@@ -2010,6 +2069,7 @@ class WorkspacePage:
                 snapshot.error_code or errors.INTERNAL_UNEXPECTED,
                 snapshot.error_detail,
                 retryable=snapshot.retryable,
+                context=snapshot.error_context,
                 job_id=snapshot.job_id,
                 log_path=snapshot.log_path,
             )
@@ -2026,6 +2086,7 @@ class WorkspacePage:
             self._separation.record_model_failure(
                 snapshot.error_code or errors.SEPARATION_MODEL_DOWNLOAD_FAILED,
                 snapshot.error_detail,
+                context=snapshot.error_context,
                 job_id=snapshot.job_id,
                 log_path=snapshot.log_path,
             )
@@ -2051,6 +2112,7 @@ class WorkspacePage:
                         error.code,
                         error.detail,
                         retryable=error.retryable,
+                        context=error.context,
                     )
                 else:
                     if job_id is not None:
@@ -2070,6 +2132,7 @@ class WorkspacePage:
                 spec.semitones,
                 spec.scope,
                 retryable=snapshot.retryable,
+                context=snapshot.error_context,
                 job_id=snapshot.job_id,
                 log_path=snapshot.log_path,
             )
@@ -2103,8 +2166,15 @@ class WorkspacePage:
         retry: Callable[[], str | None] | None = None,
     ) -> None:
         code = snapshot.error_code or errors.INTERNAL_UNEXPECTED
-        copy = formatting.copy_for(code, formatting.reason_from_detail(snapshot.error_detail))
-        ui.notify(copy.headline, type="negative")
+        copy = formatting.copy_for(
+            code,
+            formatting.reason_from_detail(snapshot.error_detail),
+            context=snapshot.error_context,
+            origin=(
+                OriginKind.YOUTUBE if snapshot.kind.value == "import_youtube" else OriginKind.FILE
+            ),
+        )
+        toast(copy.headline, type="negative")
         self._notice = Notice(
             code=code,
             headline=copy.headline,
@@ -2122,8 +2192,12 @@ class WorkspacePage:
         *,
         retry: Callable[[], str | None] | None = None,
     ) -> None:
-        copy = formatting.copy_for(error.code, formatting.reason_from_detail(error.detail))
-        ui.notify(copy.headline, type="negative")
+        copy = formatting.copy_for(
+            error.code,
+            formatting.reason_from_detail(error.detail),
+            context=error.context,
+        )
+        toast(copy.headline, type="negative")
         self._notice = Notice(
             code=error.code,
             headline=copy.headline,
@@ -2155,7 +2229,7 @@ class WorkspacePage:
         if selection.accepted:
             self._submit_paths(selection.accepted)
         if selection.ignored:
-            ui.notify("That drop didn't include a usable audio file. Use Add audio.", type="info")
+            toast("That drop didn't include a usable audio file. Use Add audio.", type="info")
         self._sync_actions()
         self._refresh_all()
 
@@ -2183,7 +2257,8 @@ class WorkspacePage:
             self._pause()
             self._loaded_track_id = None
             self._loaded_preview = None
-            ui.notify(formatting.REMOVING, type="info")
+        if self._track_owns_active_job(track.track_id):
+            toast(formatting.REMOVING, type="info")
         try:
             self.service.remove_track(track.track_id)
         except StemForgeError as error:
@@ -2258,6 +2333,23 @@ class WorkspacePage:
                 return snapshot
         return None
 
+    def _track_owns_active_job(self, track_id: str) -> bool:
+        """Whether removing this Track cancels a Job it owns (ticket 14 §6)."""
+        if self._active_separation_job(track_id) is not None:
+            return True
+        for snapshot in self.service.jobs():
+            if not snapshot.active:
+                continue
+            if snapshot.kind.value == "render_pitch":
+                spec = self._pitch_jobs.get(snapshot.job_id)
+                if spec is not None and spec.track_id == track_id:
+                    return True
+            elif snapshot.kind.value == "export":
+                export_spec = self._export_jobs.get(snapshot.job_id)
+                if export_spec is not None and export_spec.track_id == track_id:
+                    return True
+        return False
+
     def _separation_running(self, track: Track) -> bool:
         job = self._active_separation_job(track.track_id)
         return job is not None and job.kind.value == "separate"
@@ -2275,6 +2367,11 @@ class WorkspacePage:
             self._pause()
         if track_id != self._loaded_track_id:
             self._position_s = 0.0
+            # The player outlives the selection; clear its clock so returning
+            # to the old Track cannot resume where it stopped while the UI
+            # shows 0:00 (ticket 08 §8).
+            if self._player is not None:
+                self._player.seek(0.0)
         self._selected_id = track_id
         self._sync_title()
         self._tracks.refresh()

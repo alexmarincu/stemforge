@@ -12,7 +12,7 @@ set never satisfies a stems request, and the Outputs tabs keep both visible.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -49,6 +49,7 @@ class PitchFailure:
     semitones: int
     scope: RenderScope
     retryable: bool = False
+    context: Mapping[str, object] | None = None
     job_id: str | None = None
     log_path: Path | None = None
 
@@ -62,6 +63,7 @@ class PitchCard:
         *,
         on_select: SelectCallback,
         on_job_started: JobCallback,
+        on_clear_cache: Callable[[], None] | None = None,
         diagnostics: DiagnosticsProvider | None = None,
         clipboard: ClipboardWriter | None = None,
         open_path: PathOpener | None = None,
@@ -69,6 +71,7 @@ class PitchCard:
         self._service = service
         self._on_select = on_select
         self._on_job_started = on_job_started
+        self._on_clear_cache = on_clear_cache
         self._diagnostics = diagnostics
         self._clipboard = clipboard
         self._open_path = open_path
@@ -181,7 +184,11 @@ class PitchCard:
         failure = self._failures.get(track.track_id)
         if failure is None:
             return
-        copy = formatting.copy_for(failure.code, formatting.reason_from_detail(failure.detail))
+        copy = formatting.copy_for(
+            failure.code,
+            formatting.reason_from_detail(failure.detail),
+            context=failure.context,
+        )
         with ui.element("div").classes("sf-notice").mark("pitch-error"):
             ui.label(copy.headline).classes("sf-notice-headline")
             ui.label(copy.action).classes("sf-notice-action")
@@ -204,6 +211,20 @@ class PitchCard:
                     .mark("pitch-retry")
                 )
                 retry.set_enabled(not busy)
+            if self._on_clear_cache is not None and failure.code in {
+                errors.STORAGE_DISK_FULL,
+                errors.STORAGE_CACHE_FULL,
+            }:
+                clear = (
+                    ui.button(
+                        formatting.SETTINGS_CACHE_CLEAR,
+                        on_click=lambda _=None: self._on_clear_cache(),
+                        color=None,
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .mark("pitch-clear-cache")
+                )
+                clear.set_enabled(not busy)
 
     # -- actions ------------------------------------------------------------
 
@@ -225,6 +246,7 @@ class PitchCard:
                 semitones=semitones,
                 scope=scope,
                 retryable=error.retryable,
+                context=error.context,
             )
             self.build.refresh()
             return
@@ -254,6 +276,7 @@ class PitchCard:
         scope: RenderScope,
         *,
         retryable: bool = False,
+        context: Mapping[str, object] | None = None,
         job_id: str | None = None,
         log_path: Path | None = None,
     ) -> None:
@@ -264,6 +287,7 @@ class PitchCard:
             semitones=semitones,
             scope=scope,
             retryable=retryable,
+            context=context,
             job_id=job_id,
             log_path=log_path,
         )

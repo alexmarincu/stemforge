@@ -48,6 +48,7 @@ __all__ = [
     "classify_youtube_error",
     "normalize_title",
     "parse_youtube_url",
+    "shipped_tool_versions",
 ]
 
 VIDEO_ID_PATTERN: Final = re.compile(r"[A-Za-z0-9_-]{11}")
@@ -722,6 +723,15 @@ def _as_float(value: object) -> float | None:
         number = float(value)
         return number if math.isfinite(number) else None
     return None
+
+
+def shipped_tool_versions() -> Mapping[str, str]:
+    """The pinned trio versions About reports without starting any process."""
+    return {
+        "yt_dlp": _yt_dlp_version(),
+        "yt_dlp_ejs": _distribution_version("yt-dlp-ejs"),
+        "deno": DENO_PINNED_VERSION,
+    }
 
 
 def _yt_dlp_version() -> str:
