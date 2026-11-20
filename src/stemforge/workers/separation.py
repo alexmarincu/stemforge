@@ -46,6 +46,7 @@ from stemforge.worker_protocol import (
     EXIT_MODEL_UNAVAILABLE,
     EXIT_OK,
     STEM_NAMES,
+    block_count,
     format_event,
 )
 
@@ -440,14 +441,18 @@ def _segment_frames(separator: object) -> int:
 def _plan_blocks(total_frames: int, block_frames: int, fade_frames: int) -> list[_Block]:
     if total_frames <= 0:
         raise _InvalidInput("the input has no audio frames")
-    blocks: list[_Block] = []
-    start = 0
-    while True:
-        length = min(block_frames, total_frames - start)
-        blocks.append(_Block(index=len(blocks), start=start, length=length))
-        if start + length >= total_frames:
-            return blocks
-        start += block_frames - fade_frames
+    count = block_count(
+        total_frames=total_frames, block_frames=block_frames, fade_frames=fade_frames
+    )
+    hop = block_frames - fade_frames
+    return [
+        _Block(
+            index=index,
+            start=index * hop,
+            length=min(block_frames, total_frames - index * hop),
+        )
+        for index in range(count)
+    ]
 
 
 def _read_block(numpy: Any, handle: IO[bytes], info: _WavInfo, block: _Block) -> Any:

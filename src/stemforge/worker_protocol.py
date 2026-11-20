@@ -24,6 +24,7 @@ protocol mismatch. Exit codes are fixed by ticket 06 §4.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final, cast
@@ -132,6 +133,17 @@ def parse_event(line: str) -> WorkerEvent | None:
     if name == EVENT_STEM:
         return _parse_stem(payload, line)
     return _parse_done(payload, line)
+
+
+def block_count(*, total_frames: int, block_frames: int, fade_frames: int) -> int:
+    """The block plan's count, shared by the worker and the manifest."""
+    if total_frames <= 0:
+        return 0
+    if block_frames <= 0 or fade_frames < 0 or fade_frames >= block_frames:
+        raise ValueError("invalid block or fade length")
+    if total_frames <= block_frames:
+        return 1
+    return 1 + math.ceil((total_frames - block_frames) / (block_frames - fade_frames))
 
 
 def format_event(payload: dict[str, object]) -> str:

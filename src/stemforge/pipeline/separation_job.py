@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -58,6 +57,7 @@ from stemforge.jobs.job import JobContext
 from stemforge.models import ModelStore
 from stemforge.models.store import sha256_file
 from stemforge.pipeline.gain import max_peak_dbfs, presentation_gain
+from stemforge.worker_protocol import block_count
 
 __all__ = [
     "INSTRUMENTAL_ROLE",
@@ -344,7 +344,7 @@ def block_plan(
     block = round(block_seconds * CANONICAL_SAMPLE_RATE)
     fade = round(crossfade_seconds * CANONICAL_SAMPLE_RATE)
     total = round(duration_s * CANONICAL_SAMPLE_RATE)
-    blocks = 1 if total <= block else 1 + math.ceil((total - block) / (block - fade))
+    blocks = block_count(total_frames=total, block_frames=block, fade_frames=fade)
     payload: dict[str, object] = {
         "engine": ENGINE_NAME,
         "engine_version": DEMUCS_VERSION,

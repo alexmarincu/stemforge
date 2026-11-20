@@ -110,6 +110,27 @@ def test_protocol_version_is_one() -> None:
     assert PROTOCOL_VERSION == 1
 
 
+def test_block_count_is_the_one_plan_shared_by_parent_and_worker() -> None:
+    from stemforge.worker_protocol import block_count
+
+    sample_rate = 44_100
+    assert block_count(total_frames=0, block_frames=480 * sample_rate, fade_frames=sample_rate) == 0
+    assert (
+        block_count(
+            total_frames=sample_rate, block_frames=480 * sample_rate, fade_frames=sample_rate
+        )
+        == 1
+    )
+    assert (
+        block_count(
+            total_frames=1800 * sample_rate,
+            block_frames=480 * sample_rate,
+            fade_frames=sample_rate,
+        )
+        == 4
+    )
+
+
 @pytest.mark.parametrize(
     ("path", "safe"),
     [
