@@ -39,7 +39,7 @@ class YouTubeRow:
         service: WorkspaceService,
         *,
         busy: bool = False,
-        on_submitted: Callable[[str], None] | None = None,
+        on_submitted: Callable[[str, str], None] | None = None,
         diagnostics: DiagnosticsProvider | None = None,
         clipboard: ClipboardWriter | None = None,
         open_path: PathOpener | None = None,
@@ -135,7 +135,7 @@ class YouTubeRow:
         if self._status is not None:
             self._status.set_visibility(False)
         if self._on_submitted is not None:
-            self._on_submitted(job_id)
+            self._on_submitted(job_id, raw)
 
     def _open_consent(self) -> None:
         if self._dialog is not None:

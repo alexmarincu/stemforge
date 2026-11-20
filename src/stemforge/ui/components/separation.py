@@ -36,7 +36,6 @@ from stemforge.ui.components.diagnostics import (
 
 if TYPE_CHECKING:
     from stemforge.application import WorkspaceService
-    from stemforge.models import ModelStatus
 
 JobStarted = Callable[[str, str, str | None], None]
 CancelJob = Callable[[], None]
@@ -124,11 +123,20 @@ class SeparationCard:
         status = self._service.model_status()
         failure = self._failures.get(track.track_id)
         model_missing = failure is not None and failure.code == errors.SEPARATION_MODEL_MISSING
+        checksum_failure: SeparationFailure | None = None
+        for candidate in (failure, self._download_failure):
+            if (
+                candidate is not None
+                and candidate.code == errors.SEPARATION_MODEL_MISSING
+                and formatting.reason_from_detail(candidate.detail) == "checksum"
+            ):
+                checksum_failure = candidate
+                break
         with ui.element("section").classes("sf-card").mark("separation-card"):
             ui.label(formatting.SEPARATION_TITLE).classes("sf-card-title")
             gate_visible = not status.installed or model_missing
             if gate_visible:
-                self._gate(status, busy=busy)
+                self._gate(busy=busy, checksum_failure=checksum_failure)
             if self._running():
                 self._running_block()
                 if has_stems:
@@ -157,11 +165,25 @@ class SeparationCard:
 
     # -- model gate ---------------------------------------------------------
 
-    def _gate(self, status: ModelStatus, *, busy: bool = False) -> None:
+    def _gate(
+        self,
+        *,
+        busy: bool = False,
+        checksum_failure: SeparationFailure | None = None,
+    ) -> None:
         copy = formatting.model_licence_copy(self._service.model_spec())
+        reason_copy = (
+            formatting.copy_for(checksum_failure.code, "checksum")
+            if checksum_failure is not None
+            else None
+        )
         with ui.element("div").classes("sf-gate").mark("separation-gate"):
-            ui.label(copy.title).classes("sf-gate-title")
-            ui.label(copy.summary).classes("sf-gate-summary")
+            if reason_copy is not None:
+                ui.label(reason_copy.headline).classes("sf-gate-title").mark("model-checksum-title")
+                ui.label(reason_copy.action).classes("sf-gate-summary").mark("model-checksum-hint")
+            else:
+                ui.label(copy.title).classes("sf-gate-title")
+                ui.label(copy.summary).classes("sf-gate-summary")
             ui.label(copy.identity).classes("sf-gate-meta").mark("model-identity")
             ui.label(formatting.MODEL_LICENCE_DETAILS_LABEL).classes("sf-card-title")
             ui.label(copy.notice).classes("sf-gate-notice").mark("model-licence-notice")
@@ -172,6 +194,8 @@ class SeparationCard:
             error_details(
                 code=errors.SEPARATION_MODEL_MISSING,
                 marker="separation-gate-error",
+                job_id=checksum_failure.job_id if checksum_failure is not None else None,
+                log_path=checksum_failure.log_path if checksum_failure is not None else None,
                 diagnostics=self._diagnostics,
                 clipboard=self._clipboard,
                 open_path=self._open_path,
@@ -221,8 +245,11 @@ class SeparationCard:
     def _download_error(self, failure: SeparationFailure, *, busy: bool = False) -> None:
         reason = formatting.reason_from_detail(failure.detail)
         copy = formatting.copy_for(failure.code, reason)
-        ui.label(copy.headline).classes("sf-notice-headline")
-        ui.label(copy.action).classes("sf-notice-action")
+        checksum = failure.code == errors.SEPARATION_MODEL_MISSING and reason == "checksum"
+        # The gate above already carries the checksum headline and hint.
+        if not checksum:
+            ui.label(copy.headline).classes("sf-notice-headline")
+            ui.label(copy.action).classes("sf-notice-action")
         error_details(
             code=failure.code,
             marker="separation-model-error"
@@ -318,7 +345,7 @@ class SeparationCard:
             if failure.retryable:
                 retry = (
                     ui.button(
-                        formatting.SEPARATION_RETRY,
+                        formatting.RETRY,
                         on_click=lambda _=None: self._retry(track),
                     )
                     .props("unelevated no-caps size=sm")

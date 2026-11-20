@@ -14,9 +14,10 @@ the whole page. Pitch and Separation contribute requests and job state only.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Final, Protocol
 
@@ -362,6 +363,7 @@ class Notice:
     action: str
     job_id: str | None = None
     log_path: Path | None = None
+    retry: Callable[[], str | None] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,6 +421,9 @@ class JobView(Protocol):
 
     @property
     def stage(self) -> str: ...
+
+    @property
+    def created_at(self) -> datetime: ...
 
     @property
     def detail(self) -> str | None: ...
@@ -490,6 +495,7 @@ class WorkspacePage:
         self._dialog_busy = False
         self._watched_jobs: set[str] = set()
         self._reported_jobs: set[str] = set()
+        self._import_retries: dict[str, Callable[[], str | None]] = {}
         self._job_signature: tuple[str, str, int, str, str] | None = None
         self._job_bar_visible = False
         self._notice: Notice | None = None
@@ -497,6 +503,7 @@ class WorkspacePage:
         self._youtube_row: YouTubeRow | None = None
         self._recent_signature: tuple[tuple[str, bool], ...] | None = None
         self._client: Client | None = None
+        self._dialog_host: ui.element | None = None
         self._last_busy = False
         self._player: ui.audio | None = None
         self._loaded_track_id: str | None = None
@@ -574,6 +581,9 @@ class WorkspacePage:
                         self._on_ended,
                         js_handler="() => emit(true)",
                     )
+                # A host outside every refreshable region so Settings & About
+                # stays open when a Job finishes and refreshes the rail footer.
+                self._dialog_host = ui.element("div")
         # The sheet is one persistent dialog; see ExportSheet.build for why.
         self._export_sheet.build()
         ui.timer(POLL_INTERVAL_S, self.poll)
@@ -814,6 +824,16 @@ class WorkspacePage:
                 clipboard=self.context.clipboard,
                 open_path=self.context.open_path,
             )
+            if notice.retry is not None:
+                retry = (
+                    ui.button(
+                        formatting.RETRY,
+                        on_click=self._retry_import,
+                    )
+                    .props("unelevated no-caps size=sm")
+                    .mark("import-retry")
+                )
+                retry.set_enabled(not self._busy())
 
     @ui.refreshable_method
     def _detail(self) -> None:
@@ -1334,6 +1354,7 @@ class WorkspacePage:
                 error.detail,
                 item.semitones,
                 item.scope,
+                retryable=error.retryable,
             )
             return
         except ValueError:
@@ -1541,10 +1562,50 @@ class WorkspacePage:
         if self._loaded_preview is not None:
             self._unavailable_previews.add((track_id, self._loaded_preview.key))
         self._is_playing = False
+        self._position_s = 0.0
         self._loaded_track_id = None
         self._loaded_preview = None
+        fallback = self._fallback_version(track_id)
+        if fallback is None:
+            if self._player is not None:
+                self._player.set_source("")
+        else:
+            key, preview = fallback
+            self._active_key[track_id] = key
+            if self._player is not None and self._playback_allowed():
+                self._player.set_source(preview.url)
+                self._player.seek(0.0)
+            self._loaded_track_id = track_id
+            self._loaded_preview = preview
         ui.notify(formatting.copy_for(errors.PLAYBACK_UNAVAILABLE).headline, type="negative")
         self._refresh_playback()
+
+    def _fallback_version(self, track_id: str) -> tuple[str, PreviewTarget] | None:
+        """Original first, then the other sets, per ticket 14 §4.8."""
+        track = next(
+            (item for item in self.service.snapshot().tracks if item.track_id == track_id),
+            None,
+        )
+        if track is None:
+            return None
+        sets = self.service.pitch_sets(track)
+        active = self._active_version(track, sets)
+        if active == "original":
+            keys = ["original", *(item.render_key for item in sets)]
+        else:
+            keys = [
+                "original",
+                *(item.render_key for item in sets if item.render_key != active),
+                active,
+            ]
+        for key in keys:
+            for row in self._rows_for(track, key, sets):
+                if row.preview is None:
+                    continue
+                if (track_id, row.preview.key) in self._unavailable_previews:
+                    continue
+                return key, row.preview
+        return None
 
     def _seek(self, event: events.ValueChangeEventArguments[float | None]) -> None:
         if event.value is None:
@@ -1630,17 +1691,21 @@ class WorkspacePage:
 
     def _submit_paths(self, paths: Sequence[Path]) -> None:
         first_error: StemForgeError | None = None
+        first_retry: Callable[[], str | None] | None = None
         submitted = False
         for path in paths:
+            submit = partial(self.service.import_local, path)
             try:
-                job_id = self.service.import_local(path)
+                job_id = submit()
             except StemForgeError as error:
-                first_error = first_error or error
+                if first_error is None:
+                    first_error = error
+                    first_retry = submit
                 continue
-            self._watch_job(job_id)
+            self._start_import_job(job_id, submit)
             submitted = True
         if first_error is not None:
-            self._show_error(first_error)
+            self._show_error(first_error, retry=first_retry)
         if submitted:
             self._notice = None
             self._notice_block.refresh()
@@ -1648,20 +1713,46 @@ class WorkspacePage:
             self._job_bar_visible = True
             self._job_bar.refresh()
 
+    def _start_import_job(self, job_id: str, submit: Callable[[], str | None]) -> None:
+        """Remember the request so a retryable failure can re-submit it exactly."""
+        self._import_retries[job_id] = submit
+        self._watch_job(job_id)
+
     def _watch_job(self, job_id: str) -> None:
         self._watched_jobs.add(job_id)
         self._reported_jobs.discard(job_id)
         self._export_notice = None
 
-    def _on_youtube_submitted(self, job_id: str) -> None:
+    def _on_youtube_submitted(self, job_id: str, url: str) -> None:
         """Mirror the local-import submit: watch the Job and show the bar."""
-        self._watch_job(job_id)
+        self._start_import_job(job_id, lambda: self.service.submit_youtube(url))
         self._notice = None
         self._notice_block.refresh()
         self._job_signature = None
         self._job_bar_visible = True
         self._job_bar.refresh()
         self._sync_actions()
+
+    def _retry_import(self) -> None:
+        """Ticket 14 §8: re-submit the identical import request, no dialog."""
+        notice = self._notice
+        if notice is None or notice.retry is None or self._busy():
+            return
+        submit = notice.retry
+        self._notice = None
+        self._notice_block.refresh()
+        try:
+            job_id = submit()
+        except StemForgeError as error:
+            self._show_error(error, retry=submit)
+            self._refresh_all()
+            return
+        if job_id is not None:
+            self._start_import_job(job_id, submit)
+            self._job_signature = None
+            self._job_bar_visible = True
+            self._job_bar.refresh()
+        self._refresh_all()
 
     def _pitch_job_started(
         self,
@@ -1788,14 +1879,15 @@ class WorkspacePage:
         if entry.origin_kind is OriginKind.YOUTUBE and not self.service.youtube_enabled():
             ui.notify(formatting.YOUTUBE_OFF, type="info")
             return
+        submit = partial(self.service.open_recent, entry.source_id)
         try:
-            job_id = self.service.open_recent(entry.source_id)
+            job_id = submit()
         except StemForgeError as error:
-            self._show_error(error)
+            self._show_error(error, retry=submit)
             self._refresh_all()
             return
         if job_id is not None:
-            self._watch_job(job_id)
+            self._start_import_job(job_id, submit)
             self._notice = None
             self._notice_block.refresh()
             self._job_signature = None
@@ -1853,6 +1945,7 @@ class WorkspacePage:
                 self._watched_jobs.discard(job_id)
                 self._pitch_jobs.pop(job_id, None)
                 self._separation_jobs.pop(job_id, None)
+                self._import_retries.pop(job_id, None)
                 continue
             if not snapshot.finished:
                 continue
@@ -1872,10 +1965,11 @@ class WorkspacePage:
             if snapshot.kind.value == "export":
                 self._finish_export_job(snapshot)
                 continue
+            retry = self._import_retries.pop(job_id, None)
             if snapshot.state.value == "succeeded":
                 self._on_import_success(snapshot)
             elif snapshot.state.value == "failed":
-                self._on_import_failure(snapshot)
+                self._on_import_failure(snapshot, retry=retry)
             elif snapshot.state.value == "cancelled":
                 ui.notify("Import cancelled.", type="info")
                 self._refresh_all()
@@ -1951,6 +2045,7 @@ class WorkspacePage:
                 snapshot.error_detail,
                 spec.semitones,
                 spec.scope,
+                retryable=snapshot.retryable,
                 job_id=snapshot.job_id,
                 log_path=snapshot.log_path,
             )
@@ -1977,7 +2072,12 @@ class WorkspacePage:
         self._notice_block.refresh()
         self._refresh_all()
 
-    def _on_import_failure(self, snapshot: JobView) -> None:
+    def _on_import_failure(
+        self,
+        snapshot: JobView,
+        *,
+        retry: Callable[[], str | None] | None = None,
+    ) -> None:
         code = snapshot.error_code or errors.INTERNAL_UNEXPECTED
         copy = formatting.copy_for(code, formatting.reason_from_detail(snapshot.error_detail))
         ui.notify(copy.headline, type="negative")
@@ -1987,17 +2087,24 @@ class WorkspacePage:
             action=copy.action,
             job_id=snapshot.job_id or None,
             log_path=snapshot.log_path,
+            retry=retry if snapshot.retryable else None,
         )
         self._notice_block.refresh()
         self._refresh_all()
 
-    def _show_error(self, error: StemForgeError) -> None:
+    def _show_error(
+        self,
+        error: StemForgeError,
+        *,
+        retry: Callable[[], str | None] | None = None,
+    ) -> None:
         copy = formatting.copy_for(error.code, formatting.reason_from_detail(error.detail))
         ui.notify(copy.headline, type="negative")
         self._notice = Notice(
             code=error.code,
             headline=copy.headline,
             action=copy.action,
+            retry=retry if error.retryable else None,
         )
         self._notice_block.refresh()
 
@@ -2091,13 +2198,16 @@ class WorkspacePage:
         self._banner.refresh()
 
     def _open_settings(self) -> None:
-        SettingsDialog(
-            self.service,
-            on_youtube_toggle=self._on_youtube_toggle,
-            open_path=self.context.open_path,
-            diagnostics=self.context.diagnostics,
-            clipboard=self.context.clipboard,
-        ).open()
+        if self._dialog_host is not None:
+            self._dialog_host.clear()
+        with self._dialog_host if self._dialog_host is not None else contextlib.nullcontext():
+            SettingsDialog(
+                self.service,
+                on_youtube_toggle=self._on_youtube_toggle,
+                open_path=self.context.open_path,
+                diagnostics=self.context.diagnostics,
+                clipboard=self.context.clipboard,
+            ).open()
 
     def _on_youtube_toggle(self) -> None:
         self._detail.refresh()
@@ -2109,10 +2219,14 @@ class WorkspacePage:
         return self._dialog_busy or self._active_job() is not None
 
     def _active_job(self) -> JobView | None:
+        """Prefer the running Job over one queued behind it (ticket 08 §11)."""
+        queued: JobView | None = None
         for snapshot in self.service.jobs():
-            if snapshot.active:
+            if snapshot.state.value == "running":
                 return snapshot
-        return None
+            if snapshot.active and (queued is None or snapshot.created_at < queued.created_at):
+                queued = snapshot
+        return queued
 
     def _active_separation_job(self, track_id: str) -> JobView | None:
         for snapshot in self.service.jobs():
@@ -2150,6 +2264,7 @@ class WorkspacePage:
             self._youtube_row.set_busy(busy)
         if busy != self._last_busy:
             self._last_busy = busy
+            self._notice_block.refresh()
             self._detail.refresh()
 
     def _refresh_all(self) -> None:

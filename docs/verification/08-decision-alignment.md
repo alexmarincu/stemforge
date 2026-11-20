@@ -66,6 +66,29 @@ own `logging.open_failed` code rather than reusing a licensing code.
 `uv run pytest -m "unit or ui"`: 1012 passed, 3 skipped. `ruff format --check`,
 `ruff check`, `mypy src/stemforge`, and `lint-imports` are green.
 
+## State correctness corrections
+
+The UI-alignment review found six state defects; all are fixed and covered by
+the UI suite:
+
+- A queued batch import no longer masks the running Job: `_active_job()` prefers
+  the RUNNING snapshot, so the Job bar reports the actual stage and Cancel
+  targets that Job.
+- Settings & About stays open when a Job finishes and refreshes the rail footer,
+  and both `Clear cached audio` and `Clear YouTube cache` are disabled while any
+  Job runs (ticket 14 §6).
+- Import failures render Retry only when the Job snapshot is retryable, and the
+  stored request re-submits the identical local path or YouTube URL, without a
+  dialog (ticket 14 §8).
+- A checksum failure on `separation.model_missing` renders the checksum headline
+  and hint in the model gate, and Details links that Job (ticket 14 §4.3).
+- Pitch Retry follows `StemForgeError.retryable` like Separation (ticket 14 §8).
+- A playback failure switches the active version to Original, or the next set
+  with an available preview, and loads it at zero without autoplay (ticket 14
+  §4.8).
+
+`uv run pytest -m "unit or ui"`: 1025 passed, 3 skipped.
+
 ## Remaining structural debt
 
 The ticket 08 §14 component map is still not fully matched: the page shell,

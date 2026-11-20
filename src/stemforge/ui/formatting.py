@@ -170,6 +170,7 @@ RECOVERY_HEADLINE: Final = (
 )
 RECOVERY_DISMISS: Final = "Dismiss"
 REMOVING: Final = "Removing…"
+RETRY: Final = "Retry"
 
 # Ticket 08 §5 and ticket 11: the Pitch card's exact working copy.
 PITCH_TITLE: Final = "Pitch"
@@ -186,7 +187,6 @@ PITCH_TEMPO_NOTE: Final = (
     "Tempo preserved (Rubber Band R3 + formant). Renders never modify the original."
 )
 PITCH_EARLIER_SEPARATION: Final = "based on an earlier separation"
-PITCH_RETRY: Final = "Retry"
 
 # Ticket 08 §6 and §10 plus ticket 14 §4.3-4.4: the Separation card's copy.
 SEPARATION_TITLE: Final = "Separation"
@@ -203,7 +203,6 @@ SEPARATION_WORKER_NOTE: Final = "Runs in a worker process · safe to cancel"
 SEPARATION_STALL: Final = "No progress for {seconds} seconds. Separation may still be working."
 SEPARATION_KEEP_WAITING: Final = "Keep waiting"
 SEPARATION_CANCEL: Final = "Cancel"
-SEPARATION_RETRY: Final = "Retry"
 SEPARATION_LAST_SUCCESS: Final = "Stems from the last successful Separation are still available."
 SEPARATION_MODEL_CONSENT: Final = "Press Download model to accept this notice."
 SEPARATION_MODEL_DOWNLOADING: Final = "Downloading the model…"

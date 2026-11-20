@@ -17,10 +17,12 @@ from pathlib import Path
 import pytest
 from nicegui.testing.user_simulation import user_simulation
 
+from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
 from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
+from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform.paths import AppPaths
@@ -49,6 +51,7 @@ class FakeMedia:
         self.title = title
         self.fail_probe = fail_probe
         self.source_channels = source_channels
+        self.fail_decode: StemForgeError | None = None
         self._gate: threading.Event | None = None
         self.decode_started = threading.Event()
 
@@ -79,6 +82,8 @@ class FakeMedia:
         if self._gate is not None:
             self._gate.wait(timeout=10)
         cancel.check()
+        if self.fail_decode is not None:
+            raise self.fail_decode
         dst.write_bytes(b"canonical:" + src.read_bytes())
         return DecodeResult(
             path=dst,
@@ -390,6 +395,41 @@ async def test_the_job_bar_reports_stage_progress_and_cancel(harness: Harness) -
         await user.should_not_see("My Song")
 
 
+async def test_the_job_bar_and_cancel_follow_the_running_job_not_a_queued_one(
+    harness: Harness,
+) -> None:
+    """Ticket 08 §11: a batch selection is a queue the bar must not misreport."""
+    first = harness.source_file("First.wav")
+    second = harness.source_file("Second.wav")
+    harness.dialog._selections = [(str(first),)]
+    gate = harness.media.block_decoding()
+
+    async for user, workspace_page in _open_page(harness):
+        user.find(marker="add-audio").click()
+        assert await asyncio.to_thread(harness.media.decode_started.wait, 5) is True
+
+        # A second submitted import waits behind the blocked one, exactly as a
+        # multi-file selection does. The bar must keep showing the running Job.
+        harness.service.import_local(second)
+        with user:
+            workspace_page.poll()
+
+        await user.should_see(marker="job-bar")
+        await user.should_see("Decoding")
+        assert _only(user, "job-stage").text.endswith("Decoding")
+
+        user.find(marker="cancel-job").click()
+        await asyncio.sleep(0.05)
+        snapshots = harness.runner.jobs()
+        running = next(item for item in snapshots if item.state.value == "running")
+        queued = next(item for item in snapshots if item.state.value == "queued")
+        assert running.cancel_requested is True
+        assert queued.cancel_requested is False
+
+        gate.set()
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+
 async def test_import_failure_shows_the_coded_headline_and_keeps_the_app_usable(
     harness: Harness,
 ) -> None:
@@ -418,6 +458,77 @@ async def test_import_failure_shows_the_coded_headline_and_keeps_the_app_usable(
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
         await user.should_see("good")
         await user.should_not_see(marker="import-error")
+
+
+async def test_a_retryable_local_import_failure_resubmits_the_same_file(
+    harness: Harness,
+) -> None:
+    """Ticket 14 §8: Retry repeats the identical local import without a dialog."""
+    source = harness.source_file("retry.wav")
+    harness.dialog._selections = [(str(source),)]
+    harness.media.fail_decode = StemForgeError(
+        errors.DECODE_FAILED,
+        "fake decode failure",
+        retryable=True,
+    )
+
+    async for user, workspace_page in _open_page(harness):
+        user.find(marker="add-audio").click()
+        await asyncio.sleep(0.1)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+
+        await user.should_see(marker="import-error")
+        await user.should_see("StemForge couldn't decode this file.")
+        await user.should_see(marker="import-retry")
+        assert harness.dialog.calls == 1
+
+        harness.media.fail_decode = None
+        user.find(marker="import-retry").click()
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        await user.should_not_see(marker="import-error")
+        await user.should_see("retry")
+        assert harness.dialog.calls == 1
+        jobs = [job for job in harness.runner.jobs() if job.kind.value == "import_local"]
+        assert len(jobs) == 2
+
+
+async def test_a_retryable_synchronous_import_error_offers_retry(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ticket 14 §8: Retry is not limited to a Job that already started."""
+    source = harness.source_file("sync.wav")
+    harness.dialog._selections = [(str(source),)]
+    real_import = harness.service.import_local
+    calls: list[Path] = []
+
+    def flaky(path: Path) -> str:
+        calls.append(path)
+        if len(calls) == 1:
+            raise StemForgeError(
+                errors.STORAGE_PERMISSION_DENIED,
+                "fake synchronous failure",
+                retryable=True,
+            )
+        return real_import(path)
+
+    monkeypatch.setattr(harness.service, "import_local", flaky)
+
+    async for user, workspace_page in _open_page(harness):
+        user.find(marker="add-audio").click()
+        await asyncio.sleep(0.05)
+
+        await user.should_see(marker="import-error")
+        await user.should_see(marker="import-retry")
+        assert harness.runner.jobs() == []
+
+        user.find(marker="import-retry").click()
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+
+        await user.should_not_see(marker="import-error")
+        await user.should_see("sync")
+        assert calls == [source, source]
 
 
 async def test_remove_confirms_cache_deletion_and_never_touches_the_source(
