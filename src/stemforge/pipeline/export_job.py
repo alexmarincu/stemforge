@@ -38,8 +38,7 @@ from stemforge.artifacts import (
 )
 from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.models import RenderScope
-from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
-from stemforge.domain.roles import OUTPUT_ROLES as RENDER_ROLES
+from stemforge.domain.roles import INSTRUMENTAL_ROLE, OUTPUT_ROLES, STEM_ROLES
 from stemforge.engines.media import (
     CanonicalMetadata,
     ExportFormat,
@@ -195,7 +194,7 @@ def resolve_export_target(
 
     if key == "master":
         return _master_target(source, resolved_title)
-    if key == f"stem:{INSTRUMENTAL_ROLE}" or key == INSTRUMENTAL_ROLE:
+    if key == INSTRUMENTAL_ROLE:
         separation = artifacts.find_separation(source_id, verify_hashes=verify_hashes)
         return (
             _separation_target(separation, INSTRUMENTAL_ROLE, resolved_title)
@@ -429,7 +428,7 @@ def _render_targets(render: RenderArtifact, title: str) -> tuple[ExportTarget, .
     if scope is RenderScope.ORIGINAL:
         roles = (ORIGINAL_ROLE,)
     elif scope is RenderScope.STEMS:
-        roles = RENDER_ROLES
+        roles = OUTPUT_ROLES
     else:
         return ()
     targets: list[ExportTarget] = []
@@ -446,7 +445,7 @@ def _render_target(render: RenderArtifact, role: str, title: str) -> ExportTarge
         return None
     if scope is RenderScope.ORIGINAL and role != ORIGINAL_ROLE:
         return None
-    if scope is RenderScope.STEMS and role not in RENDER_ROLES:
+    if scope is RenderScope.STEMS and role not in OUTPUT_ROLES:
         return None
     path = render.path_for(role)
     if path is None:

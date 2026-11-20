@@ -221,6 +221,19 @@ def test_export_targets_adds_unshifted_stems_and_the_instrumental(tmp_path: Path
     assert stems["instrumental"].gain_db == pytest.approx(-2.0)
 
 
+def test_the_instrumental_is_an_output_not_a_stem_key(tmp_path: Path) -> None:
+    service, store, _ = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store)
+    track = _add_track(service, store)
+
+    by_key = {target.key: target for target in service.export_targets(track)}
+
+    assert by_key["instrumental"].role == "instrumental"
+    assert resolve_export_target(store, source_id=SOURCE_ID, key="instrumental") is not None
+    assert resolve_export_target(store, source_id=SOURCE_ID, key="stem:instrumental") is None
+
+
 def test_export_targets_adds_every_member_of_a_pitch_set(tmp_path: Path) -> None:
     service, store, _ = _service(tmp_path)
     _commit_source(store)
