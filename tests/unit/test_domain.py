@@ -3,19 +3,13 @@
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
 
 import pytest
 
 from stemforge.domain.models import (
-    ArtifactKind,
-    ArtifactRef,
-    ArtifactSet,
     JobKind,
     JobState,
     OriginKind,
-    RenderRequest,
-    RenderScope,
     Source,
     SourceMetadata,
     Track,
@@ -171,29 +165,11 @@ def test_track_defaults_to_no_pitch_shift_and_exposes_its_source_id() -> None:
 
 
 @pytest.mark.unit
-def test_artifact_models_are_immutable_and_grouped_by_a_set() -> None:
-    artifact = ArtifactRef(
-        artifact_id="a" * 64,
-        source_id="src-1",
-        kind=ArtifactKind.STEM,
-        name="vocals",
-        master_path=Path("/cache/stems/vocals.wav"),
-        preview_path=Path("/cache/stems/vocals.mp3"),
-        gain_db=-1.5,
-        manifest_path=Path("/cache/stems/manifest.json"),
-    )
-    artifact_set = ArtifactSet(
-        source_id="src-1",
-        render_key=None,
-        artifacts=(artifact,),
-        gain_db=-1.5,
-        peak_dbfs=-1.5,
-    )
+def test_dead_domain_types_are_not_kept_alive() -> None:
+    import stemforge.domain.models as models
 
-    assert artifact_set.artifacts == (artifact,)
-    assert artifact_set.gain_db == -1.5
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        artifact.name = "drums"  # type: ignore[misc]
+    for name in ("ArtifactRef", "ArtifactSet", "ArtifactKind", "RenderRequest"):
+        assert not hasattr(models, name), f"{name} has no production user"
 
 
 @pytest.mark.unit
@@ -229,12 +205,3 @@ def test_job_kinds_and_states_match_the_decision_record() -> None:
         "failed",
         "cancelled",
     }
-
-
-@pytest.mark.unit
-def test_render_request_carries_scope_and_semitones() -> None:
-    request = RenderRequest(track_id="trk-1", semitones=3)
-
-    assert request.scope is RenderScope.ORIGINAL
-    assert request.semitones == 3
-    assert RenderScope.STEMS.value == "stems"

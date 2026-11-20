@@ -272,17 +272,6 @@ def test_verify_rehashes_and_discards_a_tampered_copy(store: ModelStore) -> None
     assert not store.marker_path().exists()
 
 
-def test_verify_before_use_is_the_separation_seam(store: ModelStore) -> None:
-    with pytest.raises(StemForgeError) as absent:
-        store.verify_before_use()
-    assert absent.value.code == errors.SEPARATION_MODEL_MISSING
-    assert absent.value.detail == "reason=absent"
-
-    store.install_bytes(PAYLOAD)
-
-    assert store.verify_before_use().verified is True
-
-
 def test_a_missing_file_with_a_stale_marker_is_absent(store: ModelStore) -> None:
     store.install_bytes(PAYLOAD)
     store.path().unlink()
@@ -334,6 +323,10 @@ def test_store_lives_under_the_models_root(app_paths: AppPaths) -> None:
 
     assert store.root == app_paths.models
     assert store.path() == app_paths.models / "htdemucs" / "test-weights.safetensors"
+
+
+def test_the_store_has_no_duplicate_verification_middle_man() -> None:
+    assert not hasattr(ModelStore, "verify_before_use")
 
 
 # --- The install Job -------------------------------------------------------
