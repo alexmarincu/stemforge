@@ -216,6 +216,14 @@ async def test_modal_shows_version_licence_notices_and_source_offer(harness: Har
         await user.should_see(marker="about-app-mark")
         await user.should_see(marker="about-version")
         await user.should_see(f"StemForge {__version__}")
+        await user.should_see(marker="about-ytdlp-version")
+        await user.should_see(marker="about-ytdlp-ejs-version")
+        await user.should_see(marker="about-deno-version")
+        assert _only(user, "about-ytdlp-version").text
+        assert _only(user, "about-ytdlp-ejs-version").text
+        assert _only(user, "about-deno-version").text == "2.9.8"
+        await user.should_see("YouTube import uses yt-dlp, yt-dlp-ejs, and Deno locally.")
+        await user.should_see("Age-restricted and private videos are not supported")
         await user.should_see("GPL-3.0-only")
         await user.should_see("Third-party notices")
         await user.should_see("Corresponding source")

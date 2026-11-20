@@ -59,6 +59,7 @@ class _Entry:
     finished_at: datetime | None = None
     error_code: str | None = None
     error_detail: str | None = None
+    error_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
     retryable: bool = False
     log_path: Path | None = None
     result_keys: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
@@ -77,6 +78,7 @@ class _Entry:
             finished_at=self.finished_at,
             error_code=self.error_code,
             error_detail=self.error_detail,
+            error_context=self.error_context,
             retryable=self.retryable,
             log_path=self.log_path,
             result_keys=self.result_keys,
@@ -318,6 +320,7 @@ class JobRunner:
                 JobState.FAILED,
                 error_code=exc.code,
                 error_detail=exc.detail,
+                error_context=exc.context,
                 retryable=exc.retryable,
             )
             job_log.error(
@@ -364,12 +367,14 @@ class JobRunner:
         *,
         error_code: str | None = None,
         error_detail: str | None = None,
+        error_context: Mapping[str, object] | None = None,
         retryable: bool = False,
     ) -> None:
         with self._cond:
             entry.state = state
             entry.error_code = error_code
             entry.error_detail = error_detail
+            entry.error_context = MappingProxyType(dict(error_context or {}))
             entry.retryable = retryable
             entry.finished_at = datetime.now(UTC)
             self._cond.notify_all()

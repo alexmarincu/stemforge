@@ -289,7 +289,8 @@ def run_export_job(
 
     emit(0.02, STAGE_ENCODING, "checking the destination")
     _require_destination(destination)
-    require_free_space(destination, required_export_space(duration_s), floor=0)
+    required_bytes = required_export_space(duration_s)
+    require_free_space(destination, required_bytes, floor=0)
     cancel.check()
 
     staging = artifacts.stage(ctx.job_id)
@@ -337,6 +338,7 @@ def run_export_job(
             base_name=base_name,
             fmt=export_format,
             cancel=cancel,
+            required=required_bytes,
         )
         manifest = _manifest(
             source_id=source_id,
@@ -515,6 +517,7 @@ def _write_destination(
     base_name: str,
     fmt: ExportFormat,
     cancel: CancelToken,
+    required: int | None = None,
 ) -> Path:
     partial = destination / f"{unique_export_path(destination, base_name, fmt.suffix).name}.partial"
     try:
@@ -524,13 +527,14 @@ def _write_destination(
             destination=destination,
             base_name=base_name,
             suffix=fmt.suffix,
+            required=required,
         )
     except StemForgeError:
         _remove(partial)
         raise
     except OSError as exc:
         _remove(partial)
-        raise _destination_error(exc, destination) from exc
+        raise _destination_error(exc, destination, required=required) from exc
     except BaseException:
         _remove(partial)
         raise
@@ -555,6 +559,7 @@ def _commit_without_overwrite(
     destination: Path,
     base_name: str,
     suffix: str,
+    required: int | None = None,
 ) -> Path:
     """Rename ``partial`` to the first free final name.
 
@@ -573,16 +578,24 @@ def _commit_without_overwrite(
     raise _destination_error(
         OSError(errno.EEXIST, "no available export name"),
         destination,
+        required=required,
     )
 
 
-def _destination_error(exc: OSError, destination: Path) -> StemForgeError:
+def _destination_error(
+    exc: OSError,
+    destination: Path,
+    *,
+    required: int | None = None,
+) -> StemForgeError:
     reason = _write_reason(exc)
-    context = {
+    context: dict[str, object] = {
         "path": str(destination),
         "errno": exc.errno,
         "reason": reason,
     }
+    if required is not None:
+        context["required"] = required
     if exc.errno in _DISK_FULL_ERRNOS:
         return StemForgeError(
             errors.STORAGE_DISK_FULL,

@@ -69,8 +69,8 @@ COVERAGE_PRODUCERS = {
     "ui-linux": ".coverage.ui-linux",
 }
 
-# Recorded on the fix/v0.1.0-review-ci base commit (integration/v0.1.0 248e15d).
-RELEASE_WORKFLOW_SHA256 = "cd7ff89f9e46d5de6946ccd940143fb3e24fb7934c16534cb52ecdbccc8c2802"
+# Recorded on the fix/v0.1.0-review-ci base commit (integration/v0.1.0 1646747).
+RELEASE_WORKFLOW_SHA256 = "1720090e5789081ded9b47b1e0d5b976a6d7204b04b12e90ee4cf02232ce6ec5"
 
 
 def _load(path: Path) -> dict[str, Any]:

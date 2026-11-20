@@ -20,6 +20,7 @@ from stemforge import errors
 from stemforge.errors import StemForgeError
 from stemforge.integration.shell import PathOpener
 from stemforge.ui import formatting
+from stemforge.ui.toast import toast
 
 DiagnosticsProvider = Callable[[str | None], str]
 
@@ -152,13 +153,13 @@ def error_details(
 def _open_log(open_path: PathOpener, log_path: Path) -> None:
     if not log_path.is_file():
         copy = formatting.copy_for(errors.LICENSING_OPEN_FAILED, "log")
-        ui.notify(copy.headline, type="negative")
+        toast(copy.headline, type="negative")
         return
     try:
         open_path.open_path(log_path)
     except StemForgeError as error:
         copy = formatting.copy_for(error.code, "log")
-        ui.notify(copy.headline, type="negative")
+        toast(copy.headline, type="negative")
     except OSError:
         copy = formatting.copy_for(errors.LICENSING_OPEN_FAILED, "log")
-        ui.notify(copy.headline, type="negative")
+        toast(copy.headline, type="negative")

@@ -301,6 +301,7 @@ def test_a_failed_job_is_coded_and_isolated_from_the_next_job(runner: JobRunner)
             "ffmpeg could not decode the source",
             retryable=True,
             detail="boom",
+            context={"path": "/music/song.wav", "duration_s": 42.0},
         )
 
     runner.start()
@@ -313,6 +314,7 @@ def test_a_failed_job_is_coded_and_isolated_from_the_next_job(runner: JobRunner)
     assert failed.state is JobState.FAILED
     assert failed.error_code == errors.DECODE_FAILED
     assert failed.error_detail == "boom"
+    assert failed.error_context == {"path": "/music/song.wav", "duration_s": 42.0}
     assert failed.retryable is True
     assert failed.progress == 0.4
     assert later_ran.wait(5)

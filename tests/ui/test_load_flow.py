@@ -318,6 +318,27 @@ async def test_a_selected_file_becomes_a_track_with_audio_facts(harness: Harness
         assert (cache_sources[0] / "source.json").is_file()
 
 
+async def test_outputs_placeholder_is_visible_before_the_model_is_installed(
+    harness: Harness,
+) -> None:
+    """Ticket 08 §7: the dashed row and Separate action exist with no stems."""
+    source = harness.source_file()
+    harness.dialog._selections = [(str(source),)]
+
+    async for user, workspace_page in _open_page(harness):
+        user.find(marker="add-audio").click()
+        await asyncio.sleep(0.1)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+        await user.should_see(marker="track-row")
+
+        user.find(marker="track-row").click()
+        await user.should_see(marker="track-detail")
+        with user.scope(marker="outputs"):
+            await user.should_see(marker="outputs-placeholder")
+            await user.should_see("Vocals & Instrumental appear here after Separation.")
+            await user.should_see(marker="outputs-separate")
+
+
 async def test_window_title_follows_the_selected_track_and_clears_on_remove(
     harness: Harness,
 ) -> None:
@@ -458,6 +479,37 @@ async def test_import_failure_shows_the_coded_headline_and_keeps_the_app_usable(
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
         await user.should_see("good")
         await user.should_not_see(marker="import-error")
+
+
+async def test_a_disk_full_import_reports_sizes_and_offers_the_cache_action(
+    harness: Harness,
+) -> None:
+    """Ticket 14 §4.1/§4.7: name needed and free space, and offer the cache clear."""
+    source = harness.source_file("full.wav")
+    harness.dialog._selections = [(str(source),)]
+    harness.media.fail_decode = StemForgeError(
+        errors.STORAGE_DISK_FULL,
+        "fake disk-full failure",
+        retryable=True,
+        context={
+            "path": str(harness.paths.cache),
+            "required": 120_000_000,
+            "free": 10_485_760,
+        },
+    )
+
+    async for user, workspace_page in _open_page(harness):
+        user.find(marker="add-audio").click()
+        await asyncio.sleep(0.1)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+
+        await user.should_see(
+            "Not enough disk space. This import needs about 114.4 MB and only 10.0 MB is free."
+        )
+        await user.should_see(marker="notice-clear-cache")
+        user.find(marker="notice-clear-cache").click()
+        await asyncio.sleep(0.1)
+        await user.should_see("Cleared")
 
 
 async def test_a_retryable_local_import_failure_resubmits_the_same_file(

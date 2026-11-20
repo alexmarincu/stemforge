@@ -35,6 +35,7 @@ class JobSnapshot:
     finished_at: datetime | None = None
     error_code: str | None = None
     error_detail: str | None = None
+    error_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
     retryable: bool = False
     log_path: Path | None = None
     result_keys: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))

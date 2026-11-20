@@ -1,6 +1,6 @@
 # Separation fails with `internal.unexpected`
 
-Fixed on `fix/separation-engine-wiring`, based on `integration/v0.1.0` `7ae16de`
+Fixed on `fix/separation-engine-wiring`, based on `integration/v0.1.0` `4d10c2e`
 (2026-11-17). The Separation card showed "Something went wrong" with only
 `internal.unexpected`; no separation Job reached the runner and no job log was
 written.

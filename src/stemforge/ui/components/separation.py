@@ -16,7 +16,7 @@ successful install resubmits a previously requested Separation exactly once
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -75,6 +75,7 @@ class SeparationFailure:
     code: str
     detail: str | None
     retryable: bool
+    context: Mapping[str, object] | None = None
     job_id: str | None = None
     log_path: Path | None = None
 
@@ -89,6 +90,7 @@ class SeparationCard:
         on_job_started: JobStarted,
         on_cancel: CancelJob,
         on_open_about: Callable[[], None] | None = None,
+        on_clear_cache: Callable[[], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
         stall_seconds: float = 30.0,
         diagnostics: DiagnosticsProvider | None = None,
@@ -99,6 +101,7 @@ class SeparationCard:
         self._on_job_started = on_job_started
         self._on_cancel = on_cancel
         self._on_open_about = on_open_about
+        self._on_clear_cache = on_clear_cache
         self._diagnostics = diagnostics
         self._clipboard = clipboard
         self._open_path = open_path
@@ -188,9 +191,6 @@ class SeparationCard:
             ui.label(formatting.MODEL_LICENCE_DETAILS_LABEL).classes("sf-card-title")
             ui.label(copy.notice).classes("sf-gate-notice").mark("model-licence-notice")
             ui.label(formatting.SEPARATION_MODEL_CONSENT).classes("sf-fineprint")
-            ui.label(errors.SEPARATION_MODEL_MISSING).classes("sf-notice-detail").mark(
-                "separation-model-code"
-            )
             error_details(
                 code=errors.SEPARATION_MODEL_MISSING,
                 marker="separation-gate-error",
@@ -244,7 +244,7 @@ class SeparationCard:
 
     def _download_error(self, failure: SeparationFailure, *, busy: bool = False) -> None:
         reason = formatting.reason_from_detail(failure.detail)
-        copy = formatting.copy_for(failure.code, reason)
+        copy = formatting.copy_for(failure.code, reason, context=failure.context)
         checksum = failure.code == errors.SEPARATION_MODEL_MISSING and reason == "checksum"
         # The gate above already carries the checksum headline and hint.
         if not checksum:
@@ -270,6 +270,20 @@ class SeparationCard:
             .mark("model-download-retry")
         )
         retry.set_enabled(not busy)
+        if self._on_clear_cache is not None and failure.code in {
+            errors.STORAGE_DISK_FULL,
+            errors.STORAGE_CACHE_FULL,
+        }:
+            clear = (
+                ui.button(
+                    formatting.SETTINGS_CACHE_CLEAR,
+                    on_click=lambda _=None: self._on_clear_cache(),
+                    color=None,
+                )
+                .props("flat dense no-caps size=sm")
+                .mark("model-download-clear-cache")
+            )
+            clear.set_enabled(not busy)
 
     # -- running state ------------------------------------------------------
 
@@ -329,7 +343,11 @@ class SeparationCard:
         failure = self._failures.get(track.track_id)
         if failure is None or failure.code == errors.SEPARATION_MODEL_MISSING:
             return
-        copy = formatting.copy_for(failure.code, formatting.reason_from_detail(failure.detail))
+        copy = formatting.copy_for(
+            failure.code,
+            formatting.reason_from_detail(failure.detail),
+            context=failure.context,
+        )
         with ui.element("div").classes("sf-notice").mark("separation-error"):
             ui.label(copy.headline).classes("sf-notice-headline")
             ui.label(copy.action).classes("sf-notice-action")
@@ -352,6 +370,20 @@ class SeparationCard:
                     .mark("separation-retry")
                 )
                 retry.set_enabled(not busy)
+            if self._on_clear_cache is not None and failure.code in {
+                errors.STORAGE_DISK_FULL,
+                errors.STORAGE_CACHE_FULL,
+            }:
+                clear = (
+                    ui.button(
+                        formatting.SETTINGS_CACHE_CLEAR,
+                        on_click=lambda _=None: self._on_clear_cache(),
+                        color=None,
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .mark("separation-clear-cache")
+                )
+                clear.set_enabled(not busy)
 
     # -- actions ------------------------------------------------------------
 
@@ -379,6 +411,7 @@ class SeparationCard:
                 code=error.code,
                 detail=error.detail,
                 retryable=error.retryable,
+                context=error.context,
             )
             self.build.refresh()
             return
@@ -394,6 +427,7 @@ class SeparationCard:
                 code=error.code,
                 detail=error.detail,
                 retryable=error.retryable,
+                context=error.context,
             )
             self.build.refresh()
             return
@@ -459,6 +493,7 @@ class SeparationCard:
         detail: str | None,
         *,
         retryable: bool = False,
+        context: Mapping[str, object] | None = None,
         job_id: str | None = None,
         log_path: Path | None = None,
     ) -> None:
@@ -466,6 +501,7 @@ class SeparationCard:
             code=code or errors.SEPARATION_ENGINE_ERROR,
             detail=detail,
             retryable=retryable,
+            context=context,
             job_id=job_id,
             log_path=log_path,
         )
@@ -479,6 +515,7 @@ class SeparationCard:
         code: str,
         detail: str | None,
         *,
+        context: Mapping[str, object] | None = None,
         job_id: str | None = None,
         log_path: Path | None = None,
     ) -> None:
@@ -486,6 +523,7 @@ class SeparationCard:
             code=code or errors.SEPARATION_MODEL_DOWNLOAD_FAILED,
             detail=detail,
             retryable=True,
+            context=context,
             job_id=job_id,
             log_path=log_path,
         )

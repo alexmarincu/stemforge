@@ -2,7 +2,7 @@
 
 Measured in the `ticket/22-licensing` worktree on Linux x86_64, 2026-11-17.
 Host: Arch Linux kernel 7.3.4, glibc 2.44, Python 3.13.18 (uv), repo HEAD based
-on `integration/v0.1.0` `ca3ac74`. The vendor tree is absent in this checkout, so
+on `integration/v0.1.0` `16b8e09`. The vendor tree is absent in this checkout, so
 `vendor.lock.json` is the provenance source; the generator never needs a binary.
 
 ## What ships

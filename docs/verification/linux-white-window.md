@@ -1,6 +1,6 @@
 # Linux native window starts white
 
-Fixed on `fix/linux-white-window`, based on `integration/v0.1.0` `12f7f83`
+Fixed on `fix/linux-white-window`, based on `integration/v0.1.0` `001cd7e`
 (2026-11-17). The report was a white `StemForge` window while the GTK frame and
 the local NiceGUI server were healthy.
 

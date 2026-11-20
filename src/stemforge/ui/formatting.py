@@ -87,9 +87,14 @@ SETTINGS_BEHAVIOUR_PARTIAL: Final = (
     "left beside the destination."
 )
 SETTINGS_YOUTUBE_NOTE: Final = (
-    "YouTube import uses yt-dlp on this machine. Turn it off to hide the empty-state "
-    "row; local files and existing tracks are unaffected."
+    "YouTube import uses yt-dlp, yt-dlp-ejs, and Deno locally. It needs no account, "
+    "sends no telemetry, and uses no proxy. Age-restricted and private videos are not "
+    "supported in this version."
 )
+SETTINGS_BUNDLED_TOOLS: Final = "Bundled versions"
+SETTINGS_YTDLP_LABEL: Final = "yt-dlp"
+SETTINGS_YTDLP_EJS_LABEL: Final = "yt-dlp-ejs"
+SETTINGS_DENO_LABEL: Final = "Deno"
 SETTINGS_RECENT_CLEAR: Final = "Clear recent files"
 SETTINGS_RECENT_CLEARED: Final = "Recent files cleared."
 SETTINGS_CACHE_CLEARED: Final = "Cleared {size} of cached audio. Live tracks are kept."
@@ -504,13 +509,113 @@ def model_licence_copy(spec: ModelSpec) -> ModelLicenceCopy:
     )
 
 
-def copy_for(code: str, reason: str | None = None) -> ErrorCopy:
-    """Return the copy for ``(code, reason)``, falling back to ``internal.unexpected``."""
+def copy_for(
+    code: str,
+    reason: str | None = None,
+    *,
+    context: Mapping[str, object] | None = None,
+    origin: OriginKind | None = None,
+) -> ErrorCopy:
+    """Return the copy for ``(code, reason)``, falling back to ``internal.unexpected``.
+
+    ``context`` carries the same machine values the raising code logged — a
+    duration, a destination folder, or needed/free bytes — so the sentence can
+    name them without parsing log text (ticket 14 §4.1, §4.6-4.7, §9). ``origin``
+    selects the YouTube wording for a shared import code. Any interpolated
+    headline that would exceed the ticket 14 §9 limit falls back to the static
+    sentence rather than breaking the cap.
+    """
+    base = _base_copy(code, reason)
+    result = base
+    if code == errors.IMPORT_NO_AUDIO_STREAM and origin is OriginKind.YOUTUBE:
+        result = ErrorCopy("This video has no audio track.", "Choose a video with audio.")
+    elif code in {errors.IMPORT_TOO_LONG, errors.IMPORT_YOUTUBE_TOO_LONG}:
+        seconds = _number(context, "duration_s")
+        if seconds is not None:
+            duration = format_duration(seconds)
+            if code == errors.IMPORT_TOO_LONG:
+                result = ErrorCopy(
+                    f"This track is {duration} long. The limit is 30:00.",
+                    base.action,
+                )
+            else:
+                result = ErrorCopy(
+                    f"This video is {duration} — longer than the 15-minute limit.",
+                    base.action,
+                )
+    elif code == errors.EXPORT_WRITE_FAILED:
+        folder = _folder_name(context)
+        if folder is not None:
+            result = ErrorCopy(f"Couldn't save the file to {folder}.", base.action)
+    elif code == errors.STORAGE_DISK_FULL:
+        folder = _folder_name(context)
+        required = _number(context, "required")
+        free = _number(context, "free")
+        if reason == "export" and folder is not None and required is not None:
+            result = ErrorCopy(
+                f"Not enough space at {folder}. This file needs about "
+                f"{format_bytes(round(required))}.",
+                base.action,
+            )
+        elif required is not None and free is not None:
+            result = ErrorCopy(
+                "Not enough disk space. This import needs about "
+                f"{format_bytes(round(required))} and only "
+                f"{format_bytes(round(free))} is free.",
+                base.action,
+            )
+    elif code == errors.STORAGE_PERMISSION_DENIED:
+        path = _path_label(context)
+        if path is not None:
+            result = ErrorCopy(f"StemForge can't write to {path}.", base.action)
+    if len(result.headline) > MAX_HEADLINE_LENGTH:
+        return base
+    return result
+
+
+def _base_copy(code: str, reason: str | None) -> ErrorCopy:
     if reason is not None:
         specific = REASON_COPY.get((code, reason))
         if specific is not None:
             return specific
     return COPY_BY_CODE.get(code, COPY_BY_CODE[errors.INTERNAL_UNEXPECTED])
+
+
+def _number(context: Mapping[str, object] | None, key: str) -> float | None:
+    value = (context or {}).get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _folder_name(context: Mapping[str, object] | None) -> str | None:
+    """The last path component for a sentence; never the full path (14 §4.6)."""
+    raw = (context or {}).get("path")
+    if not isinstance(raw, (str, Path)):
+        return None
+    text = str(raw)
+    if not text:
+        return None
+    name = Path(text).name or text
+    if len(name) > 28:
+        name = f"{name[:27]}…"
+    return name
+
+
+def _path_label(
+    context: Mapping[str, object] | None,
+    *,
+    length: int = 60,
+) -> str | None:
+    raw = (context or {}).get("path")
+    if not isinstance(raw, (str, Path)):
+        return None
+    text = str(raw)
+    if not text:
+        return None
+    if len(text) <= length:
+        return text
+    return f"…{text[-(length - 1) :]}"
 
 
 def reason_from_detail(detail: str | None) -> str | None:
@@ -623,6 +728,11 @@ def format_bytes(size: int) -> str:
     if size < _GIB:
         return f"{size / _MIB:.1f} MB"
     return f"{size / _GIB:.1f} GB"
+
+
+def cache_cleared_message(freed_bytes: int) -> str:
+    """The one sentence both Clear cached audio surfaces show."""
+    return SETTINGS_CACHE_CLEARED.format(size=format_bytes(freed_bytes))
 
 
 def cache_percent(used: int, cap: int) -> int:

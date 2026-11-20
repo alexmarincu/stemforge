@@ -1,11 +1,11 @@
 # Ticket 24 — failure-mode and error-copy audit
 
 Audited in the `ticket/24-failure-audit` worktree on 2026-11-17, based on
-`integration/v0.1.0` (`f9d0beb`; tickets #1–#23 closed, merged again after the audit
-with no incoming changes). The branch commits are `03e62bf` (WAV comment),
-`ac95b26` (no automatic model retries plus Remove cancellation), `65c7a1b`
-(diagnostics, Details, catalogue, drills, docs), `61c56e3` (retry flags), and
-`c3f8e42` (missing Job log is coded).
+`integration/v0.1.0` (`5ce4f72`; tickets #1–#23 closed, merged again after the audit
+with no incoming changes). The branch commits are `594bfe6` (WAV comment),
+`0177ceb` (no automatic model retries plus Remove cancellation), `81d0a19`
+(diagnostics, Details, catalogue, drills, docs), `a8f412d` (retry flags), and
+`d328e0e` (missing Job log is coded).
 The coordinator merges this branch after the report; nothing here changes
 `.github/workflows/release.yml`.
 

@@ -1,7 +1,7 @@
 # Ticket 23 — release pipeline and verification
 
 Measured in the `ticket/23-release` worktree on 2026-11-17, based on
-`integration/v0.1.0` `95083a9` (tickets #1–#22 closed). The dry run is a throwaway
+`integration/v0.1.0` `5b319bf` (tickets #1–#22 closed). The dry run is a throwaway
 `dry-run/v0.0.9` branch created from the ticket branch; the coordinator merges
 the ticket branch into `integration/v0.1.0` after this report. Nothing was
 published: `publish` waited on the protected `release` environment until the run
@@ -54,7 +54,7 @@ after environment approval.
 ## Dry run
 
 - Branch `dry-run/v0.0.9`, commit `e6cdaffec7c009166169c9eb6067178f8d6b0312`
-  (`chore(release): dry-run 0.0.9`, from `ticket/23-release` `b795afb`).
+  (`chore(release): dry-run 0.0.9`, from `ticket/23-release` `a69f600`).
 - Tag `v0.0.9`.
 - Run: <https://github.com/alexmarincu/stemforge/actions/runs/44054969714>
 - `prepare`, `linux`, `windows`, `sources` all **success**; `publish` **waiting**
@@ -147,7 +147,7 @@ treated as a pass.
 
 ## Deviations and follow-ups
 
-- **Dry-run base.** The tag was cut from `ticket/23-release` `b795afb` plus the
+- **Dry-run base.** The tag was cut from `ticket/23-release` `a69f600` plus the
   version-only dry-run commit, not from a coordinator merge commit. The
   coordinator merges the ticket branch after this report; no product or workflow
   difference is hidden by the base choice.

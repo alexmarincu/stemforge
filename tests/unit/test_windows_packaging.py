@@ -324,8 +324,8 @@ def test_windows_readme_names_the_data_path_smartscreen_and_webview2() -> None:
 def test_version_info_renders_the_four_part_resource_and_strings() -> None:
     text = VERSION.render("0.1.0")
 
-    assert "filevers=(1, 0, 0, 0)" in text
-    assert "prodvers=(1, 0, 0, 0)" in text
+    assert "filevers=(0, 1, 0, 0)" in text
+    assert "prodvers=(0, 1, 0, 0)" in text
     assert "StringStruct('FileVersion', '0.1.0')" in text
     assert "StringStruct('ProductVersion', '0.1.0')" in text
     assert "StringStruct('OriginalFilename', 'StemForge.exe')" in text

@@ -1,7 +1,7 @@
 # Ticket 20 — Linux bundles
 
 Measured in the `ticket/20-linux-bundles` worktree on 2026-11-17, after merging
-`origin/integration/v0.1.0` (`f9040ec`, ticket 22's licence tree). Host: Archcraft
+`origin/integration/v0.1.0` (`a905b64`, ticket 22's licence tree). Host: Archcraft
 (Arch-derived) Linux, kernel 7.3.4, glibc **2.44**, Python 3.13.18, 4-core CPU.
 Network was live for the vendor/model fetches; `vendor/`, `dist/`, `build/`, and
 the weights are git-ignored and never committed.

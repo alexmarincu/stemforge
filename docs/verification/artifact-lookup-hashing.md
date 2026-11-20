@@ -1,6 +1,6 @@
 # Post-separation freezes and "connection lost"
 
-Fixed on `fix/artifact-lookup-hashing`, based on `integration/v0.1.0` `504fd45`
+Fixed on `fix/artifact-lookup-hashing`, based on `integration/v0.1.0` `3a6bcdf`
 (2026-11-19). After a Separation, the window became almost unresponsive, NiceGUI
 reported **Connection lost**, and the Vocals/Instrumental play and export
 actions appeared unusable.

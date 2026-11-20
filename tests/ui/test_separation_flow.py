@@ -463,7 +463,7 @@ async def test_the_gate_shows_size_revision_licence_and_consent(tmp_path: Path) 
                 in _only(user, "model-licence-notice").text
             )
             await user.should_see("Press Download model to accept this notice.")
-            assert "separation.model_missing" in _only(user, "separation-model-code").text
+            assert "separation.model_missing" in _only(user, "separation-gate-error-code").text
             assert _enabled(user, "model-download") is True
             await user.should_not_see(marker="separation-action")
 
@@ -580,7 +580,7 @@ async def test_a_missing_model_never_crashes_and_renders_the_gate(tmp_path: Path
             track_id = await _import(harness, user, workspace_page)
 
             await user.should_see(marker="separation-gate")
-            await user.should_see(marker="separation-model-code")
+            await user.should_see(marker="separation-gate-error-code")
             await user.should_see(marker="separation-card")
             assert _enabled(user, f"track-play-{track_id}") is True
             assert harness.service.snapshot().tracks[0].track_id == track_id
