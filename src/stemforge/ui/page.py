@@ -14,7 +14,6 @@ the whole page. Pitch and Separation contribute requests and job state only.
 from __future__ import annotations
 
 import contextlib
-import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -66,16 +65,6 @@ POLL_INTERVAL_S: Final = 0.4
 RECENT_VISIBLE: Final = 3
 OUTPUT_ROLES: Final = SEPARATION_OUTPUT_ROLES
 PRIMARY_ROLES: Final = OUTPUT_ROLES[:2]
-
-
-def volume_factor(gain_db: float) -> float:
-    """The HTML audio volume that level-matches a set with ``gain_db``.
-
-    Ticket 05 §5 records a non-positive presentation gain; the player applies it
-    as linear amplitude so A/B compares two equally loud sources. The result is
-    clamped to the element's ``0.0..1.0`` range.
-    """
-    return min(1.0, max(0.0, math.pow(10.0, gain_db / 20.0)))
 
 
 SECONDARY_ROLES: Final = OUTPUT_ROLES[2:]
@@ -544,7 +533,6 @@ class WorkspacePage:
         self._player: ui.audio | None = None
         self._loaded_track_id: str | None = None
         self._loaded_preview: PreviewTarget | None = None
-        self._player_gain_db = 0.0
         self._is_playing = False
         self._position_s = 0.0
         self._elapsed_label: ui.label | None = None
@@ -1499,7 +1487,6 @@ class WorkspacePage:
                 ):
                     self._player.set_source(first.preview.url)
                     self._player.seek(0.0)
-                    self._apply_player_volume(first.preview)
         self._refresh_playback()
 
     def _toggle_stems(self, track: Track) -> None:
@@ -1555,7 +1542,6 @@ class WorkspacePage:
         if player is None or preview is None or not self._playback_allowed():
             return
         self._unavailable_previews.discard((track.track_id, preview.key))
-        self._apply_player_volume(preview)
         if resume:
             player.play()
         else:
@@ -1570,24 +1556,6 @@ class WorkspacePage:
         self._loaded_preview = preview
         self._is_playing = True
         self._refresh_playback()
-
-    def _apply_player_volume(self, preview: PreviewTarget) -> None:
-        """Level-match the one player to the selected set (ticket 05 §5).
-
-        NiceGUI's audio component has no volume binding, so the element's
-        property is set directly. The recorded gain is metadata: the cached MP3
-        itself already carries the attenuation, and this only keeps A/B from
-        comparing two different loudness levels when the gain changes.
-        """
-        self._player_gain_db = preview.gain_db
-        player = self._player
-        if player is None:
-            return
-        factor = volume_factor(preview.gain_db)
-        ui.run_javascript(
-            f"const player = document.getElementById('c{player.id}');"
-            f"if (player) player.volume = {factor:.6f};"
-        )
 
     def _pause(self) -> None:
         if self._player is not None:
@@ -1660,7 +1628,6 @@ class WorkspacePage:
             if self._player is not None and self._playback_allowed():
                 self._player.set_source(preview.url)
                 self._player.seek(0.0)
-                self._apply_player_volume(preview)
             self._loaded_track_id = track_id
             self._loaded_preview = preview
         toast(formatting.copy_for(errors.PLAYBACK_UNAVAILABLE).headline, type="negative")

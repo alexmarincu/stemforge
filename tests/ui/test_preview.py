@@ -656,12 +656,6 @@ async def test_deleting_the_playing_preview_stops_and_reports_unavailable(
         assert len(user.find(marker="player").elements) == 1
 
 
-def test_volume_factor_is_the_recorded_gain_in_linear_amplitude() -> None:
-    assert page.volume_factor(0.0) == pytest.approx(1.0)
-    assert page.volume_factor(-6.0) == pytest.approx(10 ** (-6.0 / 20.0))
-    assert page.volume_factor(-1.5) == pytest.approx(10 ** (-1.5 / 20.0))
-
-
 async def test_the_gain_badge_is_shown_only_when_the_set_was_attenuated(
     tmp_path: Path,
 ) -> None:
@@ -684,7 +678,9 @@ async def test_the_gain_badge_is_shown_only_when_the_set_was_attenuated(
         harness.runner.stop(timeout=10)
 
 
-async def test_ab_applies_each_side_s_own_recorded_gain(harness: Harness) -> None:
+async def test_ab_switches_between_previews_that_carry_their_own_gain(
+    harness: Harness,
+) -> None:
     async for user, workspace_page in _open_page(harness):
         (track_id,) = await _import(harness, user, workspace_page, "Level.wav")
         await asyncio.sleep(0.05)
@@ -699,15 +695,15 @@ async def test_ab_applies_each_side_s_own_recorded_gain(harness: Harness) -> Non
         user.find(marker=f"track-row-{track_id}").click()
         await asyncio.sleep(0.05)
 
+        # Each preview MP3 is encoded with its set's presentation gain, so A/B
+        # switches sources and the player adds no second attenuation.
         user.find(marker="ab-preview").click()
         await asyncio.sleep(0.05)
         assert _player(user).props["src"] == f"/media/renders/{render_key}/original_preview.mp3"
-        assert workspace_page._player_gain_db == -5.0
         assert workspace_page._loaded_preview is not None
         assert workspace_page._loaded_preview.gain_db == -5.0
 
         user.find(marker="ab-original").click()
         await asyncio.sleep(0.05)
-        assert workspace_page._player_gain_db == 0.0
         assert workspace_page._loaded_preview is not None
         assert workspace_page._loaded_preview.gain_db == 0.0
