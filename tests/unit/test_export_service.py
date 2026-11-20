@@ -543,3 +543,52 @@ def test_a_tag_verification_failure_is_coded_and_leaves_no_file(tmp_path: Path) 
     assert raised.value.detail == "tags"
     assert list(destination.iterdir()) == []
     assert not (store.staging_dir / "job-tags").exists()
+
+
+def test_wav_verification_covers_every_tag_field_the_writer_writes(
+    tmp_path: Path,
+) -> None:
+    from stemforge.engines.media import CanonicalMetadata, MediaInfo
+    from stemforge.pipeline import export_job
+
+    metadata = CanonicalMetadata(
+        title="Title",
+        artist="Artist",
+        album="Album",
+        album_artist="Album Artist",
+        track="1",
+        disc="1",
+        date="2026",
+        genre="Genre",
+        composer="Composer",
+        copyright="Copyright",
+    )
+    written = dict(metadata.tags())
+    reported = {
+        key: value
+        for key, value in written.items()
+        if key not in {"album_artist", "composer", "disc"}
+    }
+    info = MediaInfo(
+        codec="pcm_s24le",
+        sample_rate=44_100,
+        channels=2,
+        duration_s=1.0,
+        format="wav",
+        tags=reported,
+    )
+
+    class FakeMedia:
+        def probe(self, path: Path) -> MediaInfo:
+            return info
+
+    with pytest.raises(StemForgeError) as raised:
+        export_job._verify_output(
+            FakeMedia(),  # type: ignore[arg-type]
+            tmp_path / "out.wav",
+            export_format=ExportFormat.WAV24,
+            metadata=metadata,
+        )
+
+    assert raised.value.code == errors.MEDIA_VALIDATION_FAILED
+    assert set(raised.value.context["fields"]) >= {"album_artist", "composer", "disc"}

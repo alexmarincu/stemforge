@@ -40,6 +40,8 @@ from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.models import RenderScope
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, OUTPUT_ROLES, STEM_ROLES
 from stemforge.engines.media import (
+    EXPORT_TAG_FIELDS,
+    WAV_TAG_FIELDS,
     CanonicalMetadata,
     ExportFormat,
     MediaInfo,
@@ -77,28 +79,6 @@ STAGE_WRITING: Final = "Writing file"
 _COPY_CHUNK_BYTES: Final = 1024 * 1024
 _DISK_FULL_ERRNOS: Final = frozenset({errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC)})
 _ProgressSink = Callable[[float, str, str], None]
-_EXPORT_TAG_FIELDS: Final = (
-    "title",
-    "artist",
-    "album",
-    "album_artist",
-    "track",
-    "disc",
-    "date",
-    "genre",
-    "comment",
-    "composer",
-    "copyright",
-)
-_WAV_INFO_FIELDS: Final = (
-    "title",
-    "artist",
-    "album",
-    "track",
-    "date",
-    "genre",
-    "copyright",
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -637,7 +617,7 @@ def _verify_output(
 ) -> MediaInfo:
     info = media.probe(path)
     expected = dict(metadata.tags())
-    fields = _WAV_INFO_FIELDS if export_format is ExportFormat.WAV24 else _EXPORT_TAG_FIELDS
+    fields = WAV_TAG_FIELDS if export_format is ExportFormat.WAV24 else EXPORT_TAG_FIELDS
     missing = {
         key: expected[key]
         for key in fields
@@ -718,7 +698,7 @@ def _metadata_record(manifest: Mapping[str, object]) -> CanonicalMetadata:
 def _record_tags(manifest: Mapping[str, object]) -> Mapping[str, str]:
     record = manifest.get("metadata")
     values = record if isinstance(record, Mapping) else {}
-    return {key: value for key in _EXPORT_TAG_FIELDS if (value := _text(values.get(key)))}
+    return {key: value for key in EXPORT_TAG_FIELDS if (value := _text(values.get(key)))}
 
 
 def _record_title(manifest: Mapping[str, object], fallback: str) -> str:
