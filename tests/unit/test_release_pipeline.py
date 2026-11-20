@@ -900,5 +900,3 @@ def test_release_notes_name_the_shipped_yt_dlp_and_unsigned_caveat() -> None:
     assert "SHA256SUMS" in text
     assert "SOURCE_OFFER.md" in text
     assert "Windows figures are unmeasured" in text
-
-

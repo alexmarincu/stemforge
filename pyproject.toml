@@ -84,6 +84,10 @@ include = ["/src", "/README.md", "/pyproject.toml", "/uv.lock"]
 target-version = "py313"
 line-length = 100
 src = ["src", "tests"]
+# `.scratch/` holds the decision record, prototypes, and benchmark notes. It is
+# not shipped code and is removed by the release handoff, so it stays out of the
+# formatter/linter gate.
+extend-exclude = [".scratch"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "PT", "RUF"]
