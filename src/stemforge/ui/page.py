@@ -136,8 +136,11 @@ SHELL_CSS: Final = (
 .sf-fineprint { font-size: 10px; color: var(--dim); }
 .sf-main { display: flex; flex-direction: column; min-width: 0; height: 100vh;
   background: var(--bg); }
-.sf-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 28px 28px; }
-.sf-empty { min-height: 100%; display: flex; align-items: center; justify-content: center; }
+.sf-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 28px 28px;
+  display: flex; flex-direction: column; }
+.sf-notice-slot { flex: none; }
+.sf-detail-slot { flex: 1 0 auto; display: flex; flex-direction: column; }
+.sf-empty { flex: 1; display: flex; align-items: center; justify-content: center; }
 .sf-empty-card { width: min(560px, 100%); display: flex; flex-direction: column; gap: 14px; }
 .sf-empty-title { font-size: 24px; font-weight: 650; letter-spacing: -0.02em; }
 .sf-lede { font-size: 13px; color: var(--muted); }
@@ -220,16 +223,26 @@ SHELL_CSS: Final = (
 .sf-banner-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sf-banner-headline { font-size: 12px; font-weight: 600; }
 .sf-banner-hint { font-size: 10.5px; color: var(--warn); }
-.sf-transport { display: flex; flex-direction: column; gap: 8px; }
-.sf-transport-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.sf-now { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
-.sf-now-title { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; }
-.sf-now-target { font-size: 10.5px; color: var(--muted); }
-.sf-time { font-size: 10.5px; color: var(--dim); font-family: var(--mono); }
-.sf-ab { display: inline-flex; border: 1px solid var(--line2); border-radius: 8px;
-  overflow: hidden; }
-.sf-ab .q-btn { border-radius: 0; font-size: 10.5px; }
+.sf-transport { display: flex; align-items: center; gap: 14px; padding: 12px 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.sf-play-lg { width: 42px; min-width: 42px; height: 42px; }
+.sf-play-lg .q-icon { font-size: 20px; }
+.sf-tp-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 7px; }
+.sf-tp-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.sf-now-title { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sf-tp-time { flex: none; font-size: 10.5px; color: var(--dim); font-family: var(--mono); }
+.sf-progress { width: 100%; }
+.sf-progress .q-slider { color: var(--accent); }
+.sf-progress .q-slider__track-container--h { padding: 0; }
+.sf-progress .q-slider__track { background: var(--line) !important; border-radius: 999px; }
+.sf-progress .q-slider__selection { border-radius: inherit; }
+.sf-tp-right { display: flex; align-items: center; gap: 8px; flex: none; }
+.sf-ab { display: inline-flex; align-items: center; gap: 2px; padding: 2px;
+  background: var(--well); border: 1px solid var(--line); border-radius: 8px; }
+.sf-ab-label { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--dim); padding: 0 5px; }
+.sf-ab .q-btn { border-radius: 6px; font-size: 10.5px; }
 .sf-ab .q-btn.is-active { background: var(--accent-soft); color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent-line); }
 .sf-stepper { display: inline-flex; align-items: center; gap: 8px; }
@@ -252,13 +265,14 @@ SHELL_CSS: Final = (
 .sf-version-tab.is-stale { border-style: dashed; color: var(--warn); }
 .sf-version-tab.is-stale.is-active { background: var(--accent-soft); color: var(--accent); }
 .sf-output-row { display: flex; align-items: center; gap: 9px; min-height: 40px;
-  padding: 3px 0; border-top: 1px solid var(--line); }
+  padding: 4px 0; border-top: 1px solid var(--line); }
 .sf-output-row:first-of-type { border-top: 0; }
 .sf-output-row.is-active { background: var(--panel2); border-radius: 8px; }
 .sf-output-row.is-playing { background: var(--panel2); border-radius: 8px; }
-.sf-output-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.sf-output-name { font-size: 12px; }
-.sf-output-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.sf-output-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px;
+  flex-wrap: wrap; }
+.sf-output-name { font-size: 12.5px; font-weight: 550; }
+.sf-output-badges { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .sf-output-repair { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   font-size: 10.5px; color: var(--warn); }
 .sf-output-duration { font-size: 10.5px; color: var(--dim); font-family: var(--mono); }
@@ -561,9 +575,9 @@ class WorkspacePage:
                 with ui.element("div"):
                     self._banner()
                 with ui.element("div").classes("sf-scroll"):
-                    with ui.element("div"):
+                    with ui.element("div").classes("sf-notice-slot"):
                         self._notice_block()
-                    with ui.element("div"):
+                    with ui.element("div").classes("sf-detail-slot"):
                         self._detail()
                 with ui.element("div"):
                     self._job_bar()
@@ -638,7 +652,11 @@ class WorkspacePage:
                     .on("click", lambda _=None, item=track: self._select_track(item.track_id))
                 )
                 with hit:
-                    ui.icon("music_note").classes("sf-track-ic")
+                    (
+                        ui.icon(self._track_icon(track))
+                        .classes("sf-track-ic")
+                        .mark("track-icon", f"track-icon-{track.track_id}")
+                    )
                     with ui.element("div").classes("sf-track-main"):
                         ui.label(track.title).classes("sf-track-title")
                         (
@@ -842,16 +860,16 @@ class WorkspacePage:
             self._empty_state()
             return
         self._youtube_row = None
-        meta = [self._origin_label(track)]
-        filename = self._filename(track)
-        if filename:
-            meta.append(filename)
-        meta.extend(self._audio_facts(track))
+        meta = self._detail_meta(track)
         with ui.element("div").classes("sf-detail").mark("track-detail"):
             with ui.element("div").classes("sf-head"):
                 with ui.element("div"):
                     ui.label(track.title).classes("sf-title")
-                    ui.label(" · ".join(meta)).classes("sf-detail-meta")
+                    (
+                        ui.label(" · ".join(meta))
+                        .classes("sf-detail-meta")
+                        .mark("detail-meta")
+                    )
                     if track.source.downmixed:
                         ui.label(formatting.DOWNMIX_NOTE).classes("sf-fineprint").mark(
                             "downmix-note"
@@ -1061,44 +1079,44 @@ class WorkspacePage:
         self._seek_max = slider_max
         latest = sets[-1] if sets else None
         active_key = self._active_version(track, sets)
-        with ui.element("section").classes("sf-card").mark("transport"):
-            ui.label(formatting.TRANSPORT_TITLE).classes("sf-card-title")
-            with ui.element("div").classes("sf-transport"):
-                with ui.element("div").classes("sf-transport-row"):
-                    play = (
-                        ui.button(
-                            icon="pause" if playing else "play_arrow",
-                            on_click=lambda _=None: self._toggle_transport(track.track_id),
+        unavailable = current is not None and (
+            current.preview is not None
+            and (track.track_id, current.preview.key) in self._unavailable_previews
+        )
+        if current is None or unavailable:
+            now_text = formatting.TRANSPORT_PREVIEW_UNAVAILABLE
+        else:
+            now_text = current.name
+            if active_key != "original":
+                now_text = f"{current.name} · {version_label}"
+        with ui.element("section").classes("sf-transport").mark("transport"):
+            play = (
+                ui.button(
+                    icon="pause" if playing else "play_arrow",
+                    on_click=lambda _=None: self._toggle_transport(track.track_id),
+                )
+                .props("unelevated round")
+                .classes("sf-play-lg")
+                .mark("transport-play")
+            )
+            self._apply_play_enabled(
+                play,
+                available=current is not None
+                and current.preview is not None
+                and not unavailable,
+            )
+            with ui.element("div").classes("sf-tp-main"):
+                with ui.element("div").classes("sf-tp-line"):
+                    ui.label(now_text).classes("sf-now-title").mark("now-playing")
+                    with ui.element("div").classes("sf-tp-time"):
+                        self._elapsed_label = (
+                            ui.label(formatting.format_duration(position))
+                            .style("display:inline")
+                            .mark("elapsed")
                         )
-                        .props("unelevated round")
-                        .mark("transport-play")
-                    )
-                    self._apply_play_enabled(
-                        play,
-                        available=current is not None
-                        and current.preview is not None
-                        and (track.track_id, current.preview.key) not in self._unavailable_previews,
-                    )
-                    with ui.element("div").classes("sf-now"):
-                        ui.label(track.title).classes("sf-now-title")
-                        if current is None or (
-                            current.preview is not None
-                            and (track.track_id, current.preview.key) in self._unavailable_previews
-                        ):
-                            now_text = formatting.TRANSPORT_PREVIEW_UNAVAILABLE
-                        else:
-                            now_text = current.name
-                            if active_key != "original":
-                                now_text = f"{current.name} · {version_label}"
-                        ui.label(now_text).classes("sf-now-target").mark("now-playing")
-                    self._elapsed_label = (
-                        ui.label(formatting.format_duration(position))
-                        .classes("sf-time")
-                        .mark("elapsed")
-                    )
-                    ui.label(
-                        f"/ {formatting.format_duration(track.source.metadata.duration_s)}"
-                    ).classes("sf-time")
+                        ui.label(
+                            f" / {formatting.format_duration(track.source.metadata.duration_s)}"
+                        ).style("display:inline")
                 self._seek_slider = (
                     ui.slider(
                         min=0.0,
@@ -1107,50 +1125,52 @@ class WorkspacePage:
                         value=min(max(position, 0.0), slider_max),
                         on_change=self._seek,
                     )
-                    .props("dense")
+                    .props("dense track-size=5px thumb-size=0px")
+                    .classes("sf-progress")
                     .mark("seek")
                 )
                 self._seek_slider.set_enabled(self._playback_allowed() and current is not None)
-                with ui.element("div").classes("sf-transport-row"):
-                    with ui.element("div").classes("sf-ab"):
-                        (
-                            ui.button(
-                                formatting.AB_ORIGINAL,
-                                on_click=lambda _=None: self._select_ab(track, "original"),
-                                color=None,
-                            )
-                            .props("flat dense no-caps size=sm")
-                            .classes("is-active" if active_key == "original" else "")
-                            .mark("ab-original")
-                            .set_enabled(self._playback_allowed())
-                        )
-                        (
-                            ui.button(
-                                (
-                                    latest.label
-                                    if latest is not None
-                                    else formatting.AB_LATEST_FALLBACK
-                                ),
-                                on_click=lambda _=None: self._select_ab(track, "latest"),
-                                color=None,
-                            )
-                            .props("flat dense no-caps size=sm")
-                            .classes("is-active" if active_key != "original" else "")
-                            .mark("ab-preview", "ab-latest")
-                            .set_enabled(latest is not None and self._playback_allowed())
-                        )
-                    export_key = current.export_key if current is not None else None
-                    export = (
+            with ui.element("div").classes("sf-tp-right"):
+                with ui.element("div").classes("sf-ab"):
+                    ui.label(formatting.AB_LABEL).classes("sf-ab-label").mark("ab-label")
+                    (
                         ui.button(
-                            formatting.TRANSPORT_EXPORT,
-                            icon="file_download",
-                            on_click=lambda _=None: self._open_export(track, export_key=export_key),
+                            formatting.AB_ORIGINAL,
+                            on_click=lambda _=None: self._select_ab(track, "original"),
                             color=None,
                         )
                         .props("flat dense no-caps size=sm")
-                        .mark("export-action")
+                        .classes("is-active" if active_key == "original" else "")
+                        .mark("ab-original")
+                        .set_enabled(self._playback_allowed())
                     )
-                    export.set_enabled(not self._busy() and export_key is not None)
+                    (
+                        ui.button(
+                            latest.label if latest is not None else formatting.AB_LATEST_FALLBACK,
+                            on_click=lambda _=None: self._select_ab(track, "latest"),
+                            color=None,
+                        )
+                        .props("flat dense no-caps size=sm")
+                        .classes(
+                            "is-active"
+                            if latest is not None and active_key == latest.render_key
+                            else ""
+                        )
+                        .mark("ab-preview", "ab-latest")
+                        .set_enabled(latest is not None and self._playback_allowed())
+                    )
+                export_key = current.export_key if current is not None else None
+                export = (
+                    ui.button(
+                        formatting.TRANSPORT_EXPORT,
+                        icon="file_download",
+                        on_click=lambda _=None: self._open_export(track, export_key=export_key),
+                        color=None,
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .mark("export-action")
+                )
+                export.set_enabled(not self._busy() and export_key is not None)
 
     def _outputs(self, track: Track, sets: Sequence[PitchSet]) -> None:
         active_key = self._active_version(track, sets)
@@ -2328,23 +2348,35 @@ class WorkspacePage:
         rows, _ = self._version_rows(track)
         return any(row.preview is not None for row in rows)
 
-    def _origin_label(self, track: Track) -> str:
+    @staticmethod
+    def _origin_label(track: Track) -> str:
         return "YouTube" if track.source.origin_kind is OriginKind.YOUTUBE else "Local file"
 
-    def _filename(self, track: Track) -> str:
-        if track.source.origin_kind is OriginKind.YOUTUBE:
-            return ""
-        return Path(track.source.origin).name
+    @staticmethod
+    def _track_icon(track: Track) -> str:
+        """Ticket 08 §3: the rail icon follows the Source origin, not the title."""
+        return "movie" if track.source.origin_kind is OriginKind.YOUTUBE else "music_note"
 
-    def _audio_facts(self, track: Track) -> list[str]:
-        facts = []
-        sample_rate = formatting.format_sample_rate(track.source.metadata.sample_rate)
+    @staticmethod
+    def _detail_meta(track: Track) -> list[str]:
+        """Ticket 08 §4: origin · filename or URL · duration · 44.1 kHz stereo."""
+        source = track.source
+        source_ref = (
+            source.origin
+            if source.origin_kind is OriginKind.YOUTUBE
+            else Path(source.origin).name
+        )
+        meta = [WorkspacePage._origin_label(track)]
+        if source_ref:
+            meta.append(source_ref)
+        meta.append(formatting.format_duration(source.metadata.duration_s))
+        sample_rate = formatting.format_sample_rate(source.metadata.sample_rate)
         if sample_rate:
-            facts.append(sample_rate)
-        channels = formatting.format_channels(track.source.metadata.channels)
+            meta.append(sample_rate)
+        channels = formatting.format_channels(source.metadata.channels)
         if channels:
-            facts.append(channels)
-        return facts
+            meta.append(channels)
+        return meta
 
     def _signal_path(self, track: Track) -> None:
         has_stems = self.service.has_separation(track)

@@ -23,6 +23,7 @@ from nicegui.testing.user_simulation import user_simulation
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
 from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
@@ -252,6 +253,51 @@ def _enabled(user, marker: str) -> bool:
     return bool(element.enabled)
 
 
+def _track(origin: str, kind: OriginKind, *, title: str = "Song") -> Track:
+    return Track(
+        track_id="track",
+        title=title,
+        source=Source(
+            source_id="source",
+            origin=origin,
+            origin_kind=kind,
+            metadata=SourceMetadata(
+                title=title,
+                duration_s=DURATION_S,
+                sample_rate=SAMPLE_RATE,
+                channels=CHANNELS,
+            ),
+        ),
+    )
+
+
+def test_detail_meta_names_source_duration_and_format() -> None:
+    """Ticket 08 §4: origin · filename or URL · duration · 44.1 kHz stereo."""
+    local = page.WorkspacePage._detail_meta(_track("/music/My Song.WAV", OriginKind.FILE))
+    youtube = page.WorkspacePage._detail_meta(
+        _track("https://www.youtube.com/watch?v=dQw4w9WgXcQ", OriginKind.YOUTUBE)
+    )
+
+    assert local == ["Local file", "My Song.WAV", "3:07", "44.1 kHz", "stereo"]
+    assert youtube == [
+        "YouTube",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "3:07",
+        "44.1 kHz",
+        "stereo",
+    ]
+
+
+def test_track_icons_distinguish_local_audio_from_youtube_video() -> None:
+    """Ticket 08 §3: the rail's 26 px type icon follows the Source origin."""
+    assert page.WorkspacePage._track_icon(_track("/music/song.wav", OriginKind.FILE)) == (
+        "music_note"
+    )
+    assert page.WorkspacePage._track_icon(
+        _track("https://www.youtube.com/watch?v=dQw4w9WgXcQ", OriginKind.YOUTUBE)
+    ) == ("movie")
+
+
 async def test_one_player_serves_per_row_play_from_every_track(harness: Harness) -> None:
     async for user, workspace_page in _open_page(harness):
         first, second = await _import(harness, user, workspace_page, "First.wav", "Second.wav")
@@ -298,12 +344,27 @@ async def test_transport_and_output_rows_drive_the_same_single_player(harness: H
 
         seek = _only(user, "seek")
         assert float(seek.props["max"]) == DURATION_S
+        # Ticket 08 §4: the transport is a 5 px band, not a standard slider.
+        assert seek.props["track-size"] == "5px"
+        assert seek.props["thumb-size"] == "0px"
+        assert _only(user, "ab-label").text == "A/B"
 
         # Ticket 08 §4: the transport advances with the media element.
         user.find(marker="player").trigger("timeupdate", 42.0)
         await asyncio.sleep(0.05)
         assert _only(user, "elapsed").text == "0:42"
         assert float(_only(user, "seek").value) == 42.0
+
+
+async def test_detail_header_shows_duration_and_format(harness: Harness) -> None:
+    async for user, workspace_page in _open_page(harness):
+        (track_id,) = await _import(harness, user, workspace_page, "Song.wav")
+        await asyncio.sleep(0.05)
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        meta = _only(user, "detail-meta")
+        assert meta.text == "Local file · Song.wav · 3:07 · 44.1 kHz · stereo"
 
 
 async def test_ab_swaps_original_and_newest_preview_in_one_player(harness: Harness) -> None:
@@ -340,6 +401,41 @@ async def test_ab_swaps_original_and_newest_preview_in_one_player(harness: Harne
         user.find(marker="ab-original").click()
         assert player.props["src"] == original
         assert len(user.find(marker="player").elements) == 1
+
+
+async def test_the_ab_shortcut_highlights_only_the_latest_render(harness: Harness) -> None:
+    """Ticket 08 §7: B is the latest render shortcut, not every shifted set."""
+    async for user, workspace_page in _open_page(harness):
+        (track_id,) = await _import(harness, user, workspace_page, "Shifted.wav")
+        await asyncio.sleep(0.05)
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        source_id = harness.service.snapshot().tracks[0].source_id
+        older = harness.add_render(source_id, semitones=3)
+        newer = harness.add_render(source_id, semitones=1)
+        with user:
+            workspace_page.poll()
+        await asyncio.sleep(0.05)
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        # Original is active, so the B shortcut names +1 but is not highlighted.
+        assert _only(user, "ab-preview").text == "+1"
+        assert "is-active" not in _only(user, "ab-preview").classes
+
+        # A non-latest set leaves the B shortcut labelled but inactive.
+        user.find(marker=f"output-tab-{older}").click()
+        await asyncio.sleep(0.05)
+        assert _only(user, "ab-preview").text == "+1"
+        assert "is-active" not in _only(user, "ab-preview").classes
+        assert "is-active" in _only(user, f"output-tab-{older}").classes
+
+        # Only the latest render lights the shortcut.
+        user.find(marker=f"output-tab-{newer}").click()
+        await asyncio.sleep(0.05)
+        assert "is-active" in _only(user, "ab-preview").classes
+        assert "is-active" in _only(user, f"output-tab-{newer}").classes
 
 
 async def test_a_missing_preview_is_unavailable_instead_of_a_dead_url(harness: Harness) -> None:
