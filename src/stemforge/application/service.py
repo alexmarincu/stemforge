@@ -12,11 +12,10 @@ import hashlib
 import json
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Protocol, cast
+from typing import cast
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -25,7 +24,6 @@ from stemforge.artifacts import (
     ArtifactStore,
     ClearReport,
     EvictionReport,
-    RemoveReport,
     RenderArtifact,
     SeparationArtifact,
     SweepReport,
@@ -87,88 +85,15 @@ from stemforge.platform import resources
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
 
-
-class PreflightCheckView(Protocol):
-    """One preflight result as the banner reads it."""
-
-    @property
-    def name(self) -> str: ...
-
-    @property
-    def status(self) -> str: ...
-
-    @property
-    def message(self) -> str: ...
-
-
-class PreflightView(Protocol):
-    """The preflight facts the UI reads, kept out of the platform layer."""
-
-    @property
-    def degraded(self) -> bool: ...
-
-    @property
-    def checks(self) -> Sequence[PreflightCheckView]: ...
-
-
-class JobKindValue(Protocol):
-    """A Job kind or state that renders its stable string form."""
-
-    @property
-    def value(self) -> str: ...
-
-
-class JobView(Protocol):
-    """The read-only Job fields every UI surface may read.
-
-    ``ui`` must not import ``stemforge.jobs`` (import-linter); this structural
-    view is the single application-seam description of ``jobs.JobSnapshot``.
-    """
-
-    @property
-    def job_id(self) -> str: ...
-
-    @property
-    def kind(self) -> JobKindValue: ...
-
-    @property
-    def state(self) -> JobKindValue: ...
-
-    @property
-    def progress(self) -> float: ...
-
-    @property
-    def stage(self) -> str: ...
-
-    @property
-    def created_at(self) -> datetime: ...
-
-    @property
-    def detail(self) -> str | None: ...
-
-    @property
-    def active(self) -> bool: ...
-
-    @property
-    def finished(self) -> bool: ...
-
-    @property
-    def error_code(self) -> str | None: ...
-
-    @property
-    def error_detail(self) -> str | None: ...
-
-    @property
-    def error_context(self) -> Mapping[str, object]: ...
-
-    @property
-    def retryable(self) -> bool: ...
-
-    @property
-    def log_path(self) -> Path | None: ...
-
-    @property
-    def result_keys(self) -> Mapping[str, str]: ...
+from .output_roles import SEPARATION_OUTPUT_ROLES, SEPARATION_ROLE_LABELS
+from .views import (
+    ExportedFile,
+    LicenceFiles,
+    PitchSet,
+    PreviewTarget,
+    RemoveOutcome,
+    SeparationSet,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,127 +104,6 @@ class ServiceEngines:
     pitch: object | None = None
     media: MediaTool | None = None
     youtube: YouTubeTool | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class RemoveOutcome:
-    """What removing one Track did to the Workspace and the cache."""
-
-    track: Track
-    cache_removed: bool
-    report: RemoveReport | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PreviewTarget:
-    """One playable preview URL for a Track (ticket 09).
-
-    ``original`` is the unshifted source preview; committed pitch renders expose
-    their original preview for the A/B hook. The UI never builds these URLs
-    itself: the service confines every path to the cache root that the single
-    ``/media`` route serves.
-    """
-
-    key: str
-    label: str
-    url: str
-    gain_db: float = 0.0
-
-
-@dataclass(frozen=True, slots=True)
-class ExportedFile:
-    """The file one finished Export Job produced, for the toast and its actions."""
-
-    job_id: str
-    path: Path
-    format: ExportFormat
-    size_bytes: int
-    duration_s: float
-    gain_db: float
-
-
-@dataclass(frozen=True, slots=True)
-class LicenceFiles:
-    """The Bundle-root licence artifacts the About modal exposes (ticket 22).
-
-    Frozen builds resolve these beside ``_internal/`` (``Path(sys.executable)``
-    parent); a source checkout resolves them at the repository root. Nothing is
-    read from the current working directory.
-    """
-
-    root: Path
-    license: Path
-    notices: Path
-    source_offer: Path
-    licenses_dir: Path
-
-    @property
-    def missing(self) -> tuple[Path, ...]:
-        """Every required path that is absent, in display order."""
-        required = (self.license, self.notices, self.source_offer)
-        missing = [path for path in required if not path.is_file()]
-        if not self.licenses_dir.is_dir():
-            missing.append(self.licenses_dir)
-        return tuple(missing)
-
-    @property
-    def complete(self) -> bool:
-        return not self.missing
-
-
-@dataclass(frozen=True, slots=True)
-class PitchSet:
-    """One immutable Render set as version tabs and A/B see it (ticket 11).
-
-    ``label`` is the tab text (``+3`` or, when both scopes exist at one
-    semitone, ``+3 master`` / ``+3 stems``). ``based_on_earlier_separation`` is
-    the ticket-05/08 note that the set's recorded input hashes no longer match
-    the current Stems; such a set stays listed and selectable.
-    """
-
-    render_key: str
-    semitones: int
-    scope: RenderScope
-    label: str
-    created_at: datetime
-    based_on_earlier_separation: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class SeparationSet:
-    """One committed Separation set as the Separation card sees it.
-
-    The artifact store keeps one Stems set per Source: a re-separation
-    replaces it (ticket 05). The view is still a list so the UI contract does
-    not have to change when an archived set appears; ``set_key`` is the stable
-    identity used by preview lookups.
-    """
-
-    set_key: str
-    created_at: datetime
-    label: str
-    stem_roles: tuple[str, ...]
-    based_on_earlier_separation: bool = False
-
-
-# Separation output labels for the UI. Instrumental is a stored Artifact, not a
-# Stem (GLOSSARY), so this map is deliberately not named for stems.
-_SEPARATION_ROLE_LABELS: Mapping[str, str] = {
-    "vocals": "Vocals",
-    INSTRUMENTAL_ROLE: "Instrumental",
-    "drums": "Drums",
-    "bass": "Bass",
-    "other": "Other",
-}
-
-# Display order shared by the service preview API and the Outputs card.
-SEPARATION_OUTPUT_ROLES: tuple[str, ...] = (
-    "vocals",
-    INSTRUMENTAL_ROLE,
-    "drums",
-    "bass",
-    "other",
-)
 
 
 class WorkspaceService:
@@ -570,7 +374,7 @@ class WorkspaceService:
             return None
         return PreviewTarget(
             key=f"render:{view.artifact.render_key}:{role}",
-            label=_SEPARATION_ROLE_LABELS.get(role, role.title()),
+            label=SEPARATION_ROLE_LABELS.get(role, role.title()),
             url=url,
             gain_db=view.artifact.gain_db,
         )
@@ -833,7 +637,7 @@ class WorkspaceService:
             return None
         return PreviewTarget(
             key=f"{set_key}:{stem}",
-            label=_SEPARATION_ROLE_LABELS[stem],
+            label=SEPARATION_ROLE_LABELS[stem],
             url=url,
             gain_db=artifact.gain_db,
         )

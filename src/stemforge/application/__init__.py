@@ -10,8 +10,9 @@ from __future__ import annotations
 from stemforge.engines.media import ExportFormat as ExportFormat
 from stemforge.pipeline.export_job import ExportTarget as ExportTarget
 
-from .service import (
-    SEPARATION_OUTPUT_ROLES,
+from .output_roles import SEPARATION_OUTPUT_ROLES as SEPARATION_OUTPUT_ROLES
+from .service import ServiceEngines, WorkspaceService
+from .views import (
     ExportedFile,
     JobKindValue,
     JobView,
@@ -22,15 +23,13 @@ from .service import (
     PreviewTarget,
     RemoveOutcome,
     SeparationSet,
-    ServiceEngines,
-    WorkspaceService,
 )
 
 __all__ = [
     "SEPARATION_OUTPUT_ROLES",
-    "ExportedFile",
     "ExportFormat",
     "ExportTarget",
+    "ExportedFile",
     "JobKindValue",
     "JobView",
     "LicenceFiles",
