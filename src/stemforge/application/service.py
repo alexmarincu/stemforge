@@ -8,9 +8,7 @@ Export are wired here; Separation and Render follow in their tickets.
 
 from __future__ import annotations
 
-import hashlib
 import json
-import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -24,7 +22,6 @@ from stemforge.artifacts import (
     ArtifactStore,
     ClearReport,
     EvictionReport,
-    RenderArtifact,
     SeparationArtifact,
     SweepReport,
 )
@@ -85,7 +82,10 @@ from stemforge.platform import resources
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
 
+from .identity import separation_key
 from .output_roles import SEPARATION_OUTPUT_ROLES, SEPARATION_ROLE_LABELS
+from .renders import RenderView, render_views
+from .state import JobLedger, WorkspaceState
 from .views import (
     ExportedFile,
     LicenceFiles,
@@ -121,6 +121,7 @@ class WorkspaceService:
         model_transport: Transport | None = None,
         youtube_delay: Callable[[float], None] = time.sleep,
         bundle_root: Path | None = None,
+        workspace: Workspace | None = None,
     ) -> None:
         self._settings = settings
         self._paths = paths if paths is not None else settings.paths
@@ -137,10 +138,9 @@ class WorkspaceService:
         self._models = models if models is not None else ModelStore(self._paths)
         self._model_transport = model_transport
         self._youtube_delay = youtube_delay
-        self._workspace = Workspace()
-        self._lock = threading.Lock()
+        self._state = WorkspaceState(workspace)
+        self._ledger = JobLedger(self._runner, self._state.lock)
         self._pending_separation_track_id: str | None = None
-        self._job_owners: dict[str, tuple[str | None, str | None]] = {}
 
     @property
     def settings(self) -> SettingsStore:
@@ -183,8 +183,7 @@ class WorkspaceService:
 
     def snapshot(self) -> WorkspaceSnapshot:
         """Return an immutable view of the Workspace for the UI."""
-        with self._lock:
-            return self._workspace.snapshot()
+        return self._state.snapshot()
 
     def recent_files(self) -> tuple[RecentFile, ...]:
         return self._settings.recent_files()
@@ -236,45 +235,27 @@ class WorkspaceService:
         waits for the runner to acknowledge it (ticket 14 §6), so the runner can
         never delete a cache subtree that a Job is still writing.
         """
-        with self._lock:
-            track = self._workspace.find(track_id)
-            if track is None:
-                raise KeyError(track_id)
-            owned = [
-                job_id
-                for job_id in self._active_job_ids_locked()
-                if self._owns_track(job_id, track.track_id, track.source_id)
-            ]
+        track = self._state.find(track_id)
+        if track is None:
+            raise KeyError(track_id)
+        owned = self._ledger.active_owned_job_ids(
+            track_id=track.track_id,
+            source_id=track.source_id,
+        )
         for job_id in owned:
             self._runner.cancel(job_id)
         if owned:
             self._runner.wait_idle(timeout=5.0)
-        with self._lock:
-            track = self._workspace.remove_track(track_id)
+        with self._state.lock:
+            track = self._state.remove_track(track_id)
             self._artifacts.release(track.source_id)
             still_live = self._artifacts.is_live(track.source_id)
-            for job_id in owned:
-                self._job_owners.pop(job_id, None)
+            self._ledger.forget(owned)
         if still_live:
             return RemoveOutcome(track=track, cache_removed=False)
         report = self._artifacts.remove_source(track.source_id)
         removed = report.source_removed or bool(report.renders_removed)
         return RemoveOutcome(track=track, cache_removed=removed, report=report)
-
-    def _active_job_ids_locked(self) -> tuple[str, ...]:
-        return tuple(snapshot.job_id for snapshot in self._runner.jobs() if snapshot.active)
-
-    def _owns_track(self, job_id: str, track_id: str, source_id: str) -> bool:
-        owner = self._job_owners.get(job_id)
-        if owner is None:
-            return False
-        owner_track, owner_source = owner
-        return owner_track == track_id or owner_source == source_id
-
-    def _remember_job(self, job_id: str, *, track_id: str | None, source_id: str | None) -> str:
-        with self._lock:
-            self._job_owners[job_id] = (track_id, source_id)
-        return job_id
 
     def sweep_stale(self) -> SweepReport:
         """Run the startup sweep once; the UI shows recovery copy when it deleted work."""
@@ -354,7 +335,7 @@ class WorkspaceService:
         view = next(
             (
                 item
-                for item in self._render_views(track.source_id)
+                for item in render_views(self._artifacts, track.source_id)
                 if item.artifact.render_key == render_key
             ),
             None,
@@ -391,7 +372,7 @@ class WorkspaceService:
                     gain_db=track.gain_db,
                 )
             )
-        for view in self._render_views(track.source_id):
+        for view in render_views(self._artifacts, track.source_id):
             url = self._render_preview_url(view)
             if url is None:
                 continue
@@ -422,7 +403,7 @@ class WorkspaceService:
                 created_at=view.artifact.created_at,
                 based_on_earlier_separation=view.based_on_earlier_separation,
             )
-            for view in self._render_views(track.source_id)
+            for view in render_views(self._artifacts, track.source_id)
         )
 
     def pitch_set(
@@ -510,8 +491,8 @@ class WorkspaceService:
             title=track.title,
             run=self._pitch_run(track, shift, resolved_scope, pitch, media),
         )
-        return self._remember_job(
-            self._runner.submit(job),
+        return self._ledger.submit(
+            job,
             track_id=track.track_id,
             source_id=track.source_id,
         )
@@ -544,40 +525,7 @@ class WorkspaceService:
 
         return run
 
-    def _render_views(self, source_id: str) -> tuple[_RenderView, ...]:
-        """Resolve render manifests into tab labels, scope, and staleness."""
-        artifacts = [item for item in self._artifacts.iter_renders() if item.source_id == source_id]
-        parsed: list[tuple[RenderArtifact, RenderScope, int]] = []
-        for artifact in artifacts:
-            scope = _render_scope(artifact)
-            semitones = _render_semitones(artifact)
-            if scope is None or semitones is None:
-                continue
-            parsed.append((artifact, scope, semitones))
-        parsed.sort(key=lambda item: (item[0].created_at, item[0].render_key))
-        collisions = {(semitones, scope) for _, scope, semitones in parsed}
-        separation = self._artifacts.find_separation(source_id) if parsed else None
-        views: list[_RenderView] = []
-        for artifact, scope, semitones in parsed:
-            label = _semitone_label(semitones)
-            other = RenderScope.STEMS if scope is RenderScope.ORIGINAL else RenderScope.ORIGINAL
-            if (semitones, other) in collisions:
-                label += " master" if scope is RenderScope.ORIGINAL else " stems"
-            based_on_earlier = scope is RenderScope.STEMS and _based_on_earlier_separation(
-                artifact, separation
-            )
-            views.append(
-                _RenderView(
-                    artifact=artifact,
-                    semitones=semitones,
-                    scope=scope,
-                    label=label,
-                    based_on_earlier_separation=based_on_earlier,
-                )
-            )
-        return tuple(views)
-
-    def _render_preview_url(self, view: _RenderView) -> str | None:
+    def _render_preview_url(self, view: RenderView) -> str | None:
         role = "original_preview" if view.scope is RenderScope.ORIGINAL else "instrumental_preview"
         return self._preview_url(view.artifact.path_for(role))
 
@@ -608,7 +556,7 @@ class WorkspaceService:
             return ()
         return (
             SeparationSet(
-                set_key=_separation_key(artifact),
+                set_key=separation_key(artifact),
                 created_at=artifact.created_at,
                 label="Separation",
                 stem_roles=STEM_ROLES,
@@ -684,8 +632,8 @@ class WorkspaceService:
             title=track.title,
             run=self._separation_run(track, separation, media),
         )
-        return self._remember_job(
-            self._runner.submit(job),
+        return self._ledger.submit(
+            job,
             track_id=track.track_id,
             source_id=track.source_id,
         )
@@ -708,27 +656,27 @@ class WorkspaceService:
             )
             return {
                 "track_id": track.track_id,
-                "set_key": _separation_key(result.artifact),
+                "set_key": separation_key(result.artifact),
             }
 
         return run
 
     def _separation_artifact(self, track: Track, set_key: str) -> SeparationArtifact | None:
         artifact = self._artifacts.find_separation(track.source_id)
-        if artifact is None or _separation_key(artifact) != set_key:
+        if artifact is None or separation_key(artifact) != set_key:
             return None
         return artifact
 
     def pending_separation_track_id(self) -> str | None:
         """The Track whose Separation waits for the model install, if any."""
-        with self._lock:
+        with self._state.lock:
             return self._pending_separation_track_id
 
     def remember_pending_separation(self, track_id: str) -> None:
         """Latch one post-install resubmit; the first request wins."""
         if not track_id:
             raise ValueError("track id must not be empty")
-        with self._lock:
+        with self._state.lock:
             if self._pending_separation_track_id is None:
                 self._pending_separation_track_id = track_id
 
@@ -739,7 +687,7 @@ class WorkspaceService:
         here (including a second ``model_missing``) cannot loop. ``None`` means
         this Track was not the latched one; nothing is submitted.
         """
-        with self._lock:
+        with self._state.lock:
             if self._pending_separation_track_id != track.track_id:
                 return None
             self._pending_separation_track_id = None
@@ -844,8 +792,8 @@ class WorkspaceService:
                 destination_name,
             ),
         )
-        return self._remember_job(
-            self._runner.submit(job),
+        return self._ledger.submit(
+            job,
             track_id=found.track_id,
             source_id=found.source_id,
         )
@@ -947,10 +895,7 @@ class WorkspaceService:
 
     def _find_track(self, track: Track | str) -> Track | None:
         track_id = track.track_id if isinstance(track, Track) else str(track)
-        return next(
-            (item for item in self.snapshot().tracks if item.track_id == track_id),
-            None,
-        )
+        return self._state.find(track_id)
 
     # -- Model -------------------------------------------------------------
 
@@ -1146,8 +1091,8 @@ class WorkspaceService:
 
     def _accept_source(self, source: Source) -> Track:
         """Create (or focus) the Track and refresh the recent-files entry."""
-        with self._lock:
-            existing = self._workspace.find_by_source(source.source_id)
+        with self._state.lock:
+            existing = self._state.find_by_source(source.source_id)
             if existing is not None:
                 track = existing
                 self._artifacts.touch_source(source.source_id)
@@ -1158,7 +1103,7 @@ class WorkspaceService:
                     source=source,
                     title=title,
                 )
-                self._workspace.add_track(track)
+                self._state.add_track(track)
                 self._artifacts.retain(source.source_id)
 
         self._settings.record_recent(
@@ -1170,87 +1115,3 @@ class WorkspaceService:
         )
         return track
 
-
-@dataclass(frozen=True, slots=True)
-class _RenderView:
-    """One render artifact with the label, scope, and staleness the UI needs."""
-
-    artifact: RenderArtifact
-    semitones: int
-    scope: RenderScope
-    label: str
-    based_on_earlier_separation: bool
-
-
-def _separation_key(artifact: SeparationArtifact) -> str:
-    """A stable, path-safe identity for one committed Separation set."""
-    digest = hashlib.sha256(
-        f"{artifact.source_id}:{artifact.created_at.isoformat()}".encode()
-    ).hexdigest()
-    return f"sep-{digest[:16]}"
-
-
-def _semitone_label(semitones: int) -> str:
-    """The tab text for one shift: ``+3``, or a minus-sign prefix when negative."""
-    return f"+{semitones}" if semitones > 0 else f"\u2212{abs(semitones)}"
-
-
-def _render_scope(artifact: RenderArtifact) -> RenderScope | None:
-    value = artifact.manifest.get("scope")
-    if not isinstance(value, str):
-        return None
-    try:
-        return RenderScope(value)
-    except ValueError:
-        return None
-
-
-def _render_semitones(artifact: RenderArtifact) -> int | None:
-    value = artifact.manifest.get("semitones")
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    if not MIN_SEMITONES <= value <= MAX_SEMITONES or value == 0:
-        return None
-    return value
-
-
-def _recorded_input_hashes(manifest: Mapping[str, object]) -> dict[str, str]:
-    raw = manifest.get("inputs")
-    if not isinstance(raw, list):
-        return {}
-    hashes: dict[str, str] = {}
-    for entry in raw:
-        if not isinstance(entry, Mapping):
-            continue
-        role = entry.get("role")
-        digest = entry.get("sha256")
-        if isinstance(role, str) and isinstance(digest, str) and digest:
-            hashes[role] = digest
-    return hashes
-
-
-def _based_on_earlier_separation(
-    artifact: RenderArtifact,
-    separation: SeparationArtifact | None,
-) -> bool:
-    """Whether a stems set's recorded inputs no longer match the current Stems.
-
-    The manifest is the source of truth (ticket 05 §2). Comparison uses the
-    separation manifest's recorded stem hashes, never a fresh read of the audio:
-    a detail refresh must not hash hundreds of megabytes. If the separation
-    records no hashes, the set cannot be proven stale and stays unlabelled.
-    """
-    recorded = _recorded_input_hashes(artifact.manifest)
-    if not recorded:
-        return False
-    if separation is None:
-        return True
-    current = {
-        entry.role: entry.sha256
-        for entry in separation.files
-        if entry.role in STEM_ROLES and entry.sha256 is not None
-    }
-    if not current:
-        return False
-    roles = {role for role in STEM_ROLES if role in recorded or role in current}
-    return any(recorded.get(role) != current.get(role) for role in roles)
