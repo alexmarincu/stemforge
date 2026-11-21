@@ -1,0 +1,66 @@
+# The only source of StemForge's repository, release, and source-offer URLs.
+#
+# Read by scripts/generate_notices.py (THIRD_PARTY_NOTICES.md, SOURCE_OFFER.md),
+# the release workflow's prepare job, verify-release.sh, and the packaging
+# scripts. No other file may hard-code these URLs.
+#
+# The placeholder gate (scripts/generate_notices.py --check-release) refuses a
+# tag while any value below is empty, contains "CHANGEME", "example.com", or
+# still looks like a `<REPO_URL>` token. Ticket 10 §8 and ticket 18 require
+# that gate before a release tag is created.
+#
+# Schema:
+#   schema                     integer; bump when a required key changes.
+#   [project] name             product name used in the generated headers.
+#   [project] license          SPDX id of StemForge itself.
+#   [project] copyright        copyright line shown in LICENSE and notices.
+#   [project] version_file     module that holds `__version__` (single source).
+#   [repo] url                 repository home.
+#   [repo] releases_url        releases page; tag pages are `<releases_url>/tag/v<version>`.
+#   [repo] source_offer_contact  contact for the GPL-3.0 §6(b) written offer.
+#   [source_offer] years       written-offer term in years (GPL-3.0 §6(b): 3).
+#   [source_offer] start_year  first year the offer is valid (release year).
+#                              The end year is derived as `start_year + years`.
+#   [assets] source_archive    first-party source asset name template.
+#   [assets] third_party_sources_archive  third-party source asset name template.
+#   [paths] *                  input/output paths, relative to the repo root.
+#
+# `{version}` is substituted from `project.version_file` by the generator and
+# the release scripts. Tags are `v<version>` and immutable once published:
+# the GPL-3.0 §6(d) same-place offer points at them.
+
+schema = 1
+
+[project]
+name = "StemForge"
+license = "GPL-3.0-only"
+copyright = "Copyright (C) 2026 the StemForge contributors"
+version_file = "src/stemforge/__init__.py"
+
+[repo]
+url = "https://github.com/alexmarincu/stemforge"
+releases_url = "https://github.com/alexmarincu/stemforge/releases"
+source_offer_contact = "https://github.com/alexmarincu/stemforge/issues"
+
+[source_offer]
+# GPL-3.0 §6(b): a written offer valid for three years from the release date.
+# The offer starts in the release year and runs for `years`.
+years = 3
+start_year = 2026
+
+[assets]
+source_archive = "StemForge-{version}-src.tar.gz"
+third_party_sources_archive = "StemForge-{version}-third-party-sources.tar.zst"
+
+[paths]
+license = "LICENSE"
+notices = "THIRD_PARTY_NOTICES.md"
+source_offer = "SOURCE_OFFER.md"
+licenses_dir = "LICENSES"
+uv_lock = "uv.lock"
+venv = ".venv"
+vendor_lock = "packaging/vendor.lock.json"
+vendor_sources = "packaging/vendor/SOURCES.md"
+native_manifest = "packaging/licenses/native.toml"
+python_manifest = "packaging/licenses/python.toml"
+license_texts = "packaging/licenses/texts"

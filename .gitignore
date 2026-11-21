@@ -9,6 +9,7 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 
@@ -16,6 +17,9 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+
+# Vendored binaries and build scratch (ticket 19: pinned by packaging/vendor.lock.json)
+/vendor/
 
 # OS noise
 .DS_Store

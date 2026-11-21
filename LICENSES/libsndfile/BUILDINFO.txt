@@ -1,0 +1,120 @@
+{
+  "component": "libsndfile",
+  "licence": "LGPL-2.1-or-later",
+  "note": "The shipped runtime `-buildconf`/`--version` output is captured by the release build into this directory; the values above are the committed provenance record from packaging/vendor.lock.json.",
+  "source": "https://github.com/libsndfile/libsndfile/releases/tag/1.2.2",
+  "vendor_lock": "packaging/vendor.lock.json",
+  "vendor_records": [
+    {
+      "libsndfile": {
+        "license": "LGPL-2.1-or-later",
+        "license_texts": [
+          "COPYING"
+        ],
+        "provenance": {
+          "build": "CMake release build, shared library, WAV-only (external codecs and MPEG off), programs/examples/tests off, dynamic linking preserves the LGPL relink right.",
+          "homepage": "https://libsndfile.github.io/libsndfile/",
+          "project": "libsndfile",
+          "source_repository": "https://github.com/libsndfile/libsndfile",
+          "tag": "1.2.2"
+        },
+        "targets": {
+          "linux-x86_64": {
+            "build": {
+              "archive_format": "tar.xz",
+              "configure": [
+                "cmake",
+                "-S",
+                "<source>",
+                "-B",
+                "build",
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_INSTALL_PREFIX=<prefix>",
+                "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+                "-DBUILD_SHARED_LIBS=ON",
+                "-DBUILD_PROGRAMS=OFF",
+                "-DBUILD_EXAMPLES=OFF",
+                "-DBUILD_TESTING=OFF",
+                "-DENABLE_EXTERNAL_LIBS=OFF",
+                "-DENABLE_MPEG=OFF",
+                "-DENABLE_CPACK=OFF",
+                "-DINSTALL_PKGCONFIG_MODULE=ON",
+                "-DINSTALL_MANPAGES=OFF"
+              ],
+              "notes": "The versioned libsndfile.so.1.0.37 is copied to vendor/rubberband/libsndfile.so.1 so the Rubber Band CLI's $ORIGIN rpath finds it. The file remains separately replaceable for the LGPL relink right.",
+              "post_build": [
+                "cmake --build build --parallel",
+                "cmake --install build",
+                "strip --strip-unneeded libsndfile.so.1"
+              ],
+              "system": "cmake"
+            },
+            "install": [
+              {
+                "executable": false,
+                "from": "libsndfile.so.1",
+                "sha256": null,
+                "to": "rubberband/libsndfile.so.1"
+              }
+            ],
+            "kind": "built",
+            "source": {
+              "filename": "libsndfile-1.2.2.tar.xz",
+              "sha256": "3799ca9924d3125038880367bf1468e53a1b7e3686a934f098b7e1d286cdb80e",
+              "size": 730760,
+              "url": "https://github.com/libsndfile/libsndfile/releases/download/1.2.2/libsndfile-1.2.2.tar.xz"
+            }
+          },
+          "windows-x64": {
+            "build": {
+              "archive_format": "tar.xz",
+              "configure": [
+                "cmake",
+                "-S",
+                "<source>",
+                "-B",
+                "build",
+                "-A",
+                "x64",
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+                "-DBUILD_SHARED_LIBS=ON",
+                "-DBUILD_PROGRAMS=OFF",
+                "-DBUILD_EXAMPLES=OFF",
+                "-DBUILD_TESTING=OFF",
+                "-DENABLE_EXTERNAL_LIBS=OFF",
+                "-DENABLE_MPEG=OFF",
+                "-DENABLE_CPACK=OFF",
+                "-DINSTALL_PKGCONFIG_MODULE=ON",
+                "-DINSTALL_MANPAGES=OFF"
+              ],
+              "notes": "Windows resolves sndfile.dll from the executable's own directory, so it is co-located with rubberband.exe. scripts/vendor-fetch.ps1 accepts the pair from -RubberBandPrebuilt when the MSVC build is unavailable.",
+              "post_build": [
+                "cmake --build build --config Release --parallel",
+                "copy the Release sndfile.dll beside rubberband.exe"
+              ],
+              "system": "cmake-msvc"
+            },
+            "install": [
+              {
+                "executable": false,
+                "from": "sndfile.dll",
+                "sha256": null,
+                "to": "rubberband/sndfile.dll"
+              }
+            ],
+            "kind": "built",
+            "source": {
+              "filename": "libsndfile-1.2.2.tar.xz",
+              "sha256": "3799ca9924d3125038880367bf1468e53a1b7e3686a934f098b7e1d286cdb80e",
+              "size": 730760,
+              "url": "https://github.com/libsndfile/libsndfile/releases/download/1.2.2/libsndfile-1.2.2.tar.xz"
+            }
+          }
+        },
+        "version": "1.2.2",
+        "version_flag": null
+      }
+    }
+  ]
+}

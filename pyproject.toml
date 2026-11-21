@@ -1,0 +1,213 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "stemforge"
+dynamic = ["version"]
+description = "Local stem separation, pitch shifting, and export."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = "GPL-3.0-only"
+authors = [{ name = "StemForge contributors" }]
+keywords = ["audio", "demucs", "pitch-shifting", "stem-separation"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: X11 Applications",
+  "Environment :: Win32 (MS Windows)",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = [
+  "demucs==4.1.0",
+  # demucs 4.1.0 uses numpy at module scope but omits it from its Linux/Windows
+  # dependency list, so `from demucs.api import Separator` fails without this.
+  "numpy==2.5.4",
+  "nicegui==4.0.0",
+  "platformdirs>=4.14.5,<5",
+  "pywebview==6.2.1",
+  "yt-dlp==2026.10.26",
+  "yt-dlp-ejs==0.8.0",
+  # CPU-only torch, from the explicit index below. It must be a direct
+  # dependency for `[tool.uv.sources]` to apply; transitive resolution would
+  # pull the default CUDA wheel set.
+  "torch==2.15.0+cpu",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[project.scripts]
+stemforge = "stemforge.__main__:main"
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28",
+  "import-linter>=2.16",
+  "mypy>=2.4",
+  "pytest>=8.4",
+  "pytest-asyncio>=1.2",
+  "pytest-cov>=7.0",
+  "pytest-timeout>=2.4",
+  "ruff>=0.17",
+]
+build = ["pyinstaller==6.22.3"]
+
+[tool.uv]
+default-groups = ["dev"]
+# demucs 4.1.0 declares numpy<2 for macOS x86_64 only (CONTEXT.md, verified
+# 2026-11-16). StemForge targets Linux and Windows, so restricting the resolved
+# environments keeps `uv lock` satisfiable; without this, resolution fails.
+environments = ["sys_platform == 'linux'", "sys_platform == 'win32'"]
+
+[tool.hatch.version]
+path = "src/stemforge/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stemforge"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/README.md", "/pyproject.toml", "/uv.lock"]
+
+# --- Ruff -------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "PT", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["stemforge"]
+
+# --- mypy -------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["src/stemforge"]
+mypy_path = "src"
+show_error_codes = true
+pretty = true
+
+# The UI is presentation-only NiceGUI code; per ticket 06 §9 and ticket 11 §6
+# it keeps strict checking but allows untyped defs.
+[[tool.mypy.overrides]]
+module = ["stemforge.ui.*"]
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+# yt-dlp ships no type information; the adapter narrows its objects at the
+# boundary (ticket 09 §4). Keep the rest of the package strict.
+[[tool.mypy.overrides]]
+module = ["yt_dlp", "yt_dlp.*"]
+ignore_missing_imports = true
+
+# --- pytest -----------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-m 'unit or ui' --strict-markers --strict-config"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+timeout = 120
+markers = [
+  "unit: fast tests with no external binaries, no network, and no torch",
+  "integration: tests that use real external binaries such as ffmpeg",
+  "ui: NiceGUI tests that need no browser",
+  "slow: tests that need torch/demucs or take longer than 30 seconds",
+  "licensing: tests for the generated licence tree; they need the full installed metadata",
+  "network: opt-in tests that use the network; never run in CI",
+  "platform_linux: tests specific to Linux",
+  "platform_windows: tests specific to Windows",
+]
+
+# --- Coverage ---------------------------------------------------------------
+
+# Two gates are reported (ticket 11 §6):
+#   overall: >= 70% line over src/stemforge excluding ui/ and workers/ (below)
+#   core:    >= 85% line over domain, jobs, artifacts, pipeline, engines,
+#            settings, application, worker_protocol, and errors:
+#   coverage report --fail-under=85 --include="src/stemforge/domain/*,src/stemforge/jobs/*,src/stemforge/artifacts.py,src/stemforge/pipeline/*,src/stemforge/engines/*,src/stemforge/settings.py,src/stemforge/application.py,src/stemforge/worker_protocol.py,src/stemforge/errors.py"
+[tool.coverage.run]
+source = ["stemforge"]
+omit = ["src/stemforge/ui/*", "src/stemforge/workers/*"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "@overload",
+]
+
+# --- Import contracts (ticket 06 §1) ---------------------------------------
+
+# The 06 §1 graph is not a single total order. The layers below take its
+# transitive order, put ui alone on top, and keep workers beside domain so the
+# worker process can reach worker_protocol, platform, and errors but nothing in
+# the server's application pipeline. The explicit forbidden contracts carry the
+# named UI and worker prohibitions.
+[tool.importlinter]
+root_packages = ["stemforge"]
+include_external_packages = false
+
+[[tool.importlinter.contracts]]
+name = "The 06 §1 dependency layers"
+type = "layers"
+layers = [
+  "stemforge.ui",
+  "stemforge.application | stemforge.integration",
+  "stemforge.pipeline",
+  "stemforge.jobs | stemforge.engines | stemforge.artifacts | stemforge.models | stemforge.settings",
+  "stemforge.domain | stemforge.workers",
+  "stemforge.worker_protocol",
+  "stemforge.platform | stemforge.errors",
+]
+
+[[tool.importlinter.contracts]]
+name = "UI never imports engines, workers, pipeline, or jobs"
+type = "forbidden"
+source_modules = ["stemforge.ui"]
+forbidden_modules = [
+  "stemforge.engines",
+  "stemforge.workers",
+  "stemforge.pipeline",
+  "stemforge.jobs",
+  "stemforge.platform",
+]
+# Ticket 06 §1 says ui may import application; application legitimately imports
+# jobs, pipeline, and engines. The contract forbids the direct UI dependency,
+# not the application's internal ones.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Workers stay below the app"
+type = "forbidden"
+source_modules = ["stemforge.workers"]
+forbidden_modules = [
+  "stemforge.application",
+  "stemforge.pipeline",
+  "stemforge.engines",
+  "stemforge.jobs",
+  "stemforge.artifacts",
+  "stemforge.domain",
+  "stemforge.models",
+  "stemforge.settings",
+  "stemforge.integration",
+  "stemforge.ui",
+]
+allow_indirect_imports = true

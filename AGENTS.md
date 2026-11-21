@@ -1,12 +1,10 @@
-# StemForge v0.1.0 handoff
-
-Implementation starts at [`HANDOFF.md`](HANDOFF.md). The decision record is `.scratch/stemforge/map.md` and its resolved tickets; where the handoff and a ticket disagree, the ticket wins.
+# StemForge
 
 ## Agent skills
 
 ### Issue tracker
 
-Implementation tickets live as GitHub issues in `alexmarincu/stemforge`; the wayfinder decision record stays local under `.scratch/stemforge/`. See `docs/agents/issue-tracker.md`.
+Implementation tickets live as GitHub issues in `alexmarincu/stemforge`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

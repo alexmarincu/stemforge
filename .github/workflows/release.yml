@@ -1,0 +1,545 @@
+name: Release
+
+# Ticket 23 / ticket 10 section 8. A tag builds the draft release; a maintainer
+# approves the protected `release` environment before `publish` un-drafts it.
+# Release assets go to the draft GitHub Release directly, never Actions
+# artifacts. 0.x tags are CI-only and are never published.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build, e.g. v0.0.9 (must equal v<stemforge.__version__>)"
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUTF8: "1"
+  STEMFORGE_REQUIRE_VENDOR: "1"
+
+jobs:
+  prepare:
+    name: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install the full locked environment for the notice check
+        run: uv sync --frozen
+      - name: Assert the tag is v<stemforge.__version__>
+        id: version
+        run: |
+          set -euo pipefail
+          tag="${REQUESTED_TAG:?}"
+          case "$tag" in
+            v*) ;;
+            *) echo "prepare: tag '$tag' must start with v" >&2; exit 1 ;;
+          esac
+          version="$(uv run --frozen python -c 'import stemforge; print(stemforge.__version__)')"
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "prepare: '$version' is not a release semver" >&2; exit 1 ;;
+          esac
+          if [ "$tag" != "v$version" ]; then
+            echo "prepare: GITHUB_REF_NAME/tag '$tag' != v<stemforge.__version__> 'v$version'" >&2
+            exit 1
+          fi
+          if [ "${GITHUB_EVENT_NAME:-}" = "push" ]; then
+            if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+              echo "prepare: GITHUB_REF_NAME '$GITHUB_REF_NAME' != 'v$version'" >&2
+              exit 1
+            fi
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Licence tree and release URL gates
+        run: |
+          uv run --frozen python scripts/generate_notices.py --check
+          uv run --frozen python scripts/generate_notices.py --check-release
+      - name: Render the release notes
+        run: |
+          uv run --frozen python scripts/release_notes.py \
+            --output build/reports/release-notes.md
+      - name: Create or refresh the draft release
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          version="${{ steps.version.outputs.version }}"
+          title="StemForge $version"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            draft="$(gh release view "$tag" --json isDraft --jq .isDraft)"
+            if [ "$draft" != "true" ]; then
+              echo "prepare: $tag is already published; refusing to touch it" >&2
+              exit 1
+            fi
+            gh release edit "$tag" --title "$title" \
+              --notes-file build/reports/release-notes.md
+          else
+            gh release create "$tag" --draft --title "$title" \
+              --notes-file build/reports/release-notes.md
+          fi
+      - name: Upload the release notes evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: build/reports/release-notes.md
+          if-no-files-found: warn
+
+  linux:
+    name: linux (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    needs: prepare
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      STEMFORGE_HOME: ${{ github.workspace }}/build/smoke-home
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install packaging tools and GUI runtime packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libgtk-3-0 \
+            libwebkit2gtk-4.1-0 \
+            gir1.2-webkit2-4.1 \
+            libgirepository1.0-dev \
+            libcairo2-dev \
+            pkg-config \
+            patchelf \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            meson \
+            ninja-build \
+            cmake \
+            xz-utils \
+            unzip \
+            zstd \
+            file \
+            binutils \
+            libfuse2 \
+            fuse \
+            desktop-file-utils \
+            librsvg2-dev
+      - name: Install the locked build environment
+        run: uv sync --frozen --group build
+      - name: Cache the pinned vendor set
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ffmpeg
+            vendor/deno
+            vendor/rubberband
+            vendor/PROVENANCE.txt
+          key: vendor-${{ runner.os }}-${{ hashFiles('packaging/vendor.lock.json', 'scripts/vendor-fetch.sh') }}
+      - name: Cache the PyInstaller bootloader
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pyinstaller
+          key: pyinstaller-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ hashFiles('packaging/pyinstaller/*.spec') }}
+      - name: Cache the pinned model weights
+        uses: actions/cache@v4
+        with:
+          path: build/smoke-home/data/models
+          key: hf-${{ runner.os }}-${{ hashFiles('src/stemforge/models/models.lock.json') }}
+      - name: Fetch and verify the pinned vendor set
+        run: |
+          bash scripts/vendor-fetch.sh
+          bash scripts/vendor-fetch.sh --verify-only
+      - name: Build the Bundle, archives, and AppImage
+        run: bash packaging/linux/build.sh
+      - name: Install the pinned model into the temporary STEMFORGE_HOME
+        run: |
+          bundle="dist/StemForge-${VERSION}-linux-x86_64"
+          mkdir -p "$STEMFORGE_HOME" build/reports
+          "$bundle/StemForge" --install-model --accept-model-licence \
+            --report build/reports/model-install.json
+      - name: Frozen smoke, separation, and AppImage extraction
+        run: |
+          bash packaging/linux/smoke-test.sh \
+            --bundle "dist/StemForge-${VERSION}-linux-x86_64" \
+            --with-separation \
+            --appimage "dist/StemForge-${VERSION}-linux-x86_64.AppImage"
+      - name: Upload the Linux assets to the draft
+        run: |
+          set -euo pipefail
+          bundle="dist/StemForge-${VERSION}-linux-x86_64"
+          gh release upload "$TAG" \
+            "$bundle.tar.gz" "$bundle.tar.zst" "$bundle.AppImage" --clobber
+          (
+            cd dist
+            sha256sum \
+              "StemForge-${VERSION}-linux-x86_64.tar.gz" \
+              "StemForge-${VERSION}-linux-x86_64.tar.zst" \
+              "StemForge-${VERSION}-linux-x86_64.AppImage" >SHA256SUMS
+          )
+          gh release upload "$TAG" dist/SHA256SUMS --clobber
+      - name: Keep the frozen reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-reports
+          path: |
+            build/reports/
+            build/pyinstaller/**/warn-*.txt
+          if-no-files-found: warn
+
+  windows:
+    name: windows (windows-2022)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    needs: prepare
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install the locked build environment
+        run: uv sync --frozen --group build
+      - name: Install the Windows vendor and installer tools
+        shell: pwsh
+        run: |
+          uv pip install --python .venv\Scripts\python.exe meson ninja
+          # windows-2022 ships a broken Strawberry Perl pkg-config.bat; install
+          # pkgconfiglite and force Meson to use a tool that answers --version.
+          choco install pkgconfiglite -y --no-progress
+          $candidates = @(
+            'C:\ProgramData\chocolatey\bin\pkg-config.exe',
+            'C:\Program Files (x86)\pkgconfiglite\bin\pkg-config.exe',
+            'C:\Program Files\pkgconfiglite\bin\pkg-config.exe'
+          )
+          foreach ($candidate in $candidates) {
+            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            $version = (& $candidate '--version' 2>$null | Select-Object -First 1)
+            if ($LASTEXITCODE -eq 0 -and $version) {
+              Add-Content -Path $env:GITHUB_ENV -Value "PKG_CONFIG=$candidate"
+              Write-Host "pkg-config: $candidate ($version)"
+              break
+            }
+          }
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) {
+            choco install innosetup -y --no-progress
+          }
+      - name: Cache the pinned vendor set
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ffmpeg
+            vendor/deno
+            vendor/rubberband
+            vendor/PROVENANCE.txt
+          key: vendor-${{ runner.os }}-${{ hashFiles('packaging/vendor.lock.json', 'scripts/vendor-fetch.ps1') }}
+      - name: Cache the PyInstaller bootloader
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pyinstaller
+          key: pyinstaller-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ hashFiles('packaging/pyinstaller/*.spec') }}
+      - name: Cache the WebView2 bootstrapper
+        uses: actions/cache@v4
+        with:
+          path: build\redist
+          key: webview2-${{ runner.os }}-${{ hashFiles('packaging/windows/webview2.lock.json') }}
+      - name: Cache the pinned model weights
+        uses: actions/cache@v4
+        with:
+          path: build\smoke-home\data\models
+          key: hf-${{ runner.os }}-${{ hashFiles('src/stemforge/models/models.lock.json') }}
+      - name: Fetch and build the pinned vendor set
+        shell: pwsh
+        timeout-minutes: 25
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/vendor-fetch.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/vendor-fetch.ps1 -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build the frozen bundle
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass `
+            -File packaging/windows/build.ps1 -SkipVendorFetch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Frozen smoke and separation in the temporary STEMFORGE_HOME
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass `
+            -File packaging/windows/smoke-test.ps1 `
+            -WithSeparation `
+            -HomePath (Join-Path $env:GITHUB_WORKSPACE 'build\smoke-home') `
+            -KeepHome
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package the portable ZIP and Inno setup
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File packaging/windows/package.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload the Windows assets to the draft
+        shell: pwsh
+        run: |
+          $assets = @(
+            (Join-Path 'dist' "StemForge-$env:VERSION-win64-portable.zip"),
+            (Join-Path 'dist' "StemForge-$env:VERSION-win64-setup.exe"),
+            (Join-Path 'dist' 'SHA256SUMS')
+          )
+          gh release upload $env:TAG @assets --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Keep the frozen reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows-reports
+          path: |
+            build/reports/
+            build/windows/
+          if-no-files-found: warn
+
+  sources:
+    name: sources (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: prepare
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+      - name: Install zstd
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends zstd
+      - name: Build the third-party corresponding-source bundle
+        run: |
+          python3 scripts/fetch_sources.py \
+            --lock packaging/vendor.lock.json \
+            --sources-md packaging/vendor/SOURCES.md \
+            --root . \
+            --version "$VERSION" \
+            --cache build/sources-cache \
+            --output "dist/StemForge-${VERSION}-third-party-sources.tar.zst"
+          python3 scripts/fetch_sources.py \
+            --lock packaging/vendor.lock.json \
+            --sources-md packaging/vendor/SOURCES.md \
+            --root . \
+            --version "$VERSION" \
+            --cache build/sources-cache \
+            --output "dist/StemForge-${VERSION}-third-party-sources.tar.zst" \
+            --verify
+      - name: Archive the tagged first-party source
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz --prefix="StemForge-${VERSION}/" \
+            -o "dist/StemForge-${VERSION}-src.tar.gz" "$TAG"
+          tar -tzf "dist/StemForge-${VERSION}-src.tar.gz" >/dev/null
+          test -s "dist/StemForge-${VERSION}-src.tar.gz"
+      - name: Upload the source assets to the draft
+        run: |
+          gh release upload "$TAG" \
+            "dist/StemForge-${VERSION}-src.tar.gz" \
+            "dist/StemForge-${VERSION}-third-party-sources.tar.zst" --clobber
+
+  publish:
+    name: publish (protected release environment)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: [prepare, linux, windows, sources]
+    environment: release
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+      - name: Install the verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends zstd innoextract
+      - name: Download the draft assets
+        run: |
+          mkdir -p dist/release
+          gh release download "$TAG" --dir dist/release --pattern '*'
+          ls -l dist/release
+      - name: Verify the asset set and tree before the final manifest
+        run: |
+          bash scripts/verify-release.sh \
+            --dir dist/release --tag "$TAG" --skip-sums
+      - name: Write the final SHA256SUMS over every other asset
+        run: |
+          set -euo pipefail
+          rm -f dist/release/SHA256SUMS
+          (
+            cd dist/release
+            find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' |
+              sort | xargs sha256sum >SHA256SUMS
+          )
+          cat dist/release/SHA256SUMS
+      - name: Re-verify the complete asset set
+        run: bash scripts/verify-release.sh --dir dist/release --tag "$TAG"
+      - name: Upload the final manifest and publish
+        run: |
+          gh release upload "$TAG" dist/release/SHA256SUMS --clobber
+          gh release edit "$TAG" --draft=false
+
+  linux-next:
+    name: linux-next (ubuntu-24.04, non-blocking)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: prepare
+    continue-on-error: true
+    env:
+      STEMFORGE_HOME: ${{ github.workspace }}/build/next-home
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install packaging tools and GUI runtime packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libgtk-3-0 libwebkit2gtk-4.1-0 gir1.2-webkit2-4.1 \
+            libgirepository1.0-dev libcairo2-dev pkg-config patchelf \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good meson \
+            ninja-build cmake xz-utils unzip zstd file binutils libfuse2 fuse \
+            desktop-file-utils librsvg2-dev
+      - name: Install the locked build environment
+        run: uv sync --frozen --group build
+      - name: Cache the pinned vendor set
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ffmpeg
+            vendor/deno
+            vendor/rubberband
+            vendor/PROVENANCE.txt
+          key: vendor-${{ runner.os }}-next-${{ hashFiles('packaging/vendor.lock.json', 'scripts/vendor-fetch.sh') }}
+      - name: Fetch the pinned vendor set
+        run: bash scripts/vendor-fetch.sh
+      - name: Build the next-image Bundle
+        run: bash packaging/linux/build.sh
+      - name: Next-image frozen self-test
+        run: |
+          mkdir -p "$STEMFORGE_HOME"
+          "dist/StemForge-${VERSION}-linux-x86_64/StemForge" --self-test
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+
+  windows-next:
+    name: windows-next (windows-2025, non-blocking)
+    runs-on: windows-2025
+    timeout-minutes: 45
+    needs: prepare
+    continue-on-error: true
+    env:
+      PYTHONUTF8: "1"
+      STEMFORGE_HOME: ${{ github.workspace }}\build\next-home
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install the locked build environment
+        run: uv sync --frozen --group build
+      - name: Install the vendor build tools
+        shell: pwsh
+        run: |
+          uv pip install --python .venv\Scripts\python.exe meson ninja
+          # windows-2022 ships a broken Strawberry Perl pkg-config.bat; install
+          # pkgconfiglite and force Meson to use a tool that answers --version.
+          choco install pkgconfiglite -y --no-progress
+          $candidates = @(
+            'C:\ProgramData\chocolatey\bin\pkg-config.exe',
+            'C:\Program Files (x86)\pkgconfiglite\bin\pkg-config.exe',
+            'C:\Program Files\pkgconfiglite\bin\pkg-config.exe'
+          )
+          foreach ($candidate in $candidates) {
+            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            $version = (& $candidate '--version' 2>$null | Select-Object -First 1)
+            if ($LASTEXITCODE -eq 0 -and $version) {
+              Add-Content -Path $env:GITHUB_ENV -Value "PKG_CONFIG=$candidate"
+              Write-Host "pkg-config: $candidate ($version)"
+              break
+            }
+          }
+      - name: Cache the pinned vendor set
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ffmpeg
+            vendor/deno
+            vendor/rubberband
+            vendor/PROVENANCE.txt
+          key: vendor-${{ runner.os }}-next-${{ hashFiles('packaging/vendor.lock.json', 'scripts/vendor-fetch.ps1') }}
+      - name: Fetch and build the pinned vendor set
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/vendor-fetch.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build the next-image frozen bundle
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass `
+            -File packaging/windows/build.ps1 -SkipVendorFetch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Next-image frozen self-test
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:STEMFORGE_HOME | Out-Null
+          & dist\StemForge\StemForge.exe --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

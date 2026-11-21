@@ -1,0 +1,118 @@
+{
+  "component": "rubberband",
+  "licence": "GPL-2.0-or-later",
+  "note": "The shipped runtime `-buildconf`/`--version` output is captured by the release build into this directory; the values above are the committed provenance record from packaging/vendor.lock.json.",
+  "source": "https://github.com/breakfastquay/rubberband/tree/v4.0.0",
+  "vendor_lock": "packaging/vendor.lock.json",
+  "vendor_records": [
+    {
+      "rubberband": {
+        "license": "GPL-2.0-or-later",
+        "license_texts": [
+          "COPYING"
+        ],
+        "provenance": {
+          "build": "Meson release build, builtin FFT/resampler, static librubberband, CLI only, no LV2/VST/LADSPA/Vamp/JNI.",
+          "commit": "1d95888bec3ae0a17c0c4af791810d5a63f6bc35",
+          "homepage": "https://breakfastquay.com/rubberband/",
+          "project": "Rubber Band Library",
+          "source_repository": "https://github.com/breakfastquay/rubberband",
+          "tag": "v4.0.0"
+        },
+        "targets": {
+          "linux-x86_64": {
+            "build": {
+              "archive_format": "tar.gz",
+              "configure": [
+                "meson",
+                "setup",
+                "build",
+                "<source>",
+                "--buildtype=release",
+                "--default-library=static",
+                "-Dfft=builtin",
+                "-Dresampler=builtin",
+                "-Dvamp=disabled",
+                "-Dlv2=disabled",
+                "-Dladspa=disabled",
+                "-Djni=disabled",
+                "-Dcmdline=enabled",
+                "-Dtests=disabled",
+                "-Dcpp_link_args=-Wl,-rpath,$ORIGIN",
+                "-Dc_link_args=-Wl,-rpath,$ORIGIN"
+              ],
+              "notes": "Built after libsndfile 1.2.2, with PKG_CONFIG_PATH pointing at the libsndfile prefix. The CLI statically contains librubberband and dynamically links only libsndfile.so.1, libstdc++, libm, libgcc_s, and glibc.",
+              "post_build": [
+                "ninja -C build",
+                "strip --strip-unneeded build/rubberband",
+                "patchelf --set-rpath $ORIGIN vendor/rubberband/rubberband"
+              ],
+              "system": "meson"
+            },
+            "install": [
+              {
+                "executable": true,
+                "from": "build/rubberband",
+                "sha256": null,
+                "to": "rubberband/rubberband"
+              }
+            ],
+            "kind": "built",
+            "source": {
+              "filename": "rubberband-4.0.0.tar.gz",
+              "sha256": "24300f48a8014b7c863b573a9647e61b1b19b37875e2cdd92005e64c6424d266",
+              "size": 290305,
+              "url": "https://github.com/breakfastquay/rubberband/archive/refs/tags/v4.0.0.tar.gz"
+            }
+          },
+          "windows-x64": {
+            "build": {
+              "archive_format": "tar.gz",
+              "configure": [
+                "meson",
+                "setup",
+                "build",
+                "<source>",
+                "--buildtype=release",
+                "--default-library=static",
+                "-Dfft=builtin",
+                "-Dresampler=builtin",
+                "-Dvamp=disabled",
+                "-Dlv2=disabled",
+                "-Dladspa=disabled",
+                "-Djni=disabled",
+                "-Dcmdline=auto",
+                "-Dtests=disabled",
+                "-Dextra_lib_dirs=<libsndfile-build>",
+                "-Dextra_include_dirs=<libsndfile-source>/include"
+              ],
+              "notes": "Ticket 10 \u00a78 builds this with MSVC on windows-2022 after libsndfile 1.2.2. cmdline=auto lets Meson fall back from pkg-config to cpp.find_library('sndfile', dirs: extra_lib_dirs) when pkg-config-lite cannot parse a Windows path; the CLI is still built when the fallback finds sndfile.lib. No public prebuilt Rubber Band archive is named by the decision record; scripts/vendor-fetch.ps1 therefore accepts a prebuilt pinned directory with -RubberBandPrebuilt when Meson/MSVC are unavailable, and verifies rubberband.exe --version 4.0.0 plus the co-located sndfile.dll.",
+              "post_build": [
+                "meson compile -C build",
+                "copy build/rubberband.exe and the libsndfile sndfile.dll beside it"
+              ],
+              "system": "meson-msvc"
+            },
+            "install": [
+              {
+                "executable": true,
+                "from": "build/rubberband.exe",
+                "sha256": null,
+                "to": "rubberband/rubberband.exe"
+              }
+            ],
+            "kind": "built",
+            "source": {
+              "filename": "rubberband-4.0.0.tar.gz",
+              "sha256": "24300f48a8014b7c863b573a9647e61b1b19b37875e2cdd92005e64c6424d266",
+              "size": 290305,
+              "url": "https://github.com/breakfastquay/rubberband/archive/refs/tags/v4.0.0.tar.gz"
+            }
+          }
+        },
+        "version": "4.0.0",
+        "version_flag": "--version"
+      }
+    }
+  ]
+}
