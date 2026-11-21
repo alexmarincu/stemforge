@@ -28,7 +28,6 @@ from stemforge.domain.models import (
     JobKind,
     JobState,
     ModelConsent,
-    OriginKind,
     RenderScope,
     Track,
 )
@@ -70,6 +69,7 @@ from stemforge.settings import RecentFile, SettingsStore
 from .collaborators.cache import CacheService
 from .collaborators.importing import ImportService
 from .collaborators.model import ModelService
+from .collaborators.recent import RecentService
 from .collaborators.youtube import YouTubeService
 from .identity import separation_key
 from .output_roles import SEPARATION_OUTPUT_ROLES, SEPARATION_ROLE_LABELS
@@ -147,6 +147,7 @@ class WorkspaceService:
             media=self._engines.media,
             delay=youtube_delay,
         )
+        self._recent = RecentService(self._settings, self._imports, self._youtube)
 
     @property
     def settings(self) -> SettingsStore:
@@ -192,47 +193,18 @@ class WorkspaceService:
         return self._state.snapshot()
 
     def recent_files(self) -> tuple[RecentFile, ...]:
-        return self._settings.recent_files()
+        return self._recent.recent_files()
 
     def remove_recent(self, source_id: str) -> bool:
-        return self._settings.remove_recent(source_id)
+        return self._recent.remove_recent(source_id)
 
     def recent_available(self, source_id: str) -> bool:
-        """Whether a recent entry can be opened without asking the user to find it.
-
-        A local path must still be a file. A YouTube URL is not a filesystem path;
-        availability is unknowable until a download is attempted, so it stays
-        clickable and the importer owns the network outcome.
-        """
-        entry = next((item for item in self.recent_files() if item.source_id == source_id), None)
-        if entry is None:
-            return False
-        if entry.origin_kind is OriginKind.YOUTUBE:
-            return True
-        return Path(entry.origin).is_file()
+        """Whether a recent entry can be opened without asking the user to find it."""
+        return self._recent.recent_available(source_id)
 
     def open_recent(self, source_id: str) -> str | None:
-        """Re-import one recent entry and return its Job id.
-
-        A missing local file raises the coded ``import.file_unavailable`` before
-        any Job starts (ticket 07 §5: nothing starts until the user acts). A
-        YouTube entry goes back through ``submit_youtube``, so a cached video
-        opens without a network call and a missing one re-downloads.
-        """
-        entry = next((item for item in self.recent_files() if item.source_id == source_id), None)
-        if entry is None:
-            raise KeyError(source_id)
-        if entry.origin_kind is OriginKind.YOUTUBE:
-            return self.submit_youtube(entry.origin)
-        path = Path(entry.origin)
-        if not path.is_file():
-            raise StemForgeError(
-                errors.IMPORT_FILE_UNAVAILABLE,
-                "the recent file is no longer readable",
-                detail="missing",
-                context={"path": str(path)},
-            )
-        return self.import_local(path)
+        """Re-import one recent entry and return its Job id."""
+        return self._recent.open_recent(source_id)
 
     def remove_track(self, track_id: str) -> RemoveOutcome:
         """Remove a Track and delete its cached audio when nothing else uses it.
@@ -297,7 +269,7 @@ class WorkspaceService:
 
     def clear_recent(self) -> None:
         """Clear the recent-files list; cached audio is untouched (ticket 07)."""
-        self._settings.clear_recent()
+        self._recent.clear_recent()
 
     # -- Preview -----------------------------------------------------------
 
