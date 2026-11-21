@@ -111,6 +111,66 @@ class PreflightView(Protocol):
     def checks(self) -> Sequence[PreflightCheckView]: ...
 
 
+class JobKindValue(Protocol):
+    """A Job kind or state that renders its stable string form."""
+
+    @property
+    def value(self) -> str: ...
+
+
+class JobView(Protocol):
+    """The read-only Job fields every UI surface may read.
+
+    ``ui`` must not import ``stemforge.jobs`` (import-linter); this structural
+    view is the single application-seam description of ``jobs.JobSnapshot``.
+    """
+
+    @property
+    def job_id(self) -> str: ...
+
+    @property
+    def kind(self) -> JobKindValue: ...
+
+    @property
+    def state(self) -> JobKindValue: ...
+
+    @property
+    def progress(self) -> float: ...
+
+    @property
+    def stage(self) -> str: ...
+
+    @property
+    def created_at(self) -> datetime: ...
+
+    @property
+    def detail(self) -> str | None: ...
+
+    @property
+    def active(self) -> bool: ...
+
+    @property
+    def finished(self) -> bool: ...
+
+    @property
+    def error_code(self) -> str | None: ...
+
+    @property
+    def error_detail(self) -> str | None: ...
+
+    @property
+    def error_context(self) -> Mapping[str, object]: ...
+
+    @property
+    def retryable(self) -> bool: ...
+
+    @property
+    def log_path(self) -> Path | None: ...
+
+    @property
+    def result_keys(self) -> Mapping[str, str]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ServiceEngines:
     """The engine adapters a WorkspaceService may call; tests inject fakes."""
