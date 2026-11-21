@@ -13,32 +13,20 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
-from urllib.parse import quote
 
 from stemforge import errors
-from stemforge.artifacts import (
-    ArtifactStore,
-    ClearReport,
-    EvictionReport,
-    SeparationArtifact,
-    SweepReport,
-)
+from stemforge.artifacts import ArtifactStore, ClearReport, EvictionReport, SweepReport
 from stemforge.domain.models import (
     JobKind,
     ModelConsent,
     RenderScope,
     Track,
 )
-from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
+from stemforge.domain.roles import STEM_ROLES
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
 from stemforge.engines.media import ExportFormat as ExportFormat
 from stemforge.engines.media import MediaTool
-from stemforge.engines.pitch import (
-    MAX_SEMITONES,
-    MIN_SEMITONES,
-    PitchEngine,
-    validate_semitones,
-)
+from stemforge.engines.pitch import PitchEngine
 from stemforge.engines.separation import SeparationEngine
 from stemforge.engines.youtube import YouTubeTool, YouTubeVideo
 from stemforge.errors import StemForgeError
@@ -48,7 +36,6 @@ from stemforge.jobs.runner import JobRunner
 from stemforge.models import ModelSpec, ModelStatus, ModelStore
 from stemforge.pipeline.export_job import ExportTarget as ExportTarget
 from stemforge.pipeline.model_job import Transport
-from stemforge.pipeline.pitch_job import find_pitch_render, run_pitch_job
 from stemforge.pipeline.separation_job import run_separation_job
 from stemforge.platform import resources
 from stemforge.platform.paths import AppPaths
@@ -58,11 +45,11 @@ from .collaborators.cache import CacheService
 from .collaborators.export import ExportService
 from .collaborators.importing import ImportService
 from .collaborators.model import ModelService
+from .collaborators.pitch import PitchService
+from .collaborators.preview import PreviewService
 from .collaborators.recent import RecentService
 from .collaborators.youtube import YouTubeService
 from .identity import separation_key
-from .output_roles import SEPARATION_OUTPUT_ROLES, SEPARATION_ROLE_LABELS
-from .renders import RenderView, render_views
 from .state import JobLedger, WorkspaceState
 from .views import (
     ExportedFile,
@@ -142,6 +129,14 @@ class WorkspaceService:
             self._artifacts,
             self._ledger,
             self._state,
+            self._engines.media,
+        )
+        self._preview = PreviewService(self._artifacts, self._state)
+        self._pitch = PitchService(
+            self._artifacts,
+            self._ledger,
+            self._state,
+            cast("PitchEngine | None", self._engines.pitch),
             self._engines.media,
         )
 
@@ -271,28 +266,11 @@ class WorkspaceService:
 
     def has_preview(self, track_id: str) -> bool:
         """Whether the Track's source preview exists inside the cache."""
-        track = next(
-            (item for item in self.snapshot().tracks if item.track_id == track_id),
-            None,
-        )
-        return track is not None and self._preview_url(track.source.preview_path) is not None
+        return self._preview.has_preview(track_id)
 
     def preview_targets(self, track_id: str) -> tuple[PreviewTarget, ...]:
-        """The playable previews for one Track, original first.
-
-        Only files inside the cache root are exposed. A missing preview is simply
-        absent, which lets the UI mark its row unavailable instead of requesting a
-        URL that can only 404. Render sets follow in creation order, newest last;
-        a stems set previews its shifted Instrumental because that is the one
-        primary output the set always carries.
-        """
-        track = next(
-            (item for item in self.snapshot().tracks if item.track_id == track_id),
-            None,
-        )
-        if track is None:
-            return ()
-        return self._preview_targets(track)
+        """The playable previews for one Track, original first."""
+        return self._preview.preview_targets(track_id)
 
     def pitch_render_preview_target(
         self,
@@ -300,65 +278,12 @@ class WorkspaceService:
         render_key: str,
         role: str,
     ) -> PreviewTarget | None:
-        """The preview of one member of a Render set (ticket 08 §7).
+        """The preview of one member of a Render set (ticket 08 §7)."""
+        return self._preview.pitch_render_preview_target(track, render_key, role)
 
-        A master set carries only its shifted master; a stems set carries Vocals,
-        Instrumental, Drums, Bass, and Other. The key is stable and unique across
-        versions so the single player can tell the rows apart.
-        """
-        view = next(
-            (
-                item
-                for item in render_views(self._artifacts, track.source_id)
-                if item.artifact.render_key == render_key
-            ),
-            None,
-        )
-        if view is None:
-            return None
-        if view.scope is RenderScope.ORIGINAL:
-            if role != "original":
-                return None
-            file_role = "original_preview"
-        else:
-            if role not in (*STEM_ROLES, INSTRUMENTAL_ROLE):
-                return None
-            file_role = f"{role}_preview"
-        url = self._preview_url(view.artifact.path_for(file_role))
-        if url is None:
-            return None
-        return PreviewTarget(
-            key=f"render:{view.artifact.render_key}:{role}",
-            label=SEPARATION_ROLE_LABELS.get(role, role.title()),
-            url=url,
-            gain_db=view.artifact.gain_db,
-        )
-
-    def _preview_targets(self, track: Track) -> tuple[PreviewTarget, ...]:
-        targets: list[PreviewTarget] = []
-        source_url = self._preview_url(track.source.preview_path)
-        if source_url is not None:
-            targets.append(
-                PreviewTarget(
-                    key="original",
-                    label="Original",
-                    url=source_url,
-                    gain_db=track.gain_db,
-                )
-            )
-        for view in render_views(self._artifacts, track.source_id):
-            url = self._render_preview_url(view)
-            if url is None:
-                continue
-            targets.append(
-                PreviewTarget(
-                    key=view.artifact.render_key,
-                    label=view.label,
-                    url=url,
-                    gain_db=view.artifact.gain_db,
-                )
-            )
-        return tuple(targets)
+    def pitch_preview_target(self, track: Track, render_key: str) -> PreviewTarget | None:
+        """The playable preview of one render set, or ``None`` when it is gone."""
+        return self._preview.pitch_preview_target(track, render_key)
 
     # -- Pitch -------------------------------------------------------------
 
@@ -368,17 +293,7 @@ class WorkspaceService:
 
     def pitch_sets(self, track: Track) -> tuple[PitchSet, ...]:
         """Every committed render set for the Track, oldest first (ticket 08 §7)."""
-        return tuple(
-            PitchSet(
-                render_key=view.artifact.render_key,
-                semitones=view.semitones,
-                scope=view.scope,
-                label=view.label,
-                created_at=view.artifact.created_at,
-                based_on_earlier_separation=view.based_on_earlier_separation,
-            )
-            for view in render_views(self._artifacts, track.source_id)
-        )
+        return self._pitch.pitch_sets(track)
 
     def pitch_set(
         self,
@@ -386,47 +301,8 @@ class WorkspaceService:
         semitones: int,
         scope: RenderScope | str,
     ) -> PitchSet | None:
-        """The set that satisfies a Render request for ``(semitones, scope)``.
-
-        Scope is part of the query: a master render never answers a stems
-        request (ticket 08 §5). A stems set built from an earlier separation is
-        not a cache hit for the current Stems, so Render is offered instead of
-        Open while the old set stays in the tabs.
-        """
-        if isinstance(semitones, bool) or not isinstance(semitones, int):
-            return None
-        if not MIN_SEMITONES <= semitones <= MAX_SEMITONES or semitones == 0:
-            return None
-        resolved_scope = RenderScope(scope)
-        found = find_pitch_render(
-            self._artifacts,
-            source_id=track.source_id,
-            semitones=semitones,
-            scope=resolved_scope,
-        )
-        sets = self.pitch_sets(track)
-        if found is not None:
-            match = next(
-                (item for item in sets if item.render_key == found.artifact.render_key),
-                None,
-            )
-            if match is not None and not match.based_on_earlier_separation:
-                return match
-        for item in reversed(sets):
-            if (
-                item.semitones == semitones
-                and item.scope is resolved_scope
-                and not item.based_on_earlier_separation
-            ):
-                return item
-        return None
-
-    def pitch_preview_target(self, track: Track, render_key: str) -> PreviewTarget | None:
-        """The playable preview of one render set, or ``None`` when it is gone."""
-        return next(
-            (target for target in self._preview_targets(track) if target.key == render_key),
-            None,
-        )
+        """The set that satisfies a Render request for ``(semitones, scope)``."""
+        return self._pitch.pitch_set(track, semitones, scope)
 
     def render_pitch(
         self,
@@ -434,87 +310,8 @@ class WorkspaceService:
         semitones: int,
         scope: RenderScope | str,
     ) -> str:
-        """Submit one Pitch Render Job and return its id (ticket 03, ticket 08 §5).
-
-        The request is explicit: the UI's stepper never calls this by itself.
-        ``scope`` is ``original`` for the default flow, or ``stems`` when the
-        user asks for the explicit stems action after a Separation.
-        """
-        shift = validate_semitones(semitones)
-        resolved_scope = RenderScope(scope)
-        pitch = cast("PitchEngine | None", self._engines.pitch)
-        media = self._engines.media
-        if pitch is None or media is None:
-            raise StemForgeError(
-                errors.INTERNAL_UNEXPECTED,
-                "the pitch render engines are not configured",
-            )
-        if (
-            resolved_scope is RenderScope.STEMS
-            and self._artifacts.find_separation(track.source_id) is None
-        ):
-            raise ValueError(f"stems are not available for this source: {track.source_id}")
-        job = Job(
-            kind=JobKind.RENDER_PITCH,
-            identity=(
-                JobKind.RENDER_PITCH.value,
-                track.source_id,
-                resolved_scope.value,
-                str(shift),
-            ),
-            title=track.title,
-            run=self._pitch_run(track, shift, resolved_scope, pitch, media),
-        )
-        return self._ledger.submit(
-            job,
-            track_id=track.track_id,
-            source_id=track.source_id,
-        )
-
-    def _pitch_run(
-        self,
-        track: Track,
-        semitones: int,
-        scope: RenderScope,
-        pitch: PitchEngine,
-        media: MediaTool,
-    ) -> JobRun:
-        def run(ctx: JobContext) -> Mapping[str, str]:
-            result = run_pitch_job(
-                ctx,
-                artifacts=self._artifacts,
-                pitch=pitch,
-                media=media,
-                source_id=track.source_id,
-                semitones=semitones,
-                scope=scope,
-                title=track.title,
-            )
-            return {
-                "track_id": track.track_id,
-                "render_key": result.artifact.render_key,
-                "scope": result.scope.value,
-                "semitones": str(result.semitones),
-            }
-
-        return run
-
-    def _render_preview_url(self, view: RenderView) -> str | None:
-        role = "original_preview" if view.scope is RenderScope.ORIGINAL else "instrumental_preview"
-        return self._preview_url(view.artifact.path_for(role))
-
-    def _preview_url(self, path: Path | None) -> str | None:
-        if path is None:
-            return None
-        try:
-            root = self._artifacts.root.resolve(strict=False)
-            resolved = path.resolve(strict=True)
-            if not resolved.is_relative_to(root) or not resolved.is_file():
-                return None
-            relative = resolved.relative_to(root).as_posix()
-        except (OSError, ValueError):
-            return None
-        return "/media/" + quote(relative, safe="/")
+        """Submit one Pitch Render Job and return its id (ticket 03, ticket 08 §5)."""
+        return self._pitch.render_pitch(track, semitones, scope)
 
     # -- Separation --------------------------------------------------------
 
@@ -544,25 +341,8 @@ class WorkspaceService:
         set_key: str,
         stem: str,
     ) -> PreviewTarget | None:
-        """The playable preview of one stem in one Separation set.
-
-        ``stem`` is a Demucs role or ``instrumental``. A missing set, an unknown
-        role, or a cleared preview returns ``None`` so the row can be marked
-        unavailable instead of pointing at a URL that can only 404.
-        """
-        artifact = self._separation_artifact(track, set_key)
-        if artifact is None or stem not in SEPARATION_OUTPUT_ROLES:
-            return None
-        path = artifact.path_for(f"{stem}_preview")
-        url = self._preview_url(path)
-        if url is None:
-            return None
-        return PreviewTarget(
-            key=f"{set_key}:{stem}",
-            label=SEPARATION_ROLE_LABELS[stem],
-            url=url,
-            gain_db=artifact.gain_db,
-        )
+        """The playable preview of one stem in one Separation set."""
+        return self._preview.separation_preview_target(track, set_key, stem)
 
     def separate(self, track: Track) -> str:
         """Submit one Separation Job, or raise ``separation.model_missing``.
@@ -634,12 +414,6 @@ class WorkspaceService:
             }
 
         return run
-
-    def _separation_artifact(self, track: Track, set_key: str) -> SeparationArtifact | None:
-        artifact = self._artifacts.find_separation(track.source_id)
-        if artifact is None or separation_key(artifact) != set_key:
-            return None
-        return artifact
 
     def pending_separation_track_id(self) -> str | None:
         """The Track whose Separation waits for the model install, if any."""
