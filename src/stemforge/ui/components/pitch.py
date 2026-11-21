@@ -12,9 +12,8 @@ set never satisfies a stems request, and the Outputs tabs keep both visible.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
-from pathlib import Path
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from nicegui import ui
@@ -29,6 +28,7 @@ from stemforge.ui.components.diagnostics import (
     DiagnosticsProvider,
     error_details,
 )
+from stemforge.ui.failure import JobFailure
 
 if TYPE_CHECKING:
     from stemforge.application import PitchSet, WorkspaceService
@@ -44,14 +44,9 @@ JobCallback = Callable[[str, str, int, RenderScope], None]
 class PitchFailure:
     """One failed Render request; Retry re-submits exactly this spec."""
 
-    code: str
-    detail: str | None
+    job_failure: JobFailure
     semitones: int
     scope: RenderScope
-    retryable: bool = False
-    context: Mapping[str, object] | None = None
-    job_id: str | None = None
-    log_path: Path | None = None
 
 
 class PitchCard:
@@ -181,9 +176,10 @@ class PitchCard:
         button.set_enabled(not busy)
 
     def _error(self, track: Track, busy: bool) -> None:
-        failure = self._failures.get(track.track_id)
-        if failure is None:
+        request_failure = self._failures.get(track.track_id)
+        if request_failure is None:
             return
+        failure = request_failure.job_failure
         copy = formatting.copy_for(
             failure.code,
             formatting.reason_from_detail(failure.detail),
@@ -241,12 +237,9 @@ class PitchCard:
             job_id = self._service.render_pitch(track, semitones, scope)
         except StemForgeError as error:
             self._failures[track.track_id] = PitchFailure(
-                code=error.code,
-                detail=error.detail,
+                job_failure=JobFailure.from_error(error),
                 semitones=semitones,
                 scope=scope,
-                retryable=error.retryable,
-                context=error.context,
             )
             self.build.refresh()
             return
@@ -270,26 +263,18 @@ class PitchCard:
     def record_failure(
         self,
         track_id: str,
-        code: str,
-        detail: str | None,
+        failure: JobFailure,
         semitones: int,
         scope: RenderScope,
-        *,
-        retryable: bool = False,
-        context: Mapping[str, object] | None = None,
-        job_id: str | None = None,
-        log_path: Path | None = None,
     ) -> None:
         """Show one failed Render inline without touching the active version."""
         self._failures[track_id] = PitchFailure(
-            code=code or errors.PITCH_RENDER_FAILED,
-            detail=detail,
+            job_failure=replace(
+                failure,
+                code=failure.code or errors.PITCH_RENDER_FAILED,
+            ),
             semitones=semitones,
             scope=scope,
-            retryable=retryable,
-            context=context,
-            job_id=job_id,
-            log_path=log_path,
         )
         if track_id == self._current_track_id:
             self.build.refresh()

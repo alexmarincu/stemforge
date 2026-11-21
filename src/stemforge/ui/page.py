@@ -50,14 +50,17 @@ from stemforge.ui.components.diagnostics import (
     error_details,
 )
 from stemforge.ui.components.export import (
+    ExportFailure,
     ExportNotice,
     ExportSheet,
     ExportSpec,
     ExportStatusBar,
+    ExportSuccess,
 )
 from stemforge.ui.components.pitch import PitchCard
 from stemforge.ui.components.separation import SeparationCard
 from stemforge.ui.components.youtube import YouTubeRow
+from stemforge.ui.failure import JobFailure, JobFailureSource
 from stemforge.ui.toast import toast
 
 TITLE: Final = "StemForge"
@@ -380,11 +383,8 @@ class PitchJobSpec:
 class Notice:
     """One coded inline error card; the raw detail never reaches the UI."""
 
-    code: str
-    headline: str
-    action: str
-    job_id: str | None = None
-    log_path: Path | None = None
+    failure: JobFailure
+    origin: OriginKind | None = None
     retry: Callable[[], str | None] | None = None
 
 
@@ -422,15 +422,13 @@ class JobKindValue(Protocol):
     def value(self) -> str: ...
 
 
-class JobView(Protocol):
+class JobView(JobFailureSource, Protocol):
     """The fields the Job bar needs from ``jobs.JobSnapshot`` without importing it.
 
     ``ui`` must not import ``stemforge.jobs`` (import-linter); this structural
     view keeps the dependency on the application seam and stays mypy-strict.
+    The failure fields come from :class:`JobFailureSource`.
     """
-
-    @property
-    def job_id(self) -> str: ...
 
     @property
     def kind(self) -> JobKindValue: ...
@@ -455,21 +453,6 @@ class JobView(Protocol):
 
     @property
     def finished(self) -> bool: ...
-
-    @property
-    def error_code(self) -> str | None: ...
-
-    @property
-    def error_detail(self) -> str | None: ...
-
-    @property
-    def error_context(self) -> Mapping[str, object]: ...
-
-    @property
-    def retryable(self) -> bool: ...
-
-    @property
-    def log_path(self) -> Path | None: ...
 
     @property
     def result_keys(self) -> Mapping[str, str]: ...
@@ -843,14 +826,21 @@ class WorkspacePage:
         if self._notice is None:
             return
         notice = self._notice
+        failure = notice.failure
+        copy = formatting.copy_for(
+            failure.code,
+            formatting.reason_from_detail(failure.detail),
+            context=failure.context,
+            origin=notice.origin,
+        )
         with ui.element("div").classes("sf-notice").mark("import-error"):
-            ui.label(notice.headline).classes("sf-notice-headline")
-            ui.label(notice.action).classes("sf-notice-action")
+            ui.label(copy.headline).classes("sf-notice-headline")
+            ui.label(copy.action).classes("sf-notice-action")
             error_details(
-                code=notice.code,
+                code=failure.code,
                 marker="import-details",
-                job_id=notice.job_id,
-                log_path=notice.log_path,
+                job_id=failure.job_id,
+                log_path=failure.log_path,
                 diagnostics=self.context.diagnostics,
                 clipboard=self.context.clipboard,
                 open_path=self.context.open_path,
@@ -865,7 +855,7 @@ class WorkspacePage:
                     .mark("import-retry")
                 )
                 retry.set_enabled(not self._busy())
-            if notice.code in {errors.STORAGE_DISK_FULL, errors.STORAGE_CACHE_FULL}:
+            if failure.code in {errors.STORAGE_DISK_FULL, errors.STORAGE_CACHE_FULL}:
                 clear = (
                     ui.button(
                         formatting.SETTINGS_CACHE_CLEAR,
@@ -1399,12 +1389,9 @@ class WorkspacePage:
         except StemForgeError as error:
             self._pitch.record_failure(
                 track.track_id,
-                error.code,
-                error.detail,
+                JobFailure.from_error(error),
                 item.semitones,
                 item.scope,
-                retryable=error.retryable,
-                context=error.context,
             )
             return
         except ValueError:
@@ -1879,35 +1866,32 @@ class WorkspacePage:
         if snapshot.state.value == "succeeded":
             result = self.service.export_result(snapshot.job_id)
             if result is None:
-                self._export_notice = ExportNotice.failure(
+                self._export_notice = ExportFailure(
                     spec,
-                    code=errors.INTERNAL_UNEXPECTED,
-                    detail=None,
-                    retryable=False,
+                    failure=JobFailure(errors.INTERNAL_UNEXPECTED),
                 )
             else:
-                self._export_notice = ExportNotice.success(spec, result.path)
+                self._export_notice = ExportSuccess(spec, result.path)
                 with contextlib.suppress(OSError):
                     self.service.remember_export_dir(result.path.parent)
                 toast(f"Exported to {result.path}", type="positive")
         elif snapshot.state.value == "failed":
-            code = snapshot.error_code or errors.INTERNAL_UNEXPECTED
-            self._export_notice = ExportNotice.failure(
-                spec,
-                code=code,
-                detail=snapshot.error_detail,
-                context=snapshot.error_context,
-                retryable=snapshot.retryable,
-                job_id=snapshot.job_id or None,
-                log_path=snapshot.log_path,
+            failure = JobFailure.from_job(
+                snapshot,
+                fallback_code=errors.INTERNAL_UNEXPECTED,
             )
+            self._export_notice = ExportFailure(spec, failure=failure)
             reason = (
                 "export"
-                if code == errors.STORAGE_DISK_FULL
-                else formatting.reason_from_detail(snapshot.error_detail)
+                if failure.code == errors.STORAGE_DISK_FULL
+                else formatting.reason_from_detail(failure.detail)
             )
             toast(
-                formatting.copy_for(code, reason, context=snapshot.error_context).headline,
+                formatting.copy_for(
+                    failure.code,
+                    reason,
+                    context=failure.context,
+                ).headline,
                 type="negative",
             )
         elif snapshot.state.value == "cancelled":
@@ -1929,12 +1913,9 @@ class WorkspacePage:
                 destination_name=spec.destination_name,
             )
         except StemForgeError as error:
-            self._export_notice = ExportNotice.failure(
+            self._export_notice = ExportFailure(
                 spec,
-                code=error.code,
-                detail=error.detail,
-                context=error.context,
-                retryable=error.retryable,
+                failure=JobFailure.from_error(error),
             )
             self._job_bar.refresh()
             return
@@ -2076,12 +2057,10 @@ class WorkspacePage:
         if snapshot.state.value == "failed":
             self._separation.record_failure(
                 track_id,
-                snapshot.error_code or errors.INTERNAL_UNEXPECTED,
-                snapshot.error_detail,
-                retryable=snapshot.retryable,
-                context=snapshot.error_context,
-                job_id=snapshot.job_id,
-                log_path=snapshot.log_path,
+                JobFailure.from_job(
+                    snapshot,
+                    fallback_code=errors.INTERNAL_UNEXPECTED,
+                ),
             )
         elif snapshot.state.value == "cancelled":
             self._separation.clear_failure(track_id)
@@ -2094,11 +2073,10 @@ class WorkspacePage:
         self._separation.observe(None)
         if snapshot.state.value == "failed":
             self._separation.record_model_failure(
-                snapshot.error_code or errors.SEPARATION_MODEL_DOWNLOAD_FAILED,
-                snapshot.error_detail,
-                context=snapshot.error_context,
-                job_id=snapshot.job_id,
-                log_path=snapshot.log_path,
+                JobFailure.from_job(
+                    snapshot,
+                    fallback_code=errors.SEPARATION_MODEL_DOWNLOAD_FAILED,
+                )
             )
             self._refresh_all()
             return
@@ -2119,10 +2097,7 @@ class WorkspacePage:
                 except StemForgeError as error:
                     self._separation.record_failure(
                         track.track_id,
-                        error.code,
-                        error.detail,
-                        retryable=error.retryable,
-                        context=error.context,
+                        JobFailure.from_error(error),
                     )
                 else:
                     if job_id is not None:
@@ -2137,14 +2112,12 @@ class WorkspacePage:
         if snapshot.state.value == "failed":
             self._pitch.record_failure(
                 spec.track_id,
-                snapshot.error_code or errors.INTERNAL_UNEXPECTED,
-                snapshot.error_detail,
+                JobFailure.from_job(
+                    snapshot,
+                    fallback_code=errors.INTERNAL_UNEXPECTED,
+                ),
                 spec.semitones,
                 spec.scope,
-                retryable=snapshot.retryable,
-                context=snapshot.error_context,
-                job_id=snapshot.job_id,
-                log_path=snapshot.log_path,
             )
             self._refresh_all()
             return
@@ -2175,23 +2148,22 @@ class WorkspacePage:
         *,
         retry: Callable[[], str | None] | None = None,
     ) -> None:
-        code = snapshot.error_code or errors.INTERNAL_UNEXPECTED
+        origin = OriginKind.YOUTUBE if snapshot.kind.value == "import_youtube" else OriginKind.FILE
+        failure = JobFailure.from_job(
+            snapshot,
+            fallback_code=errors.INTERNAL_UNEXPECTED,
+        )
         copy = formatting.copy_for(
-            code,
-            formatting.reason_from_detail(snapshot.error_detail),
-            context=snapshot.error_context,
-            origin=(
-                OriginKind.YOUTUBE if snapshot.kind.value == "import_youtube" else OriginKind.FILE
-            ),
+            failure.code,
+            formatting.reason_from_detail(failure.detail),
+            context=failure.context,
+            origin=origin,
         )
         toast(copy.headline, type="negative")
         self._notice = Notice(
-            code=code,
-            headline=copy.headline,
-            action=copy.action,
-            job_id=snapshot.job_id or None,
-            log_path=snapshot.log_path,
-            retry=retry if snapshot.retryable else None,
+            failure=failure,
+            origin=origin,
+            retry=retry if failure.retryable else None,
         )
         self._notice_block.refresh()
         self._refresh_all()
@@ -2202,17 +2174,16 @@ class WorkspacePage:
         *,
         retry: Callable[[], str | None] | None = None,
     ) -> None:
+        failure = JobFailure.from_error(error)
         copy = formatting.copy_for(
-            error.code,
-            formatting.reason_from_detail(error.detail),
-            context=error.context,
+            failure.code,
+            formatting.reason_from_detail(failure.detail),
+            context=failure.context,
         )
         toast(copy.headline, type="negative")
         self._notice = Notice(
-            code=error.code,
-            headline=copy.headline,
-            action=copy.action,
-            retry=retry if error.retryable else None,
+            failure=failure,
+            retry=retry if failure.retryable else None,
         )
         self._notice_block.refresh()
 
