@@ -69,12 +69,7 @@ from stemforge.pipeline.export_job import (
 )
 from stemforge.pipeline.export_names import unique_export_path
 from stemforge.pipeline.import_job import run_local_import
-from stemforge.pipeline.model_job import (
-    ModelInstallJob,
-    Transport,
-    consent_is_current,
-    require_model_consent,
-)
+from stemforge.pipeline.model_job import Transport
 from stemforge.pipeline.pitch_job import find_pitch_render, run_pitch_job
 from stemforge.pipeline.separation_job import run_separation_job
 from stemforge.pipeline.youtube_job import run_youtube_import
@@ -82,6 +77,8 @@ from stemforge.platform import resources
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
 
+from .collaborators.cache import CacheService
+from .collaborators.model import ModelService
 from .identity import separation_key
 from .output_roles import SEPARATION_OUTPUT_ROLES, SEPARATION_ROLE_LABELS
 from .renders import RenderView, render_views
@@ -136,11 +133,12 @@ class WorkspaceService:
         self._runner = runner if runner is not None else JobRunner(paths=self._paths)
         self._engines = engines if engines is not None else ServiceEngines()
         self._models = models if models is not None else ModelStore(self._paths)
-        self._model_transport = model_transport
         self._youtube_delay = youtube_delay
         self._state = WorkspaceState(workspace)
         self._ledger = JobLedger(self._runner, self._state.lock)
         self._pending_separation_track_id: str | None = None
+        self._cache = CacheService(self._artifacts)
+        self._model = ModelService(self._settings, self._models, self._ledger, model_transport)
 
     @property
     def settings(self) -> SettingsStore:
@@ -248,30 +246,30 @@ class WorkspaceService:
             self._runner.wait_idle(timeout=5.0)
         with self._state.lock:
             track = self._state.remove_track(track_id)
-            self._artifacts.release(track.source_id)
-            still_live = self._artifacts.is_live(track.source_id)
+            self._cache.release_source(track.source_id)
+            still_live = self._cache.is_live(track.source_id)
             self._ledger.forget(owned)
         if still_live:
             return RemoveOutcome(track=track, cache_removed=False)
-        report = self._artifacts.remove_source(track.source_id)
+        report = self._cache.remove_source(track.source_id)
         removed = report.source_removed or bool(report.renders_removed)
         return RemoveOutcome(track=track, cache_removed=removed, report=report)
 
     def sweep_stale(self) -> SweepReport:
         """Run the startup sweep once; the UI shows recovery copy when it deleted work."""
-        return self._artifacts.sweep_stale()
+        return self._cache.sweep_stale()
 
     def enforce_cache_cap(self) -> EvictionReport:
         """Run the startup LRU pass after the sweep (ticket 07 §2, §7)."""
-        return self._artifacts.enforce_cap()
+        return self._cache.enforce_cache_cap()
 
     def cache_usage_bytes(self) -> int:
         """The cache meter's used size; the UI never reads the store directly."""
-        return self._artifacts.usage_bytes()
+        return self._cache.cache_usage_bytes()
 
     def cache_cap_bytes(self) -> int:
         """The configured cache ceiling (ticket 07 §2)."""
-        return self._artifacts.cap_bytes
+        return self._cache.cache_cap_bytes()
 
     def logs_dir(self) -> Path:
         """The app's log root, shown and opened from Settings & About."""
@@ -279,15 +277,15 @@ class WorkspaceService:
 
     def youtube_cache_bytes(self) -> int:
         """The size of ``<cache>/yt-dlp/`` shown in Settings & About."""
-        return self._artifacts.youtube_cache_bytes()
+        return self._cache.youtube_cache_bytes()
 
     def clear_youtube_cache(self) -> int:
         """Delete only ``<cache>/yt-dlp/`` and return the bytes freed."""
-        return self._artifacts.clear_youtube_cache()
+        return self._cache.clear_youtube_cache()
 
     def clear_cache(self) -> ClearReport:
         """Delete every non-live cached artifact plus the tool caches (ticket 07)."""
-        return self._artifacts.clear_cache()
+        return self._cache.clear_cache()
 
     def clear_recent(self) -> None:
         """Clear the recent-files list; cached audio is untouched (ticket 07)."""
@@ -901,24 +899,21 @@ class WorkspaceService:
 
     def model_spec(self) -> ModelSpec:
         """The pinned model identity and licence-notice version."""
-        return self._models.spec
+        return self._model.model_spec()
 
     def model_status(self) -> ModelStatus:
         """A cheap installed-or-not check; the Job/verify seam re-hashes before use."""
-        return self._models.status()
+        return self._model.model_status()
 
     def model_consent(self) -> ModelConsent | None:
-        return self._settings.model_consent()
+        return self._model.model_consent()
 
     def model_consent_is_current(self) -> bool:
-        return consent_is_current(
-            self._settings.model_consent(),
-            required_version=self._models.spec.licence_notice_version,
-        )
+        return self._model.model_consent_is_current()
 
     def accept_model_licence(self) -> ModelConsent:
         """Persist the explicit acknowledgement required before downloading."""
-        return self._settings.accept_model_licence(version=self._models.spec.licence_notice_version)
+        return self._model.accept_model_licence()
 
     def install_model(
         self,
@@ -931,51 +926,21 @@ class WorkspaceService:
         Without a current consent record this raises before submitting, so the
         UI can show the model gate without a failed Job in the history.
         """
-        if accept_licence:
-            self.accept_model_licence()
-        if not self._models.is_installed():
-            require_model_consent(
-                self._settings.model_consent(),
-                required_version=self._models.spec.licence_notice_version,
-            )
-        spec = self._models.spec
-        job = Job(
-            kind=JobKind.MODEL_INSTALL,
-            identity=(JobKind.MODEL_INSTALL.value, spec.name, spec.revision),
-            title=spec.name,
-            run=self._model_install_run(self._model_transport if transport is None else transport),
-        )
-        return self._runner.submit(job)
-
-    def _model_install_run(self, transport: Transport | None) -> JobRun:
-        def run(ctx: JobContext) -> Mapping[str, str]:
-            job = ModelInstallJob(
-                store=self._models,
-                consent=self._settings.model_consent(),
-                transport=transport,
-            )
-            result = job.run(ctx)
-            return {
-                "model": result.status.name,
-                "sha256": result.status.sha256 or "",
-                "path": str(result.status.path),
-            }
-
-        return run
+        return self._model.install_model(accept_licence=accept_licence, transport=transport)
 
     # -- Jobs ---------------------------------------------------------------
 
     def jobs(self) -> tuple[JobSnapshot, ...]:
         """Every Job the runner still remembers, newest last."""
-        return tuple(self._runner.jobs())
+        return self._ledger.jobs()
 
     def job_snapshot(self, job_id: str) -> JobSnapshot:
         """One Job's immutable snapshot; raises ``KeyError`` when forgotten."""
-        return self._runner.snapshot(job_id)
+        return self._ledger.snapshot(job_id)
 
     def cancel_job(self, job_id: str) -> bool:
         """Request cancellation of one Job (ticket 06 §3)."""
-        return self._runner.cancel(job_id)
+        return self._ledger.cancel(job_id)
 
     def youtube_enabled(self) -> bool:
         """Whether the empty-state YouTube row is enabled (ticket 09 §7)."""
@@ -1114,4 +1079,3 @@ class WorkspaceService:
             duration_s=source.metadata.duration_s,
         )
         return track
-
