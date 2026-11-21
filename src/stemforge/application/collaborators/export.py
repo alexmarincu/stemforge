@@ -92,27 +92,7 @@ class ExportService:
             )
 
         export_format = ExportFormat(fmt)
-        target_key = target.key if isinstance(target, ExportTarget) else str(target)
-        if isinstance(target, ExportTarget) and target.source_id != found.source_id:
-            raise StemForgeError(
-                errors.MEDIA_PROBE_FAILED,
-                "the selected export target belongs to another source",
-                detail="target",
-                context={"source_id": found.source_id, "target": target_key},
-            )
-        resolved = resolve_export_target(
-            self._artifacts,
-            source_id=found.source_id,
-            key=target_key,
-            title=found.title,
-        )
-        if resolved is None:
-            raise StemForgeError(
-                errors.MEDIA_PROBE_FAILED,
-                "the selected export target is no longer available",
-                detail="target",
-                context={"source_id": found.source_id, "target": target_key},
-            )
+        resolved = self._resolve_target(found, target)
 
         destination = Path(destination_dir).expanduser().absolute()
         job = Job(
@@ -176,27 +156,7 @@ class ExportService:
         found = self._find_track(track)
         if found is None:
             raise KeyError(track.track_id if isinstance(track, Track) else track)
-        target_key = target.key if isinstance(target, ExportTarget) else str(target)
-        if isinstance(target, ExportTarget) and target.source_id != found.source_id:
-            raise StemForgeError(
-                errors.MEDIA_PROBE_FAILED,
-                "the selected export target belongs to another source",
-                detail="target",
-                context={"source_id": found.source_id, "target": target_key},
-            )
-        resolved = resolve_export_target(
-            self._artifacts,
-            source_id=found.source_id,
-            key=target_key,
-            title=found.title,
-        )
-        if resolved is None:
-            raise StemForgeError(
-                errors.MEDIA_PROBE_FAILED,
-                "the selected export target is no longer available",
-                detail="target",
-                context={"source_id": found.source_id, "target": target_key},
-            )
+        resolved = self._resolve_target(found, target)
         destination = Path(destination_dir).expanduser().absolute()
         return unique_export_path(
             destination,
@@ -234,6 +194,30 @@ class ExportService:
             }
 
         return run
+
+    def _resolve_target(self, found: Track, target: ExportTarget | str) -> ExportTarget:
+        target_key = target.key if isinstance(target, ExportTarget) else str(target)
+        if isinstance(target, ExportTarget) and target.source_id != found.source_id:
+            raise StemForgeError(
+                errors.MEDIA_PROBE_FAILED,
+                "the selected export target belongs to another source",
+                detail="target",
+                context={"source_id": found.source_id, "target": target_key},
+            )
+        resolved = resolve_export_target(
+            self._artifacts,
+            source_id=found.source_id,
+            key=target_key,
+            title=found.title,
+        )
+        if resolved is None:
+            raise StemForgeError(
+                errors.MEDIA_PROBE_FAILED,
+                "the selected export target is no longer available",
+                detail="target",
+                context={"source_id": found.source_id, "target": target_key},
+            )
+        return resolved
 
     def _find_track(self, track: Track | str) -> Track | None:
         track_id = track.track_id if isinstance(track, Track) else str(track)

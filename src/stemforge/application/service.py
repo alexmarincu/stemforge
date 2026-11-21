@@ -1,9 +1,11 @@
 """``WorkspaceService``: the only API the UI calls (ticket 06 §2).
 
-The service owns the Workspace and orchestrates Jobs on behalf of the UI. It is
-constructible headless: no NiceGUI, no torch, and injectable placeholders for the
-ArtifactStore, JobRunner, and engine adapters (ticket 06 §13). Local import and
-Export are wired here; Separation and Render follow in their tickets.
+The facade owns the composition root and the cross-feature operations: it wires
+the per-feature collaborators (ADR 0013), delegates their reads and Job
+submissions, and keeps ``remove_track`` and ``open_recent`` here because each
+spans more than one feature. It is constructible headless: no NiceGUI, no torch,
+and injectable placeholders for the ArtifactStore, JobRunner, and engine adapters
+(ticket 06 §13).
 """
 
 from __future__ import annotations
@@ -14,14 +16,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from stemforge import errors
 from stemforge.artifacts import ArtifactStore, ClearReport, EvictionReport, SweepReport
-from stemforge.domain.models import ModelConsent, RenderScope, Track
+from stemforge.domain.models import ModelConsent, OriginKind, RenderScope, Track
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
 from stemforge.engines.media import ExportFormat as ExportFormat
 from stemforge.engines.media import MediaTool
 from stemforge.engines.pitch import PitchEngine
 from stemforge.engines.separation import SeparationEngine
 from stemforge.engines.youtube import YouTubeTool, YouTubeVideo
+from stemforge.errors import StemForgeError
 from stemforge.jobs.models import JobSnapshot
 from stemforge.jobs.runner import JobRunner
 from stemforge.models import ModelSpec, ModelStatus, ModelStore
@@ -112,7 +116,7 @@ class WorkspaceService:
             media=self._engines.media,
             delay=youtube_delay,
         )
-        self._recent = RecentService(self._settings, self._imports, self._youtube)
+        self._recent = RecentService(self._settings)
         self._export = ExportService(
             self._settings,
             self._artifacts,
@@ -190,8 +194,28 @@ class WorkspaceService:
         return self._recent.recent_available(source_id)
 
     def open_recent(self, source_id: str) -> str | None:
-        """Re-import one recent entry and return its Job id."""
-        return self._recent.open_recent(source_id)
+        """Re-import one recent entry and return its Job id.
+
+        This is cross-feature composition, so it stays on the facade (ADR 0013):
+        the entry is either a local file handled by ``ImportService`` or a
+        YouTube URL handled by ``YouTubeService``. A missing local file raises
+        the coded ``import.file_unavailable`` before any Job starts (ticket 07
+        §5: nothing starts until the user acts).
+        """
+        entry = self._recent.find(source_id)
+        if entry is None:
+            raise KeyError(source_id)
+        if entry.origin_kind is OriginKind.YOUTUBE:
+            return self._youtube.submit_youtube(entry.origin)
+        path = Path(entry.origin)
+        if not path.is_file():
+            raise StemForgeError(
+                errors.IMPORT_FILE_UNAVAILABLE,
+                "the recent file is no longer readable",
+                detail="missing",
+                context={"path": str(path)},
+            )
+        return self._imports.import_local(path)
 
     def remove_track(self, track_id: str) -> RemoveOutcome:
         """Remove a Track and delete its cached audio when nothing else uses it.
@@ -213,7 +237,7 @@ class WorkspaceService:
             self._runner.wait_idle(timeout=5.0)
         with self._state.lock:
             track = self._state.remove_track(track_id)
-            self._cache.release_source(track.source_id)
+            self._cache.release_reference(track.source_id)
             still_live = self._cache.is_live(track.source_id)
             self._ledger.forget(owned)
         if still_live:

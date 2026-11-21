@@ -98,7 +98,7 @@ def test_the_import_contract_declares_the_same_edges() -> None:
     ui = forbidden["UI never imports engines, workers, pipeline, or jobs"]
     assert "stemforge.platform" in ui["forbidden_modules"]
     facade = forbidden["UI talks to the application facade only"]
-    assert "stemforge.application.collaborators" in facade["forbidden_modules"]
+    assert set(facade["forbidden_modules"]) == set(APPLICATION_INTERNALS)
     workers = forbidden["Workers stay below the app"]
     assert "stemforge.pipeline" in workers["forbidden_modules"]
     assert "stemforge.application" in workers["forbidden_modules"]

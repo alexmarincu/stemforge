@@ -45,8 +45,8 @@ class CacheService:
         """Delete every non-live cached artifact plus the tool caches (ticket 07)."""
         return self._artifacts.clear_cache()
 
-    def release_source(self, source_id: str) -> bool:
-        """Drop one session reference; return whether any reference remains."""
+    def release_reference(self, source_id: str) -> bool:
+        """Drop one session reference; return whether a reference was dropped."""
         return self._artifacts.release(source_id)
 
     def is_live(self, source_id: str) -> bool:
