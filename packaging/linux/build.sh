@@ -161,6 +161,8 @@ if ((missing_licences)); then
     fi
 fi
 
+command -v objdump >/dev/null 2>&1 ||
+    die "objdump (binutils) is required for the host ABI gate"
 verify_args=(--bundle "$bundle" --lock "$repo_root/packaging/vendor.lock.json")
 if ((allow_missing_licences)); then
     verify_args+=(--allow-missing-licences)

@@ -10,8 +10,10 @@ The Linux PyTorch and NumPy wheels convey `libgomp`, `libgfortran`, and
 `libquadmath` from the GCC runtime. They are covered by GPL-3.0-or-later with
 the GCC Runtime Library Exception 3.1 and are treated as System Libraries under
 GPLv3 section 1: they are noticed here and excluded from the Corresponding
-Source bundle. If you believe a stricter offer is required, contact us through
-the source offer.
+Source bundle. StemForge deliberately does not bundle `libstdc++.so.6` or
+`libgcc_s.so.1`: host WebKitGTK/ICU must resolve their C++ ABI against the
+distribution's runtime. If you believe a stricter offer is required, contact us
+through the source offer.
 
 ## Licence texts
 

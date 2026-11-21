@@ -70,7 +70,7 @@ COVERAGE_PRODUCERS = {
 }
 
 # Recorded topology for the release workflow.
-RELEASE_WORKFLOW_SHA256 = "1720090e5789081ded9b47b1e0d5b976a6d7204b04b12e90ee4cf02232ce6ec5"
+RELEASE_WORKFLOW_SHA256 = "c474db6f8410f7369d3eecf10504964c7bbb2f7354f607eab93e29f681f8af78"
 
 
 def _load(path: Path) -> dict[str, Any]:

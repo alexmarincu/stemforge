@@ -172,6 +172,24 @@ are noticed below.
 """
 
 [[component]]
+id = "pygobject"
+title = "PyGObject"
+kind = "wheel"
+spdx = "LGPL-2.1-or-later"
+copyright = "Copyright (C) the PyGObject contributors"
+homepage = "https://pygobject.gnome.org/"
+source = "https://gitlab.gnome.org/GNOME/pygobject/-/tags/3.50.2"
+texts = ["LGPL-2.1-or-later"]
+packages = ["pygobject"]
+notice = """
+PyGObject is the GTK/WebKit bridge used by pywebview in the Linux bundle. It is
+built for the frozen CPython 3.13 and shipped as a separate, replaceable `gi`
+package under `_internal/`, so the LGPL relinking right is preserved. The GTK 3,
+WebKitGTK 4.1, and Soup 3 typelibs and shared libraries remain host-provided;
+PyGObject does not carry them.
+"""
+
+[[component]]
 id = "pyinstaller"
 title = "PyInstaller bootloader"
 kind = "build"
@@ -203,8 +221,10 @@ The Linux PyTorch and NumPy wheels convey `libgomp`, `libgfortran`, and
 `libquadmath` from the GCC runtime. They are covered by GPL-3.0-or-later with
 the GCC Runtime Library Exception 3.1 and are treated as System Libraries under
 GPLv3 section 1: they are noticed here and excluded from the Corresponding
-Source bundle. If you believe a stricter offer is required, contact us through
-the source offer.
+Source bundle. StemForge deliberately does not bundle `libstdc++.so.6` or
+`libgcc_s.so.1`: host WebKitGTK/ICU must resolve their C++ ABI against the
+distribution's runtime. If you believe a stricter offer is required, contact us
+through the source offer.
 """
 
 [[component]]

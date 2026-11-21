@@ -6,6 +6,12 @@ Ticket 10 §1–§3 and ticket 13. PyInstaller 6.22.3 places the frozen payload 
 ``run.sh``, and the licence tree beside the launcher. The Separation worker's
 torch/Demucs imports happen inside ``run()``, so they are listed as hidden
 imports; ``torch/test`` and ``torch/bin`` are trimmed (162 MB measured).
+
+PyGObject is part of the payload because the frozen CPython cannot borrow the
+host's ``gi`` (it is built for the host Python, not 3.13). The GTK/WebKit
+typelibs and shared libraries stay host-provided, so ``libstdc++.so.6`` and
+``libgcc_s.so.1`` are deliberately not bundled: host WebKitGTK/ICU must resolve
+their C++ ABI against the same runtime as the rest of the desktop stack.
 """
 
 from pathlib import Path
@@ -27,6 +33,11 @@ datas = [
 ]
 
 hiddenimports = [
+    # The GTK bridge for pywebview. PyGObject is built for the frozen CPython
+    # and shipped in _internal/; the typelibs themselves stay on the host.
+    "gi",
+    "gi.repository",
+    *(name for name in collect_submodules("gi") if name not in {"gi", "gi.repository"}),
     # smoke.py imports these by name so the heavy stack stays off module scope.
     "webview",
     "webview.platforms.gtk",
@@ -60,11 +71,15 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=[],
-    hooksconfig={},
+    # The no-op gi.repository hooks keep GTK/WebKit/GStreamer typelibs and
+    # shared libraries on the host (ADR 0011); only PyGObject itself ships.
+    hookspath=[str(ROOT / "packaging" / "pyinstaller" / "hooks")],
+    hooksconfig={"gi": {"icons": [], "themes": [], "languages": []}},
     runtime_hooks=[str(ROOT / "packaging" / "pyinstaller" / "runtime-hooks" / "rthook_stemforge_env.py")],
     # mypy is a pydantic hook side effect and is only needed at type-check time.
-    excludes=["tkinter", "mypy", "pydantic.mypy", "pydantic.v1.mypy"],
+    # pycairo is a build dependency of PyGObject; StemForge never calls
+    # gi.require_foreign("cairo"), so the wheel stays out of the payload.
+    excludes=["tkinter", "mypy", "pydantic.mypy", "pydantic.v1.mypy", "cairo"],
     noarchive=False,
     optimize=0,
 )
@@ -86,6 +101,23 @@ def _keep(entry):
 
 a.datas = [entry for entry in a.datas if _keep(entry)]
 a.binaries = [entry for entry in a.binaries if _keep(entry)]
+
+# These two are the host's compiler runtime, not app payload. Bundling them
+# makes the frozen process interpose an older libstdc++ on host WebKitGTK/ICU
+# (Arch currently needs CXXABI_1.3.15 for ICU 78, which GCC 12's copy lacks).
+# The app's own binaries need at most GLIBCXX_3.4.29/CXXABI_1.3.11, and every
+# supported host (glibc 2.35+ distributions) provides at least that.
+_HOST_RUNTIME_LIBRARIES = {"libstdc++.so.6", "libgcc_s.so.1"}
+a.binaries = [
+    entry
+    for entry in a.binaries
+    if entry[0].replace("\\", "/").rsplit("/", 1)[-1] not in _HOST_RUNTIME_LIBRARIES
+]
+# Everything else under /lib and /usr/lib is the host platform runtime: glibc,
+# the GTK/WebKit/GStreamer stack, X11, OpenSSL, expat, and their transitive
+# dependencies. Keep only the app payload copied from the build venv and the
+# vendored tools. PyInstaller always keeps *python* and lib-dynload binaries.
+a.exclude_system_libraries()
 
 pyz = PYZ(a.pure)
 

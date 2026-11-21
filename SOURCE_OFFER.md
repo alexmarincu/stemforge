@@ -68,6 +68,8 @@ and build-only packages are marked; they are not part of the frozen app.
 | `lameenc` | 1.9.0 | `LGPL-3.0-or-later` | runtime | https://pypi.org/project/lameenc/1.9.0/#files |
 | `orjson` | 3.13.0 | `MPL-2.0 AND (Apache-2.0 OR MIT)` | runtime | https://pypi.org/project/orjson/3.13.0/#files |
 | `pathspec` | 1.1.1 | `MPL-2.0` | development | https://pypi.org/project/pathspec/1.1.1/#files |
+| `pycairo` | 1.29.2 | `LGPL-2.1-only` | build | https://pypi.org/project/pycairo/1.29.2/#files |
+| `pygobject` | 3.50.2 | `LGPL-2.1-or-later` | runtime | https://pypi.org/project/pygobject/3.50.2/#files |
 | `pyinstaller` | 6.22.3 | `GPL-2.0-or-later WITH Bootloader-exception` | build | https://pypi.org/project/pyinstaller/6.22.3/#files |
 | `pyinstaller-hooks-contrib` | 2026.10 | `GPL-2.0-or-later AND Apache-2.0` | build | https://pypi.org/project/pyinstaller-hooks-contrib/2026.10/#files |
 | `tqdm` | 4.70.1 | `MPL-2.0 AND MIT` | runtime | https://pypi.org/project/tqdm/4.70.1/#files |

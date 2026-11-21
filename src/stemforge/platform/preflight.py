@@ -349,7 +349,10 @@ def check_window(
             if value is None
         ]
         if not facts.gi:
-            return _fail(CHECK_WINDOW, "PyGObject (gi) is not installed.")
+            return _fail(
+                CHECK_WINDOW,
+                "the bundled PyGObject (gi) is missing or cannot be imported; reinstall StemForge.",
+            )
         if missing:
             return _fail(CHECK_WINDOW, f"Missing: {', '.join(missing)}.")
         if facts.webkit_version is None:
@@ -830,7 +833,9 @@ def _probe_preview() -> PreviewProbe:
         gi = importlib.import_module("gi")
         gi.require_version("Gst", "1.0")
         gst = importlib.import_module("gi.repository.Gst")
-        gst.init(None)
+        # PyGObject 3.50 rejects None here; an empty argv is what Gst.init
+        # expects from a binding call.
+        gst.init([])
         missing_elements = tuple(
             element for element in PREVIEW_ELEMENTS if gst.ElementFactory.find(element) is None
         )

@@ -72,10 +72,12 @@ build/test-only and are listed for completeness.
 | `pluggy` | 1.7.0 | `MIT` | development | https://github.com/pytest-dev/pluggy | [`license-d6b65e6c213a.txt`](../texts/license-d6b65e6c213a.txt) |
 | `propcache` | 0.5.4 | `Apache-2.0` | runtime | https://github.com/aio-libs/propcache | [`license-cfc7749b96f6.txt`](../texts/license-cfc7749b96f6.txt)<br>[`notice-56d6ac6c8105.txt`](../texts/notice-56d6ac6c8105.txt) |
 | `proxy-tools` | 0.1.0 | `MIT` | runtime — Ships no licence file; the MIT text is the distribution's declared licence. | https://pypi.org/project/proxy-tools/ | [`MIT`](../common/MIT.txt) |
+| `pycairo` | 1.29.2 | `LGPL-2.1-only` | build (linux) — Build-only; StemForge does not use PyGObject's cairo foreign types. | https://github.com/pygobject/pycairo | [`LGPL-2.1-only`](../common/LGPL-2.1-only.txt) |
 | `pycparser` | 3.12 | `BSD-3-Clause` | runtime (windows) | https://github.com/eliben/pycparser | [`BSD-3-Clause`](../common/BSD-3-Clause.txt) |
 | `pydantic` | 2.14.3 | `MIT` | runtime | https://github.com/pydantic/pydantic | [`license-a9e186f3ca16.txt`](../texts/license-a9e186f3ca16.txt) |
 | `pydantic-core` | 2.50.4 | `MIT` | runtime | https://github.com/pydantic/pydantic/tree/main/pydantic-core | [`license-2afdd30d54b4.txt`](../texts/license-2afdd30d54b4.txt) |
 | `pygments` | 2.21.0 | `BSD-2-Clause` | runtime | https://github.com/pygments/pygments | [`authors-71a83872ad82.txt`](../texts/authors-71a83872ad82.txt)<br>[`license-a9d66f1d526d.txt`](../texts/license-a9d66f1d526d.txt) |
+| `pygobject` | 3.50.2 | `LGPL-2.1-or-later` | runtime (linux) — Bundled for the frozen CPython; the GTK/WebKit typelibs remain host-provided. | https://gitlab.gnome.org/GNOME/pygobject/-/tags/3.50.2 | [`LGPL-2.1-or-later`](../common/LGPL-2.1-or-later.txt) |
 | `pyinstaller` | 6.22.3 | `GPL-2.0-or-later WITH Bootloader-exception` | build — Build-only; only the bootloader is embedded in the shipped executable. | https://github.com/pyinstaller/pyinstaller | [`GPL-2.0-or-later`](../common/GPL-2.0-or-later.txt)<br>[`Bootloader-exception`](../common/Bootloader-exception.txt) |
 | `pyinstaller-hooks-contrib` | 2026.10 | `GPL-2.0-or-later AND Apache-2.0` | build — Build-only; hooks run at build time and are not shipped. | https://github.com/pyinstaller/pyinstaller-hooks-contrib | [`GPL-2.0-or-later`](../common/GPL-2.0-or-later.txt)<br>[`Apache-2.0`](../common/Apache-2.0.txt) |
 | `pytest` | 9.2.0 | `MIT` | development | https://github.com/pytest-dev/pytest | [`license-ca836a5f9ecc.txt`](../texts/license-ca836a5f9ecc.txt) |

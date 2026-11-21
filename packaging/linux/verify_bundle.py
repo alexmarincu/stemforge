@@ -3,9 +3,10 @@
 
 The release gate checks the onedir layout, the licence tree, the torch trim, the
 absence of model weights, every vendor file against ``packaging/vendor.lock.json``,
-and the size budgets for the tree and the three release archives. It is
-stdlib-only so it can run in the PyInstaller build container before any release
-tooling is installed.
+the host C++ ABI floor, and the size budgets for the tree and the three release
+archives. It is stdlib-only apart from ``objdump`` (binutils) for the ABI scan,
+so it can run in the PyInstaller build container before any release tooling is
+installed.
 
 Usage::
 
@@ -26,6 +27,9 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -61,6 +65,64 @@ ARCHIVE_SUFFIXES: Final = (
     (".tgz", "tar.gz"),
     (".tar.zst", "tar.zst"),
     (".AppImage", "appimage"),
+)
+
+# libstdc++ and libgcc_s are the host compiler runtime. Bundling them makes the
+# frozen process interpose an older C++ ABI on host WebKitGTK/ICU; see ADR 0011.
+HOST_RUNTIME_LIBRARIES: Final = ("libstdc++.so.6", "libgcc_s.so.1")
+# The oldest runtime the documented support matrix (glibc 2.35, GCC 11-era
+# libstdc++) provides. The bundle's own binaries must not require anything newer.
+HOST_ABI_FLOOR: Final[Mapping[str, tuple[int, ...]]] = {
+    "GLIBC": (2, 35),
+    "GLIBCXX": (3, 4, 29),
+    "CXXABI": (1, 3, 11),
+    "GCC": (4, 3, 0),
+}
+ABI_VERSION: Final = re.compile(r"\b(GLIBCXX|CXXABI|GLIBC|GCC)_(\d+(?:\.\d+)*)\b")
+# ADR 0011 keeps the GTK/WebKit/GStreamer stack on the host. The no-op
+# gi.repository hooks in packaging/pyinstaller/hooks are the primary guard;
+# these checks catch a future import that bypasses them.
+HOST_GUI_DATA: Final = (
+    "gi_typelibs",
+    "share/icons",
+    "share/themes",
+    "share/locale",
+    "share/fontconfig",
+)
+HOST_GUI_LIBRARIES: Final = (
+    "libgtk-3.so",
+    "libgtk-nocsd.so",
+    "libgdk-3.so",
+    "libgdk_pixbuf-2.0.so",
+    "libatk-1.0.so",
+    "libatk-bridge-2.0.so",
+    "libpango-1.0.so",
+    "libpangocairo-1.0.so",
+    "libpangoft2-1.0.so",
+    "libharfbuzz.so",
+    "libcairo.so",
+    "libcairo-gobject.so",
+    "libsoup-3.0.so",
+    "libwebkit2gtk-4.1.so",
+    "libjavascriptcoregtk-4.1.so",
+    "libgirepository-1.0.so",
+    "libglib-2.0.so",
+    "libgobject-2.0.so",
+    "libgio-2.0.so",
+    "libgmodule-2.0.so",
+    "libgthread-2.0.so",
+    "libgst",
+    "liborc-0.4.so",
+    "libX11.so",
+    "libXext.so",
+    "libXrender.so",
+    "libXi.so",
+    "libXfixes.so",
+    "libXcursor.so",
+    "libXrandr.so",
+    "libxcb.so",
+    "libwayland-client.so",
+    "libxkbcommon.so",
 )
 
 Status = Literal["pass", "fail", "skip"]
@@ -141,6 +203,8 @@ def verify_bundle(
     findings.append(_check_licences(root, allow_missing=allow_missing_licences))
     findings.append(_check_weights(root))
     findings.append(_check_torch(root))
+    findings.append(_check_host_abi(root))
+    findings.append(_check_host_gui(root))
     findings.append(_check_vendor(root, lock, target))
 
     sizes = {"bundle": tree_size(root)}
@@ -250,6 +314,110 @@ def _check_torch(root: Path) -> Finding:
         "bundle.torch",
         "pass",
         "torch/test and torch/bin trimmed to torch_shm_manager; no torchaudio",
+    )
+
+
+def _version_text(version: tuple[int, ...]) -> str:
+    return ".".join(str(part) for part in version)
+
+
+def _abi_requirements(objdump: str, path: Path) -> Mapping[str, tuple[int, ...]]:
+    """Return the highest symbol-version requirement in each ABI namespace."""
+    completed = subprocess.run(
+        [objdump, "-T", str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return {}
+    found: dict[str, tuple[int, ...]] = {}
+    for match in ABI_VERSION.finditer(completed.stdout):
+        namespace = match.group(1)
+        version = tuple(int(part) for part in match.group(2).split("."))
+        if version > found.get(namespace, ()):
+            found[namespace] = version
+    return found
+
+
+def _check_host_abi(root: Path) -> Finding:
+    """Refuse bundled compiler runtimes and ELF requirements above the host floor."""
+    internal = root / "_internal"
+    bundled = [name for name in HOST_RUNTIME_LIBRARIES if (internal / name).is_file()]
+    if bundled:
+        return Finding(
+            "bundle.host_abi",
+            "fail",
+            "bundled host runtime: "
+            + ", ".join(bundled)
+            + "; libstdc++/libgcc_s must come from the host so WebKitGTK/ICU share it",
+        )
+
+    objdump = shutil.which("objdump")
+    if objdump is None:
+        return Finding(
+            "bundle.host_abi",
+            "skip",
+            "objdump is unavailable; the release build requires binutils",
+        )
+
+    problems: list[str] = []
+    observed: dict[str, tuple[int, ...]] = {}
+    scanned = 0
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            with path.open("rb") as handle:
+                if handle.read(4) != b"\x7fELF":
+                    continue
+        except OSError:
+            continue
+        scanned += 1
+        for namespace, version in _abi_requirements(objdump, path).items():
+            if version > observed.get(namespace, ()):
+                observed[namespace] = version
+            floor = HOST_ABI_FLOOR.get(namespace)
+            if floor is not None and version > floor:
+                problems.append(
+                    f"{path.relative_to(root)} requires {namespace}_{_version_text(version)}"
+                    f" (host floor {namespace}_{_version_text(floor)})"
+                )
+    if problems:
+        return Finding("bundle.host_abi", "fail", "; ".join(problems[:6]))
+    if not scanned:
+        return Finding("bundle.host_abi", "pass", "no ELF payload to scan")
+    summary = ", ".join(
+        f"{namespace} {_version_text(version)}" for namespace, version in sorted(observed.items())
+    )
+    return Finding(
+        "bundle.host_abi",
+        "pass",
+        f"host runtime not bundled; max ELF ABI: {summary}",
+    )
+
+
+def _check_host_gui(root: Path) -> Finding:
+    """Refuse GTK/WebKit/GStreamer typelibs, data, or libraries in the payload."""
+    internal = root / "_internal"
+    problems: list[str] = []
+    if internal.is_dir():
+        for name in HOST_GUI_DATA:
+            if (internal / name).exists():
+                problems.append(f"bundled host data {name}")
+        for entry in sorted(internal.iterdir()):
+            if entry.is_file() and entry.name.startswith(HOST_GUI_LIBRARIES):
+                problems.append(f"bundled host library {entry.name}")
+    if problems:
+        return Finding(
+            "bundle.host_gui",
+            "fail",
+            "; ".join(problems[:8]) + "; GTK/WebKit/GStreamer must stay on the host (ADR 0011)",
+        )
+    return Finding(
+        "bundle.host_gui",
+        "pass",
+        "GTK/WebKit/GStreamer typelibs, data, and libraries are host-provided",
     )
 
 

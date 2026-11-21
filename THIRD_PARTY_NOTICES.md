@@ -218,6 +218,24 @@ Licence text: [`PSF-2.0`](./LICENSES/common/PSF-2.0.txt).
 
 See [`LICENSES/python-runtime/`](./LICENSES/python-runtime/).
 
+### PyGObject
+
+- **Version:** 3.50.2
+- **Licence:** `LGPL-2.1-or-later`
+- **Copyright:** Copyright (C) the PyGObject contributors
+- **Upstream:** https://pygobject.gnome.org/
+- **Source:** https://gitlab.gnome.org/GNOME/pygobject/-/tags/3.50.2
+
+PyGObject is the GTK/WebKit bridge used by pywebview in the Linux bundle. It is
+built for the frozen CPython 3.13 and shipped as a separate, replaceable `gi`
+package under `_internal/`, so the LGPL relinking right is preserved. The GTK 3,
+WebKitGTK 4.1, and Soup 3 typelibs and shared libraries remain host-provided;
+PyGObject does not carry them.
+
+Licence text: [`LGPL-2.1-or-later`](./LICENSES/common/LGPL-2.1-or-later.txt).
+
+See [`LICENSES/pygobject/`](./LICENSES/pygobject/).
+
 ### GCC runtime libraries
 
 - **Licence:** `GPL-3.0-or-later WITH GCC-exception-3.1`
@@ -229,8 +247,10 @@ The Linux PyTorch and NumPy wheels convey `libgomp`, `libgfortran`, and
 `libquadmath` from the GCC runtime. They are covered by GPL-3.0-or-later with
 the GCC Runtime Library Exception 3.1 and are treated as System Libraries under
 GPLv3 section 1: they are noticed here and excluded from the Corresponding
-Source bundle. If you believe a stricter offer is required, contact us through
-the source offer.
+Source bundle. StemForge deliberately does not bundle `libstdc++.so.6` or
+`libgcc_s.so.1`: host WebKitGTK/ICU must resolve their C++ ABI against the
+distribution's runtime. If you believe a stricter offer is required, contact us
+through the source offer.
 
 Licence text: [`GPL-3.0-or-later`](./LICENSES/common/GPL-3.0-or-later.txt), [`GCC-exception-3.1`](./LICENSES/common/GCC-exception-3.1.txt).
 
@@ -347,7 +367,10 @@ These are required on the user's machine but are not part of StemForge's
 bundle. Their terms are between the user and their OS or platform vendor:
 
 - **Linux:** GTK 3, WebKitGTK 4.1, GStreamer with `gst-plugins-good`,
-  PyGObject, glibc, and the distribution's audio stack.
+  glibc, the distribution's C++ runtime (`libstdc++`/`libgcc_s`), and
+  the audio stack. PyGObject is bundled with the frozen app and is
+  noticed above; its GTK/WebKit typelibs and shared libraries remain
+  host-provided.
 - **Windows:** Microsoft Edge WebView2 Runtime, the .NET runtime required
   by pythonnet, and the Microsoft Visual C++ runtime.
 

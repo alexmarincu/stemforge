@@ -19,6 +19,7 @@ and the source offer is [`SOURCE_OFFER.md`](../SOURCE_OFFER.md).
 | PyTorch | 2.15.0+cpu | `BSD-3-Clause` | [`pytorch/NOTICE.md`](./pytorch/NOTICE.md) |
 | NumPy | 2.5.4 | `BSD-3-Clause` | [`numpy/NOTICE.md`](./numpy/NOTICE.md) |
 | Python runtime | — | `PSF-2.0` | [`python-runtime/NOTICE.md`](./python-runtime/NOTICE.md) |
+| PyGObject | 3.50.2 | `LGPL-2.1-or-later` | [`pygobject/NOTICE.md`](./pygobject/NOTICE.md) |
 | PyInstaller bootloader | 6.22.3 | `GPL-2.0-or-later WITH Bootloader-exception` | [`pyinstaller/NOTICE.md`](./pyinstaller/NOTICE.md) |
 | GCC runtime libraries | — | `GPL-3.0-or-later WITH GCC-exception-3.1` | [`gcc-runtime/NOTICE.md`](./gcc-runtime/NOTICE.md) |
 | OpenBLAS | — | `BSD-3-Clause` | [`openblas/NOTICE.md`](./openblas/NOTICE.md) |
@@ -39,4 +40,4 @@ texts are stored once under `texts/` and referenced by content hash.
 Canonical SPDX texts live under [`common/`](./common/). They are copied
 from `packaging/licenses/texts/` and are never edited by hand.
 
-Packages covered: 105; curated components: 15.
+Packages covered: 107; curated components: 16.

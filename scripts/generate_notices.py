@@ -694,15 +694,30 @@ def _package_records(
             continue
         version = str(mapping["version"])
         override = overrides.get(name, {})
-        group: Group = (
-            "runtime"
-            if name in runtime
-            else "build"
-            if name in build
-            else "development"
-            if name in development
-            else "runtime"
-        )
+        # A package can be a build-group dependency and still be shipped: the
+        # Linux bundle uses the build group to compile PyGObject for the frozen
+        # CPython. The override says how the licence table must describe it.
+        override_group = override.get("group")
+        if override_group is not None:
+            if override_group == "runtime":
+                group: Group = "runtime"
+            elif override_group == "development":
+                group = "development"
+            elif override_group == "build":
+                group = "build"
+            else:
+                raise ValueError(
+                    f"{name}: override group {override_group!r} is not "
+                    "runtime, development, or build"
+                )
+        elif name in runtime:
+            group = "runtime"
+        elif name in build:
+            group = "build"
+        elif name in development:
+            group = "development"
+        else:
+            group = "runtime"
         dist_info = dist_infos.get(_normalize(name))
         spdx = _resolve_spdx(name, dist_info, override)
         source = str(override.get("source") or _source_from_dist_info(dist_info, name, version))
@@ -1259,7 +1274,10 @@ def _write_notices(
             "bundle. Their terms are between the user and their OS or platform vendor:",
             "",
             "- **Linux:** GTK 3, WebKitGTK 4.1, GStreamer with `gst-plugins-good`,",
-            "  PyGObject, glibc, and the distribution's audio stack.",
+            "  glibc, the distribution's C++ runtime (`libstdc++`/`libgcc_s`), and",
+            "  the audio stack. PyGObject is bundled with the frozen app and is",
+            "  noticed above; its GTK/WebKit typelibs and shared libraries remain",
+            "  host-provided.",
             "- **Windows:** Microsoft Edge WebView2 Runtime, the .NET runtime required",
             "  by pythonnet, and the Microsoft Visual C++ runtime.",
             "",

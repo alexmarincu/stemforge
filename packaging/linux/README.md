@@ -39,7 +39,12 @@ the directory that contains `run.sh`.
 StemForge runs on 64-bit Linux with glibc 2.35 or newer (Ubuntu 22.04, Debian 12,
 Fedora current, Arch current). The **native window** needs the host GTK 3,
 WebKitGTK 4.1 (2.44 or newer), Soup 3, and GStreamer libraries. StemForge does
-not bundle them; the AppImage is deliberately a thin wrapper.
+not bundle them; the AppImage is deliberately a thin wrapper. It also relies on
+the host C++ runtime (`libstdc++` and `libgcc_s` from GCC 11 or newer), because
+WebKitGTK and ICU must resolve the C++ ABI against the same runtime as the rest
+of the desktop. PyGObject, the Python binding that drives GTK/WebKit, *is*
+built for the frozen CPython and included in the Bundle; you do not need
+`python3-gi` on the host.
 
 Debian / Ubuntu:
 

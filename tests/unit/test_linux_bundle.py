@@ -108,6 +108,8 @@ def test_a_complete_bundle_passes(tmp_path: Path) -> None:
     assert result.ok, [finding.detail for finding in result.findings if finding.status == "fail"]
     assert result.sizes["bundle"] == VERIFY.tree_size(root)
     assert _checks(result)["bundle.torch"] == "pass"
+    assert _checks(result)["bundle.host_abi"] in {"pass", "skip"}
+    assert _checks(result)["bundle.host_gui"] == "pass"
     assert _checks(result)["bundle.vendor"] == "pass"
 
 
@@ -179,6 +181,80 @@ def test_torchaudio_fails(tmp_path: Path) -> None:
 
     assert not result.ok
     assert _checks(result)["bundle.torch"] == "fail"
+
+
+@pytest.mark.parametrize("library", VERIFY.HOST_RUNTIME_LIBRARIES)
+def test_a_bundled_host_runtime_fails(tmp_path: Path, library: str) -> None:
+    root, lock = _make_bundle(tmp_path)
+    _write(root / "_internal" / library, b"host runtime")
+
+    result = _verify(root, lock)
+
+    assert not result.ok
+    assert _checks(result)["bundle.host_abi"] == "fail"
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "_internal/gi_typelibs/Gtk-3.0.typelib",
+        "_internal/share/icons/hicolor/48x48/apps/stemforge.png",
+        "_internal/libgtk-3.so.0",
+        "_internal/libgirepository-1.0.so.1",
+    ],
+)
+def test_host_gui_payload_fails(tmp_path: Path, relative: str) -> None:
+    root, lock = _make_bundle(tmp_path)
+    _write(root / relative, b"host-owned")
+
+    result = _verify(root, lock)
+
+    assert not result.ok
+    assert _checks(result)["bundle.host_gui"] == "fail"
+
+
+def _fake_elf(path: Path) -> None:
+    _write(path, b"\x7fELF" + b"\0" * 8)
+
+
+def test_elf_requirements_above_the_host_floor_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, lock = _make_bundle(tmp_path)
+    _fake_elf(root / "_internal" / "payload.elf")
+    monkeypatch.setattr(VERIFY.shutil, "which", lambda name: "/usr/bin/objdump")
+    monkeypatch.setattr(
+        VERIFY,
+        "_abi_requirements",
+        lambda objdump, path: {"GLIBCXX": (3, 4, 36)},
+    )
+
+    result = _verify(root, lock)
+
+    assert not result.ok
+    details = " ".join(
+        finding.detail for finding in result.findings if finding.check == "bundle.host_abi"
+    )
+    assert "GLIBCXX_3.4.36" in details
+    assert "host floor GLIBCXX_3.4.29" in details
+
+
+def test_elf_requirements_at_the_host_floor_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, lock = _make_bundle(tmp_path)
+    _fake_elf(root / "_internal" / "payload.elf")
+    monkeypatch.setattr(VERIFY.shutil, "which", lambda name: "/usr/bin/objdump")
+    monkeypatch.setattr(
+        VERIFY,
+        "_abi_requirements",
+        lambda objdump, path: {"GLIBC": (2, 35), "GLIBCXX": (3, 4, 29), "CXXABI": (1, 3, 11)},
+    )
+
+    result = _verify(root, lock)
+
+    assert result.ok
+    assert _checks(result)["bundle.host_abi"] == "pass"
 
 
 def test_vendor_hash_mismatch_fails(tmp_path: Path) -> None:
@@ -386,6 +462,7 @@ def test_the_build_script_wires_the_release_gates() -> None:
     script = (PROJECT_ROOT / "packaging" / "linux" / "build.sh").read_text("utf-8")
 
     assert "verify_bundle.py" in script
+    assert "objdump" in script
     assert "vendor-fetch.sh --verify-only" in script
     assert "--exclude=.cache" in script
     assert "--sort=name" in script
@@ -428,6 +505,8 @@ def test_the_bundle_readme_documents_the_host_contract() -> None:
         "~/.local/state/stemforge/log",
         "STEMFORGE_HOME",
         "STEMFORGE_BROWSER",
+        "libstdc++",
+        "python3-gi",
         "--appimage-extract-and-run",
         "--self-test",
         "--smoke-test",

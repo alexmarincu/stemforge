@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -20,6 +21,9 @@ ENV_KEYS = (
     "TMPDIR",
     "TEMP",
     "TMP",
+    "GST_PLUGIN_PATH",
+    "GST_PLUGIN_SYSTEM_PATH",
+    "GST_REGISTRY",
 )
 
 
@@ -59,6 +63,39 @@ def test_configure_creates_paths_and_sets_the_pre_import_environment(
     assert (paths.cache / "tmp").is_dir()
     assert (paths.cache / "deno").is_dir()
     assert (paths.cache / "yt-dlp").is_dir()
+
+
+@pytest.mark.unit
+def test_configure_restores_the_host_gstreamer_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bundle = tmp_path / "_internal"
+    monkeypatch.setattr(sys, "_MEIPASS", str(bundle), raising=False)
+    monkeypatch.setenv("STEMFORGE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv(
+        "GST_PLUGIN_PATH", os.pathsep.join([str(bundle), str(bundle / "gst_plugins")])
+    )
+    monkeypatch.setenv("GST_PLUGIN_SYSTEM_PATH", "")
+    monkeypatch.setenv("GST_REGISTRY", str(bundle / "registry.bin"))
+
+    configure()
+
+    assert "GST_PLUGIN_PATH" not in os.environ
+    assert "GST_PLUGIN_SYSTEM_PATH" not in os.environ
+    assert "GST_REGISTRY" not in os.environ
+
+
+@pytest.mark.unit
+def test_configure_keeps_a_host_gstreamer_plugin_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "_internal"), raising=False)
+    monkeypatch.setenv("STEMFORGE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("GST_PLUGIN_PATH", "/opt/stemforge-plugins")
+
+    configure()
+
+    assert os.environ["GST_PLUGIN_PATH"] == "/opt/stemforge-plugins"
 
 
 @pytest.mark.unit

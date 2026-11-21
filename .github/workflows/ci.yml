@@ -313,6 +313,8 @@ jobs:
             libwebkit2gtk-4.1-0 \
             gir1.2-webkit2-4.1 \
             libgirepository1.0-dev \
+            libglib2.0-dev \
+            libffi-dev \
             libcairo2-dev \
             pkg-config \
             patchelf \
@@ -353,6 +355,11 @@ jobs:
           PY
       - name: Build the frozen bundle
         run: bash packaging/linux/build.sh
+      - name: Assert the frozen native window is available
+        run: |
+          version=$(uv run --frozen --no-sync python -c 'import stemforge; print(stemforge.__version__)')
+          "dist/StemForge-${version}-linux-x86_64/StemForge" --preflight --json \
+            --report build/reports/preflight.json
       - name: Smoke-test the frozen bundle
         run: bash packaging/linux/smoke-test.sh
       - name: Upload frozen build reports

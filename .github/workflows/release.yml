@@ -136,6 +136,8 @@ jobs:
             libwebkit2gtk-4.1-0 \
             gir1.2-webkit2-4.1 \
             libgirepository1.0-dev \
+            libglib2.0-dev \
+            libffi-dev \
             libcairo2-dev \
             pkg-config \
             patchelf \
@@ -180,6 +182,10 @@ jobs:
           bash scripts/vendor-fetch.sh --verify-only
       - name: Build the Bundle, archives, and AppImage
         run: bash packaging/linux/build.sh
+      - name: Assert the frozen native window is available
+        run: |
+          bundle="dist/StemForge-${VERSION}-linux-x86_64"
+          "$bundle/StemForge" --preflight --json --report build/reports/preflight.json
       - name: Install the pinned model into the temporary STEMFORGE_HOME
         run: |
           bundle="dist/StemForge-${VERSION}-linux-x86_64"

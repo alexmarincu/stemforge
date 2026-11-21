@@ -60,7 +60,14 @@ dev = [
   "pytest-timeout>=2.4",
   "ruff>=0.17",
 ]
-build = ["pyinstaller==6.22.3"]
+build = [
+  "pyinstaller==6.22.3",
+  # The GTK/WebKit bridge for pywebview. It must be built for the frozen
+  # CPython, so it is part of the Linux bundle payload. 3.50.x is the last
+  # series that still builds against Ubuntu 22.04's girepository 1.0 (3.52+
+  # requires girepository 2.0, which 22.04 does not ship).
+  "pygobject==3.50.2; sys_platform == 'linux'",
+]
 
 [tool.uv]
 default-groups = ["dev"]

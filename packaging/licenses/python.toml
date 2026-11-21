@@ -13,6 +13,9 @@
 #   source       upstream source URL (required).
 #   texts        canonical texts copied from packaging/licenses/texts/.
 #   platform     "all" (default), "windows", or "linux".
+#   group        optional dependency-table group: "runtime", "development", or
+#                "build". Use for a build-group package that is nevertheless
+#                shipped (PyGObject is compiled for the frozen CPython).
 #   note         optional sentence appended to the dependency table row.
 #   licence_files  optional list of {name, text} pairs written to
 #                  LICENSES/python/<name>/ for packages with no dist-info.
@@ -85,6 +88,23 @@ spdx = "MIT"
 source = "https://github.com/pythonnet/pythonnet"
 texts = ["MIT"]
 platform = "windows"
+
+[[override]]
+name = "pycairo"
+spdx = "LGPL-2.1-only"
+source = "https://github.com/pygobject/pycairo"
+texts = ["LGPL-2.1-only"]
+platform = "linux"
+note = "Build-only; StemForge does not use PyGObject's cairo foreign types."
+
+[[override]]
+name = "pygobject"
+spdx = "LGPL-2.1-or-later"
+source = "https://gitlab.gnome.org/GNOME/pygobject/-/tags/3.50.2"
+texts = ["LGPL-2.1-or-later"]
+platform = "linux"
+group = "runtime"
+note = "Bundled for the frozen CPython; the GTK/WebKit typelibs remain host-provided."
 
 [[override]]
 name = "pywin32-ctypes"
