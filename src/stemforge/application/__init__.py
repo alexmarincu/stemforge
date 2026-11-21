@@ -10,9 +10,9 @@ from __future__ import annotations
 from stemforge.engines.media import ExportFormat as ExportFormat
 from stemforge.pipeline.export_job import ExportTarget as ExportTarget
 
-from .output_roles import SEPARATION_OUTPUT_ROLES as SEPARATION_OUTPUT_ROLES
 from .service import ServiceEngines, WorkspaceService
 from .views import (
+    SEPARATION_OUTPUT_ROLES,
     ExportedFile,
     JobKindValue,
     JobView,

@@ -11,11 +11,30 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Final, Protocol
 
 from stemforge.artifacts import RemoveReport
 from stemforge.domain.models import RenderScope, Track
+from stemforge.domain.roles import INSTRUMENTAL_ROLE
 from stemforge.engines.media import ExportFormat
+
+# Presentation order and labels for Separation outputs. Instrumental is a stored
+# Artifact, not a Stem (GLOSSARY), so the map is deliberately not named for stems.
+SEPARATION_ROLE_LABELS: Final[Mapping[str, str]] = {
+    "vocals": "Vocals",
+    INSTRUMENTAL_ROLE: "Instrumental",
+    "drums": "Drums",
+    "bass": "Bass",
+    "other": "Other",
+}
+
+SEPARATION_OUTPUT_ROLES: Final[tuple[str, ...]] = (
+    "vocals",
+    INSTRUMENTAL_ROLE,
+    "drums",
+    "bass",
+    "other",
+)
 
 
 class PreflightCheckView(Protocol):

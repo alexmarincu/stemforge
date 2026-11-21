@@ -6,13 +6,13 @@ from pathlib import Path
 from urllib.parse import quote
 
 from stemforge.application.identity import separation_key
-from stemforge.application.output_roles import (
-    SEPARATION_OUTPUT_ROLES,
-    SEPARATION_ROLE_LABELS,
-)
 from stemforge.application.renders import RenderView, render_views
 from stemforge.application.state import WorkspaceState
-from stemforge.application.views import PreviewTarget
+from stemforge.application.views import (
+    SEPARATION_OUTPUT_ROLES,
+    SEPARATION_ROLE_LABELS,
+    PreviewTarget,
+)
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.models import RenderScope, Track
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES

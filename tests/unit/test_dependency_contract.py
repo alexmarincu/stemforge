@@ -22,7 +22,6 @@ PACKAGE = REPO_ROOT / "src" / "stemforge"
 APPLICATION_INTERNALS = (
     "stemforge.application.collaborators",
     "stemforge.application.identity",
-    "stemforge.application.output_roles",
     "stemforge.application.renders",
     "stemforge.application.service",
     "stemforge.application.state",
