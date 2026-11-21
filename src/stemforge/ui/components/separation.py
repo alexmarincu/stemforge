@@ -16,9 +16,8 @@ successful install resubmits a previously requested Separation exactly once
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
-from pathlib import Path
+from collections.abc import Callable
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from nicegui import ui
@@ -33,24 +32,13 @@ from stemforge.ui.components.diagnostics import (
     DiagnosticsProvider,
     error_details,
 )
+from stemforge.ui.failure import JobFailure
 
 if TYPE_CHECKING:
     from stemforge.application import JobView, WorkspaceService
 
 JobStarted = Callable[[str, str, str | None], None]
 CancelJob = Callable[[], None]
-
-
-@dataclass(frozen=True, slots=True)
-class SeparationFailure:
-    """One inline Separation failure; Retry resubmits the same track spec."""
-
-    code: str
-    detail: str | None
-    retryable: bool
-    context: Mapping[str, object] | None = None
-    job_id: str | None = None
-    log_path: Path | None = None
 
 
 class SeparationCard:
@@ -81,14 +69,14 @@ class SeparationCard:
         # Injectable so tests advance time instead of sleeping for minutes.
         self.clock = clock
         self.stall_seconds = stall_seconds
-        self._failures: dict[str, SeparationFailure] = {}
+        self._failures: dict[str, JobFailure] = {}
         self._current_track_id: str | None = None
         self._job: JobView | None = None
         self._job_signature: tuple[str, int, str] | None = None
         self._last_change_at: float | None = None
         self._stalled = False
         self._stall_ack: tuple[str, int, str] | None = None
-        self._download_failure: SeparationFailure | None = None
+        self._download_failure: JobFailure | None = None
 
     # -- composition --------------------------------------------------------
 
@@ -99,7 +87,7 @@ class SeparationCard:
         status = self._service.model_status()
         failure = self._failures.get(track.track_id)
         model_missing = failure is not None and failure.code == errors.SEPARATION_MODEL_MISSING
-        checksum_failure: SeparationFailure | None = None
+        checksum_failure: JobFailure | None = None
         for candidate in (failure, self._download_failure):
             if (
                 candidate is not None
@@ -145,7 +133,7 @@ class SeparationCard:
         self,
         *,
         busy: bool = False,
-        checksum_failure: SeparationFailure | None = None,
+        checksum_failure: JobFailure | None = None,
     ) -> None:
         copy = formatting.model_licence_copy(self._service.model_spec())
         reason_copy = (
@@ -215,7 +203,7 @@ class SeparationCard:
         if self._on_open_about is not None:
             self._on_open_about()
 
-    def _download_error(self, failure: SeparationFailure, *, busy: bool = False) -> None:
+    def _download_error(self, failure: JobFailure, *, busy: bool = False) -> None:
         reason = formatting.reason_from_detail(failure.detail)
         copy = formatting.copy_for(failure.code, reason, context=failure.context)
         checksum = failure.code == errors.SEPARATION_MODEL_MISSING and reason == "checksum"
@@ -380,12 +368,7 @@ class SeparationCard:
         try:
             job_id = self._service.install_model(accept_licence=True)
         except StemForgeError as error:
-            self._download_failure = SeparationFailure(
-                code=error.code,
-                detail=error.detail,
-                retryable=error.retryable,
-                context=error.context,
-            )
+            self._download_failure = JobFailure.from_error(error)
             self.build.refresh()
             return
         self._download_failure = None
@@ -396,12 +379,7 @@ class SeparationCard:
         try:
             job_id = self._service.separate(track)
         except StemForgeError as error:
-            self._failures[track.track_id] = SeparationFailure(
-                code=error.code,
-                detail=error.detail,
-                retryable=error.retryable,
-                context=error.context,
-            )
+            self._failures[track.track_id] = JobFailure.from_error(error)
             self.build.refresh()
             return
         self._failures.pop(track.track_id, None)
@@ -459,46 +437,21 @@ class SeparationCard:
         if changed:
             self.build.refresh()
 
-    def record_failure(
-        self,
-        track_id: str,
-        code: str,
-        detail: str | None,
-        *,
-        retryable: bool = False,
-        context: Mapping[str, object] | None = None,
-        job_id: str | None = None,
-        log_path: Path | None = None,
-    ) -> None:
-        self._failures[track_id] = SeparationFailure(
-            code=code or errors.SEPARATION_ENGINE_ERROR,
-            detail=detail,
-            retryable=retryable,
-            context=context,
-            job_id=job_id,
-            log_path=log_path,
+    def record_failure(self, track_id: str, failure: JobFailure) -> None:
+        self._failures[track_id] = replace(
+            failure,
+            code=failure.code or errors.SEPARATION_ENGINE_ERROR,
         )
-        if code == errors.SEPARATION_MODEL_MISSING:
+        if failure.code == errors.SEPARATION_MODEL_MISSING:
             self._service.remember_pending_separation(track_id)
         if track_id == self._current_track_id:
             self.build.refresh()
 
-    def record_model_failure(
-        self,
-        code: str,
-        detail: str | None,
-        *,
-        context: Mapping[str, object] | None = None,
-        job_id: str | None = None,
-        log_path: Path | None = None,
-    ) -> None:
-        self._download_failure = SeparationFailure(
-            code=code or errors.SEPARATION_MODEL_DOWNLOAD_FAILED,
-            detail=detail,
+    def record_model_failure(self, failure: JobFailure) -> None:
+        self._download_failure = replace(
+            failure,
+            code=failure.code or errors.SEPARATION_MODEL_DOWNLOAD_FAILED,
             retryable=True,
-            context=context,
-            job_id=job_id,
-            log_path=log_path,
         )
         self._job = None
         self._last_change_at = None

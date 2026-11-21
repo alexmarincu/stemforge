@@ -35,6 +35,7 @@ from stemforge.ui.components.diagnostics import (
     DiagnosticsProvider,
     error_details,
 )
+from stemforge.ui.failure import JobFailure
 from stemforge.ui.toast import toast
 
 if TYPE_CHECKING:
@@ -86,47 +87,22 @@ class ExportSpec:
 
 
 @dataclass(frozen=True, slots=True)
-class ExportNotice:
-    """One finished Export shown in place of the Job bar."""
+class ExportSuccess:
+    """One finished Export that wrote its destination."""
 
     spec: ExportSpec
-    path: Path | None = None
-    code: str | None = None
-    detail: str | None = None
-    context: Mapping[str, object] | None = None
-    retryable: bool = False
-    job_id: str | None = None
-    log_path: Path | None = None
+    path: Path
 
-    @property
-    def succeeded(self) -> bool:
-        return self.path is not None
 
-    @classmethod
-    def success(cls, spec: ExportSpec, path: Path) -> ExportNotice:
-        return cls(spec=spec, path=path)
+@dataclass(frozen=True, slots=True)
+class ExportFailure:
+    """One finished Export that failed; Retry reuses the same spec."""
 
-    @classmethod
-    def failure(
-        cls,
-        spec: ExportSpec,
-        *,
-        code: str,
-        detail: str | None,
-        retryable: bool,
-        context: Mapping[str, object] | None = None,
-        job_id: str | None = None,
-        log_path: Path | None = None,
-    ) -> ExportNotice:
-        return cls(
-            spec=spec,
-            code=code,
-            detail=detail,
-            context=context,
-            retryable=retryable,
-            job_id=job_id,
-            log_path=log_path,
-        )
+    spec: ExportSpec
+    failure: JobFailure
+
+
+type ExportNotice = ExportSuccess | ExportFailure
 
 
 class ExportSheet:
@@ -154,7 +130,7 @@ class ExportSheet:
         self._dialog: ui.dialog | None = None
         self._body: ui.column | None = None
         self._initial_directory: Path | None = None
-        self._submit_error: tuple[str, str | None, Mapping[str, object]] | None = None
+        self._submit_error: JobFailure | None = None
         self._saving = False
 
     # -- composition --------------------------------------------------------
@@ -252,17 +228,17 @@ class ExportSheet:
     def _submit_error_block(self) -> None:
         if self._submit_error is None:
             return
-        code, detail, context = self._submit_error
+        failure = self._submit_error
         copy = formatting.copy_for(
-            code,
-            formatting.reason_from_detail(detail),
-            context=context,
+            failure.code,
+            formatting.reason_from_detail(failure.detail),
+            context=failure.context,
         )
         with ui.element("div").classes("sf-notice").mark("export-submit-error"):
             ui.label(copy.headline).classes("sf-notice-headline")
             ui.label(copy.action).classes("sf-notice-action")
             error_details(
-                code=code,
+                code=failure.code,
                 marker="export-submit",
                 diagnostics=self._diagnostics,
                 clipboard=self._clipboard,
@@ -344,7 +320,7 @@ class ExportSheet:
                 destination_name=spec.destination_name,
             )
         except StemForgeError as error:
-            self._submit_error = (error.code, error.detail, error.context)
+            self._submit_error = JobFailure.from_error(error)
             self._render(busy=False)
             return
         self._submit_error = None
@@ -393,7 +369,7 @@ class ExportStatusBar:
         clipboard: ClipboardWriter | None = None,
         open_path: PathOpener | None = None,
     ) -> None:
-        if notice.succeeded:
+        if isinstance(notice, ExportSuccess):
             self._success(notice, on_dismiss=on_dismiss)
             return
         self._failure(
@@ -407,7 +383,7 @@ class ExportStatusBar:
             open_path=open_path,
         )
 
-    def _success(self, notice: ExportNotice, *, on_dismiss: Callable[[], None]) -> None:
+    def _success(self, notice: ExportSuccess, *, on_dismiss: Callable[[], None]) -> None:
         with ui.element("div").classes("sf-exportbar is-success").mark("export-success"):
             ui.icon("check", size="sm").classes("sf-exportbar-icon")
             with ui.element("div").classes("sf-exportbar-main"):
@@ -427,7 +403,7 @@ class ExportStatusBar:
 
     def _failure(
         self,
-        notice: ExportNotice,
+        notice: ExportFailure,
         *,
         busy: bool,
         on_retry: Callable[[], None],
@@ -437,13 +413,14 @@ class ExportStatusBar:
         clipboard: ClipboardWriter | None,
         open_path: PathOpener | None,
     ) -> None:
-        code = notice.code or errors.INTERNAL_UNEXPECTED
+        failure = notice.failure
+        code = failure.code or errors.INTERNAL_UNEXPECTED
         reason = (
             "export"
             if code == errors.STORAGE_DISK_FULL
-            else formatting.reason_from_detail(notice.detail)
+            else formatting.reason_from_detail(failure.detail)
         )
-        copy = formatting.copy_for(code, reason, context=notice.context)
+        copy = formatting.copy_for(code, reason, context=failure.context)
         with ui.element("div").classes("sf-exportbar is-failure").mark("export-failure"):
             ui.icon("error_outline", size="sm").classes("sf-exportbar-icon")
             with ui.element("div").classes("sf-exportbar-main"):
@@ -452,13 +429,13 @@ class ExportStatusBar:
                 error_details(
                     code=code,
                     marker="export-error",
-                    job_id=notice.job_id,
-                    log_path=notice.log_path,
+                    job_id=failure.job_id,
+                    log_path=failure.log_path,
                     diagnostics=diagnostics,
                     clipboard=clipboard,
                     open_path=open_path,
                 )
-            if notice.retryable:
+            if failure.retryable:
                 retry = (
                     ui.button(EXPORT_RETRY, on_click=lambda _=None: on_retry())
                     .props("unelevated dense no-caps size=sm")
