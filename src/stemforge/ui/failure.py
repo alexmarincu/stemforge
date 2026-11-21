@@ -12,31 +12,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
 
+from stemforge.application import JobView
 from stemforge.errors import StemForgeError
-
-
-class JobFailureSource(Protocol):
-    """The finished-Job fields a ``JobFailure`` needs, without importing jobs."""
-
-    @property
-    def job_id(self) -> str: ...
-
-    @property
-    def error_code(self) -> str | None: ...
-
-    @property
-    def error_detail(self) -> str | None: ...
-
-    @property
-    def error_context(self) -> Mapping[str, object]: ...
-
-    @property
-    def retryable(self) -> bool: ...
-
-    @property
-    def log_path(self) -> Path | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +43,7 @@ class JobFailure:
         )
 
     @classmethod
-    def from_job(cls, job: JobFailureSource, *, fallback_code: str) -> JobFailure:
+    def from_job(cls, job: JobView, *, fallback_code: str) -> JobFailure:
         """Build the UI payload from a finished Job's failure fields."""
         return cls(
             code=job.error_code or fallback_code,

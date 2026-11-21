@@ -28,6 +28,7 @@ from nicegui.events import NativeEventArguments
 from stemforge import __version__, errors
 from stemforge.application import (
     SEPARATION_OUTPUT_ROLES,
+    JobView,
     PitchSet,
     PreflightView,
     PreviewTarget,
@@ -60,7 +61,7 @@ from stemforge.ui.components.export import (
 from stemforge.ui.components.pitch import PitchCard
 from stemforge.ui.components.separation import SeparationCard
 from stemforge.ui.components.youtube import YouTubeRow
-from stemforge.ui.failure import JobFailure, JobFailureSource
+from stemforge.ui.failure import JobFailure
 from stemforge.ui.toast import toast
 
 TITLE: Final = "StemForge"
@@ -413,49 +414,6 @@ class RecentEntry(Protocol):
 
     @property
     def last_opened(self) -> datetime: ...
-
-
-class JobKindValue(Protocol):
-    """A Job kind or state that renders its stable string form."""
-
-    @property
-    def value(self) -> str: ...
-
-
-class JobView(JobFailureSource, Protocol):
-    """The fields the Job bar needs from ``jobs.JobSnapshot`` without importing it.
-
-    ``ui`` must not import ``stemforge.jobs`` (import-linter); this structural
-    view keeps the dependency on the application seam and stays mypy-strict.
-    The failure fields come from :class:`JobFailureSource`.
-    """
-
-    @property
-    def kind(self) -> JobKindValue: ...
-
-    @property
-    def state(self) -> JobKindValue: ...
-
-    @property
-    def progress(self) -> float: ...
-
-    @property
-    def stage(self) -> str: ...
-
-    @property
-    def created_at(self) -> datetime: ...
-
-    @property
-    def detail(self) -> str | None: ...
-
-    @property
-    def active(self) -> bool: ...
-
-    @property
-    def finished(self) -> bool: ...
-
-    @property
-    def result_keys(self) -> Mapping[str, str]: ...
 
 
 _context: UiContext | None = None
