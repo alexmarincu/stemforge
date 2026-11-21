@@ -8,9 +8,10 @@ service relies on that atomicity when a Track is removed while its Job is active
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterable
 from types import TracebackType
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 from stemforge.domain.models import Track
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
@@ -19,7 +20,6 @@ from stemforge.jobs.models import JobSnapshot
 from stemforge.jobs.runner import JobRunner
 
 
-@runtime_checkable
 class Lock(Protocol):
     """The re-entrant lock operations the shared state needs."""
 
@@ -37,8 +37,6 @@ class WorkspaceState:
     """The Workspace plus the lock every reader and writer takes."""
 
     def __init__(self, workspace: Workspace | None = None) -> None:
-        import threading
-
         self._workspace = workspace if workspace is not None else Workspace()
         self._lock: Lock = threading.RLock()
 

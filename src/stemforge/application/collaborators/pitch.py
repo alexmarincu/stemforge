@@ -6,7 +6,7 @@ from collections.abc import Mapping
 
 from stemforge import errors
 from stemforge.application.renders import render_views
-from stemforge.application.state import JobLedger, WorkspaceState
+from stemforge.application.state import JobLedger
 from stemforge.application.views import PitchSet
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.models import JobKind, RenderScope, Track
@@ -29,13 +29,11 @@ class PitchService:
         self,
         artifacts: ArtifactStore,
         ledger: JobLedger,
-        workspace: WorkspaceState,
         pitch: PitchEngine | None,
         media: MediaTool | None,
     ) -> None:
         self._artifacts = artifacts
         self._ledger = ledger
-        self._workspace = workspace
         self._pitch = pitch
         self._media = media
 

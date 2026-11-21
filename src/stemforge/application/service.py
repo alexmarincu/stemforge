@@ -124,7 +124,6 @@ class WorkspaceService:
         self._pitch = PitchService(
             self._artifacts,
             self._ledger,
-            self._state,
             cast("PitchEngine | None", self._engines.pitch),
             self._engines.media,
         )
@@ -284,10 +283,6 @@ class WorkspaceService:
 
     # -- Pitch -------------------------------------------------------------
 
-    def has_separation(self, track: Track) -> bool:
-        """Whether the Track has committed Stems, so the stems scope can be offered."""
-        return self._separation.has_separation(track)
-
     def pitch_sets(self, track: Track) -> tuple[PitchSet, ...]:
         """Every committed render set for the Track, oldest first (ticket 08 §7)."""
         return self._pitch.pitch_sets(track)
@@ -309,6 +304,12 @@ class WorkspaceService:
     ) -> str:
         """Submit one Pitch Render Job and return its id (ticket 03, ticket 08 §5)."""
         return self._pitch.render_pitch(track, semitones, scope)
+
+    # -- Separation --------------------------------------------------------
+
+    def has_separation(self, track: Track) -> bool:
+        """Whether the Track has committed Stems, so the stems scope can be offered."""
+        return self._separation.has_separation(track)
 
     def separation_sets(self, track: Track) -> tuple[SeparationSet, ...]:
         """Every committed Separation set for the Track, oldest first (ticket 14)."""

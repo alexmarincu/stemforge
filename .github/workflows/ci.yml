@@ -291,7 +291,7 @@ jobs:
         run: |
           uv run --frozen --no-sync coverage report \
             --fail-under=85 \
-            --include="src/stemforge/domain/*,src/stemforge/jobs/*,src/stemforge/artifacts.py,src/stemforge/pipeline/*,src/stemforge/engines/*,src/stemforge/settings.py,src/stemforge/application.py,src/stemforge/worker_protocol.py,src/stemforge/errors.py"
+            --include="src/stemforge/domain/*,src/stemforge/jobs/*,src/stemforge/artifacts.py,src/stemforge/pipeline/*,src/stemforge/engines/*,src/stemforge/settings.py,src/stemforge/application/*,src/stemforge/worker_protocol.py,src/stemforge/errors.py"
       - name: Overall coverage gate (ticket 11 §6, at least 70%)
         run: uv run --frozen --no-sync coverage report --fail-under=70
 

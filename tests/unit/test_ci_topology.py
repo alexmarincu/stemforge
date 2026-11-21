@@ -60,7 +60,7 @@ FULL_SYNC_JOBS = ("integration-linux", "licensing", "frozen-linux")
 CORE_COVERAGE_INCLUDE = (
     "src/stemforge/domain/*,src/stemforge/jobs/*,src/stemforge/artifacts.py,"
     "src/stemforge/pipeline/*,src/stemforge/engines/*,src/stemforge/settings.py,"
-    "src/stemforge/application.py,src/stemforge/worker_protocol.py,"
+    "src/stemforge/application/*,src/stemforge/worker_protocol.py,"
     "src/stemforge/errors.py"
 )
 COVERAGE_PRODUCERS = {
