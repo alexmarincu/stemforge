@@ -3,10 +3,10 @@
   "component": "Microsoft Edge WebView2 Evergreen Bootstrapper",
   "filename": "MicrosoftEdgeWebview2Setup.exe",
   "url": "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
-  "resolved_url": "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/068be74d-a831-494f-8f57-c173756d5a33/MicrosoftEdgeWebview2Setup.exe",
-  "size": 1897688,
-  "sha256": "cf2f2445fef0c5c14e372045f84998771eeb8bb01d59be4afd00692fa160082e",
-  "retrieved": "2026-11-17",
+  "resolved_url": "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/cc1101bc-3d8a-4c67-8678-b753ccdc08ad/MicrosoftEdgeWebview2Setup.exe",
+  "size": 1826528,
+  "sha256": "fc2972da71d43e0c57b8d85a5cb9b200ed221f723cf43052d08ca722eb0bb22e",
+  "retrieved": "2026-11-21",
   "license": "Microsoft proprietary redistributable; covered by Microsoft's terms, not StemForge's licence",
-  "notes": "The fwlink is Microsoft's stable Evergreen Bootstrapper entry point; the resolved URL and hash above are the download observed on 2026-11-17. Microsoft can rotate the bootstrapper at any time, so packaging/windows/package.ps1 fails closed on a size or SHA-256 mismatch and the pin must be refreshed deliberately. The bootstrapper is shipped unmodified, embedded in the installer as a dontcopy file and included in the portable ZIP."
+  "notes": "The fwlink is Microsoft's stable Evergreen Bootstrapper entry point; the resolved URL, size and SHA-256 above are the download observed on 2026-11-21. Microsoft rotates the bootstrapper whenever a new runtime ships, so packaging/windows/package.ps1 fails closed on a size or SHA-256 mismatch and the pin must be refreshed deliberately; the replacement build is Authenticode-signed by Microsoft Corporation. The bootstrapper is shipped unmodified, embedded in the installer as a dontcopy file and included in the portable ZIP."
 }

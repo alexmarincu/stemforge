@@ -303,8 +303,8 @@ def test_webview2_bootstrapper_pin_is_the_verified_microsoft_download() -> None:
     assert lock["schema"] == 1
     assert lock["url"] == "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
     assert lock["filename"] == "MicrosoftEdgeWebview2Setup.exe"
-    assert lock["size"] == 1_897_688
-    assert lock["sha256"] == ("cf2f2445fef0c5c14e372045f84998771eeb8bb01d59be4afd00692fa160082e")
+    assert lock["size"] == 1_826_528
+    assert lock["sha256"] == ("fc2972da71d43e0c57b8d85a5cb9b200ed221f723cf43052d08ca722eb0bb22e")
 
 
 def test_windows_readme_names_the_data_path_smartscreen_and_webview2() -> None:
