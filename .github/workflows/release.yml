@@ -474,7 +474,10 @@ jobs:
       - name: Fetch the pinned vendor set
         run: bash scripts/vendor-fetch.sh
       - name: Build the next-image Bundle
-        run: bash packaging/linux/build.sh
+        # The next image builds its vendor set with its own toolchain, so the
+        # 22.04 release ABI floor does not apply here; the release Linux job
+        # enforces it.
+        run: bash packaging/linux/build.sh --skip-host-abi
       - name: Next-image frozen self-test
         run: |
           mkdir -p "$STEMFORGE_HOME"

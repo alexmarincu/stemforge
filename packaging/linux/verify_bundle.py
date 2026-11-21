@@ -191,6 +191,7 @@ def verify_bundle(
     archives: Sequence[Path] = (),
     budgets: Mapping[str, int] | None = None,
     allow_missing_licences: bool = False,
+    skip_host_abi: bool = False,
     target: str = TARGET,
 ) -> Verification:
     """Run every bundle and archive check and return the collected findings."""
@@ -203,7 +204,16 @@ def verify_bundle(
     findings.append(_check_licences(root, allow_missing=allow_missing_licences))
     findings.append(_check_weights(root))
     findings.append(_check_torch(root))
-    findings.append(_check_host_abi(root))
+    if skip_host_abi:
+        findings.append(
+            Finding(
+                "bundle.host_abi",
+                "skip",
+                "next-image build: the release ABI floor is enforced by the 22.04 job",
+            )
+        )
+    else:
+        findings.append(_check_host_abi(root))
     findings.append(_check_host_gui(root))
     findings.append(_check_vendor(root, lock, target))
 
@@ -675,6 +685,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="debug builds before ticket 22; never use for a release",
     )
+    parser.add_argument(
+        "--skip-host-abi",
+        action="store_true",
+        help="next-image builds only: skip the release host-ABI floor",
+    )
     parser.add_argument("--self-check", action="store_true", help="exercise both outcomes")
     return parser
 
@@ -691,6 +706,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         lock_path=args.lock,
         archives=args.archive,
         allow_missing_licences=args.allow_missing_licences,
+        skip_host_abi=args.skip_host_abi,
     )
     _report(result, as_json=args.json)
     return 0 if result.ok else 1

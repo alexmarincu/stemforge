@@ -21,21 +21,25 @@ work="$repo_root/build/pyinstaller"
 reports="$repo_root/build/reports"
 tools="$repo_root/build/tools"
 allow_missing_licences=0
+skip_host_abi=0
 source_date_epoch="${SOURCE_DATE_EPOCH:-315532800}"
 
 usage() {
     cat <<'EOF'
-Usage: packaging/linux/build.sh [--allow-missing-licences]
+Usage: packaging/linux/build.sh [--allow-missing-licences] [--skip-host-abi]
 
   --allow-missing-licences  debug only: assemble a local bundle before ticket 22
                             supplies LICENSE/THIRD_PARTY_NOTICES.md/SOURCE_OFFER.md/
                             LICENSES. Never use for a release or CI build.
+  --skip-host-abi           next-image builds only: skip the release host-ABI
+                            floor. The 22.04 release job still enforces it.
 EOF
 }
 
 while (($# > 0)); do
     case "$1" in
         --allow-missing-licences) allow_missing_licences=1 ;;
+        --skip-host-abi) skip_host_abi=1 ;;
         -h | --help)
             usage
             exit 0
@@ -62,6 +66,9 @@ export SOURCE_DATE_EPOCH="$source_date_epoch"
 if ((allow_missing_licences)); then
     echo "build.sh: WARNING: debug bundle without the licence tree (ticket 22 pending);" \
         "never publish it" >&2
+fi
+if ((skip_host_abi)); then
+    echo "build.sh: WARNING: skipping the release host-ABI floor (next-image build only)" >&2
 fi
 
 note "syncing the build environment"
@@ -161,11 +168,16 @@ if ((missing_licences)); then
     fi
 fi
 
-command -v objdump >/dev/null 2>&1 ||
-    die "objdump (binutils) is required for the host ABI gate"
+if ((!skip_host_abi)); then
+    command -v objdump >/dev/null 2>&1 ||
+        die "objdump (binutils) is required for the host ABI gate"
+fi
 verify_args=(--bundle "$bundle" --lock "$repo_root/packaging/vendor.lock.json")
 if ((allow_missing_licences)); then
     verify_args+=(--allow-missing-licences)
+fi
+if ((skip_host_abi)); then
+    verify_args+=(--skip-host-abi)
 fi
 note "verifying the assembled Bundle before compressing it"
 .venv/bin/python packaging/linux/verify_bundle.py "${verify_args[@]}"
@@ -322,6 +334,9 @@ full_verify=(
 )
 if ((allow_missing_licences)); then
     full_verify+=(--allow-missing-licences)
+fi
+if ((skip_host_abi)); then
+    full_verify+=(--skip-host-abi)
 fi
 "${full_verify[@]}"
 "${full_verify[@]}" --json >"$reports/bundle-verify.json"

@@ -239,6 +239,37 @@ def test_elf_requirements_above_the_host_floor_fail(
     assert "host floor GLIBCXX_3.4.29" in details
 
 
+def test_the_host_abi_gate_can_be_skipped_for_the_next_image(tmp_path: Path) -> None:
+    root, lock = _make_bundle(tmp_path)
+    _write(root / "_internal" / "libstdc++.so.6", b"host runtime")
+
+    result = _verify(root, lock, skip_host_abi=True)
+
+    assert result.ok
+    assert _checks(result)["bundle.host_abi"] == "skip"
+
+
+def test_skipping_the_abi_gate_keeps_the_host_gui_gate(tmp_path: Path) -> None:
+    root, lock = _make_bundle(tmp_path)
+    _write(root / "_internal" / "libgtk-3.so.0", b"host gui")
+
+    result = _verify(root, lock, skip_host_abi=True)
+
+    assert not result.ok
+    assert _checks(result)["bundle.host_gui"] == "fail"
+
+
+def test_the_cli_accepts_skip_host_abi(tmp_path: Path) -> None:
+    root, lock = _make_bundle(tmp_path)
+    _write(root / "_internal" / "libstdc++.so.6", b"host runtime")
+
+    exit_code = VERIFY.main(
+        ["--bundle", str(root), "--lock", str(lock), "--skip-host-abi", "--json"]
+    )
+
+    assert exit_code == 0
+
+
 def test_elf_requirements_at_the_host_floor_pass(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -471,6 +502,7 @@ def test_the_build_script_wires_the_release_gates() -> None:
     assert "--runtime-file" in script
     assert "--mksquashfs-opt=-Xcompression-level" in script
     assert "--allow-missing-licences" in script
+    assert "--skip-host-abi" in script
     assert "StemForge-${version}-linux-x86_64" in script
 
 
