@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 from urllib.parse import quote
-from uuid import uuid4
 
 from stemforge import errors
 from stemforge.artifacts import (
@@ -31,7 +30,6 @@ from stemforge.domain.models import (
     ModelConsent,
     OriginKind,
     RenderScope,
-    Source,
     Track,
 )
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
@@ -45,13 +43,7 @@ from stemforge.engines.pitch import (
     validate_semitones,
 )
 from stemforge.engines.separation import SeparationEngine
-from stemforge.engines.youtube import (
-    YouTubeTool,
-    YouTubeVideo,
-    YtDlpImporter,
-    parse_youtube_url,
-    shipped_tool_versions,
-)
+from stemforge.engines.youtube import YouTubeTool, YouTubeVideo
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import Job, JobContext, JobRun
 from stemforge.jobs.models import JobSnapshot
@@ -68,17 +60,17 @@ from stemforge.pipeline.export_job import (
     run_export_job,
 )
 from stemforge.pipeline.export_names import unique_export_path
-from stemforge.pipeline.import_job import run_local_import
 from stemforge.pipeline.model_job import Transport
 from stemforge.pipeline.pitch_job import find_pitch_render, run_pitch_job
 from stemforge.pipeline.separation_job import run_separation_job
-from stemforge.pipeline.youtube_job import run_youtube_import
 from stemforge.platform import resources
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import RecentFile, SettingsStore
 
 from .collaborators.cache import CacheService
+from .collaborators.importing import ImportService
 from .collaborators.model import ModelService
+from .collaborators.youtube import YouTubeService
 from .identity import separation_key
 from .output_roles import SEPARATION_OUTPUT_ROLES, SEPARATION_ROLE_LABELS
 from .renders import RenderView, render_views
@@ -133,12 +125,28 @@ class WorkspaceService:
         self._runner = runner if runner is not None else JobRunner(paths=self._paths)
         self._engines = engines if engines is not None else ServiceEngines()
         self._models = models if models is not None else ModelStore(self._paths)
-        self._youtube_delay = youtube_delay
         self._state = WorkspaceState(workspace)
         self._ledger = JobLedger(self._runner, self._state.lock)
         self._pending_separation_track_id: str | None = None
         self._cache = CacheService(self._artifacts)
         self._model = ModelService(self._settings, self._models, self._ledger, model_transport)
+        self._imports = ImportService(
+            self._settings,
+            self._artifacts,
+            self._ledger,
+            self._state,
+            self._engines.media,
+        )
+        self._youtube = YouTubeService(
+            self._settings,
+            self._paths,
+            self._artifacts,
+            self._ledger,
+            accept_source=self._imports.accept_source,
+            youtube=self._engines.youtube,
+            media=self._engines.media,
+            delay=youtube_delay,
+        )
 
     @property
     def settings(self) -> SettingsStore:
@@ -944,7 +952,7 @@ class WorkspaceService:
 
     def youtube_enabled(self) -> bool:
         """Whether the empty-state YouTube row is enabled (ticket 09 §7)."""
-        return self._settings.youtube_enabled
+        return self._youtube.youtube_enabled()
 
     def youtube_tool_versions(self) -> Mapping[str, str]:
         """The yt-dlp, yt-dlp-ejs, and Deno versions About must show (09 §9).
@@ -953,18 +961,18 @@ class WorkspaceService:
         never instantiates or calls an engine adapter, so opening the modal
         cannot start a subprocess or block the UI event loop (ADR 0003).
         """
-        return dict(shipped_tool_versions())
+        return self._youtube.youtube_tool_versions()
 
     def set_youtube_enabled(self, enabled: bool) -> None:
-        self._settings.set_youtube_enabled(enabled)
+        self._youtube.set_youtube_enabled(enabled)
 
     def youtube_notice_acknowledged(self) -> bool:
         """Whether the one-time YouTube disclaimer was accepted."""
-        return self._settings.youtube_notice_is_current()
+        return self._youtube.youtube_notice_acknowledged()
 
     def accept_youtube_notice(self) -> None:
         """Persist the one-time YouTube ToS acknowledgment."""
-        self._settings.accept_youtube_notice()
+        self._youtube.accept_youtube_notice()
 
     def validate_youtube(self, url: str) -> YouTubeVideo:
         """Validate one YouTube URL for the field; no Job and no service state.
@@ -972,7 +980,7 @@ class WorkspaceService:
         The UI calls this before the consent gate, so a rejected paste is only a
         field error and never reaches ``submit_youtube``.
         """
-        return parse_youtube_url(url)
+        return self._youtube.validate_youtube(url)
 
     def submit_youtube(self, url: str) -> str:
         """Validate one YouTube URL synchronously, then submit its import Job.
@@ -982,100 +990,8 @@ class WorkspaceService:
         Job identity, so a second submit while any ``import_youtube`` Job is
         active returns that Job's id (ticket 09 §3).
         """
-        video = parse_youtube_url(url)
-        youtube = self._youtube_tool()
-        job = Job(
-            kind=JobKind.IMPORT_YOUTUBE,
-            identity=(JobKind.IMPORT_YOUTUBE.value,),
-            title=video.canonical_url,
-            run=self._youtube_run(video, youtube),
-        )
-        return self._runner.submit(job)
-
-    def _youtube_tool(self) -> YouTubeTool:
-        if self._engines.youtube is not None:
-            return self._engines.youtube
-        return YtDlpImporter(cache_root=self._paths.cache)
-
-    def _youtube_run(self, video: YouTubeVideo, youtube: YouTubeTool) -> JobRun:
-        def run(ctx: JobContext) -> Mapping[str, str]:
-            media = self._engines.media
-            if media is None:
-                raise StemForgeError(
-                    errors.INTERNAL_UNEXPECTED,
-                    "no media engine is configured for YouTube import",
-                )
-            result = run_youtube_import(
-                ctx,
-                video,
-                artifacts=self._artifacts,
-                media=media,
-                youtube=youtube,
-                finalize=self._accept_source,
-                sleep=self._youtube_delay,
-            )
-            return {
-                "source_id": result.source.source_id,
-                "track_id": result.track.track_id,
-            }
-
-        return run
+        return self._youtube.submit_youtube(url)
 
     def import_local(self, path: str | Path) -> str:
         """Submit a local import Job and return its id (deduped while active)."""
-        media = self._engines.media
-        if media is None:
-            raise StemForgeError(
-                errors.INTERNAL_UNEXPECTED,
-                "no media engine is configured for local import",
-            )
-        source_path = Path(path).expanduser().absolute()
-        job = Job(
-            kind=JobKind.IMPORT_LOCAL,
-            identity=(JobKind.IMPORT_LOCAL.value, str(source_path)),
-            title=source_path.name,
-            run=self._import_run(source_path, media),
-        )
-        return self._runner.submit(job)
-
-    def _import_run(self, path: Path, media: MediaTool) -> JobRun:
-        def run(ctx: JobContext) -> Mapping[str, str]:
-            result = run_local_import(
-                ctx,
-                path,
-                artifacts=self._artifacts,
-                media=media,
-                finalize=self._accept_source,
-            )
-            return {
-                "source_id": result.source.source_id,
-                "track_id": result.track.track_id,
-            }
-
-        return run
-
-    def _accept_source(self, source: Source) -> Track:
-        """Create (or focus) the Track and refresh the recent-files entry."""
-        with self._state.lock:
-            existing = self._state.find_by_source(source.source_id)
-            if existing is not None:
-                track = existing
-                self._artifacts.touch_source(source.source_id)
-            else:
-                title = source.title or source.source_id
-                track = Track(
-                    track_id=uuid4().hex,
-                    source=source,
-                    title=title,
-                )
-                self._state.add_track(track)
-                self._artifacts.retain(source.source_id)
-
-        self._settings.record_recent(
-            source_id=source.source_id,
-            title=track.title,
-            origin=source.origin,
-            origin_kind=source.origin_kind,
-            duration_s=source.metadata.duration_s,
-        )
-        return track
+        return self._imports.import_local(path)

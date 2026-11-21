@@ -23,6 +23,7 @@ from stemforge.domain.models import (
     SourceMetadata,
     Track,
 )
+from stemforge.domain.workspace import Workspace
 from stemforge.engines.media import MediaInfo
 from stemforge.errors import StemForgeError
 from stemforge.jobs.runner import JobRunner
@@ -164,7 +165,10 @@ def _track(source_id: str = SOURCE_ID) -> Track:
 
 
 def _service(
-    tmp_path: Path, *, engines: ServiceEngines | None = None
+    tmp_path: Path,
+    *,
+    engines: ServiceEngines | None = None,
+    workspace: Workspace | None = None,
 ) -> tuple[WorkspaceService, ArtifactStore]:
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     settings = SettingsStore(paths)
@@ -175,6 +179,7 @@ def _service(
         artifacts=store,
         runner=JobRunner(paths=paths),
         engines=engines if engines is not None else ServiceEngines(),
+        workspace=workspace,
     )
     return service, store
 
@@ -448,12 +453,15 @@ def test_removing_the_track_cancels_its_active_job_before_deleting_the_cache(
     tmp_path: Path,
 ) -> None:
     pitch = _BlockingPitch()
+    workspace = Workspace()
     service, store = _service(
         tmp_path,
         engines=ServiceEngines(pitch=pitch, media=_ProbeMedia()),  # type: ignore[arg-type]
+        workspace=workspace,
     )
     _commit_source(store)
-    track = service._accept_source(_track().source)
+    track = _track()
+    workspace.add_track(track)
     service.runner.start()
     try:
         job_id = service.render_pitch(track, 3, RenderScope.ORIGINAL)
