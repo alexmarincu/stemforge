@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from nicegui import ui
 
@@ -35,37 +35,10 @@ from stemforge.ui.components.diagnostics import (
 )
 
 if TYPE_CHECKING:
-    from stemforge.application import WorkspaceService
+    from stemforge.application import JobView, WorkspaceService
 
 JobStarted = Callable[[str, str, str | None], None]
 CancelJob = Callable[[], None]
-
-
-class JobKindValue(Protocol):
-    @property
-    def value(self) -> str: ...
-
-
-class SeparationJobView(Protocol):
-    """The fields the card needs from ``jobs.JobSnapshot`` without importing it."""
-
-    @property
-    def job_id(self) -> str: ...
-
-    @property
-    def kind(self) -> JobKindValue: ...
-
-    @property
-    def progress(self) -> float: ...
-
-    @property
-    def stage(self) -> str: ...
-
-    @property
-    def detail(self) -> str | None: ...
-
-    @property
-    def active(self) -> bool: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +83,7 @@ class SeparationCard:
         self.stall_seconds = stall_seconds
         self._failures: dict[str, SeparationFailure] = {}
         self._current_track_id: str | None = None
-        self._job: SeparationJobView | None = None
+        self._job: JobView | None = None
         self._job_signature: tuple[str, int, str] | None = None
         self._last_change_at: float | None = None
         self._stalled = False
@@ -445,7 +418,7 @@ class SeparationCard:
 
     # -- page callbacks -----------------------------------------------------
 
-    def observe(self, job: SeparationJobView | None) -> None:
+    def observe(self, job: JobView | None) -> None:
         """Track progress and the stall window from the page's poll."""
         if job is None or not job.active:
             if self._job is not None:
