@@ -39,7 +39,9 @@ class YouTubeRow:
         service: WorkspaceService,
         *,
         busy: bool = False,
+        declined: bool = False,
         on_submitted: Callable[[str, str], None] | None = None,
+        on_declined: Callable[[], None] | None = None,
         diagnostics: DiagnosticsProvider | None = None,
         clipboard: ClipboardWriter | None = None,
         open_path: PathOpener | None = None,
@@ -47,10 +49,11 @@ class YouTubeRow:
         self._service = service
         self._busy = busy
         self._on_submitted = on_submitted
+        self._on_declined = on_declined
         self._diagnostics = diagnostics
         self._clipboard = clipboard
         self._open_path = open_path
-        self._declined = False
+        self._declined = declined
         self._pending_url: str | None = None
         self._dialog: ui.dialog | None = None
         self._input: ui.input | None = None
@@ -86,7 +89,9 @@ class YouTubeRow:
             ui.label(formatting.YOUTUBE_DISCLAIMER).classes("sf-yt-disclaimer").mark(
                 "youtube-disclaimer"
             )
-        if self._busy:
+        if self._declined:
+            self._apply_declined()
+        elif self._busy:
             self.set_busy(True)
 
     def set_busy(self, busy: bool) -> None:
@@ -98,6 +103,30 @@ class YouTubeRow:
             self._input.set_enabled(not busy)
         if self._button is not None:
             self._button.set_enabled(not busy)
+
+    def set_declined(self) -> None:
+        """Apply the page's shared decline to this surface."""
+        self._declined = True
+        self._apply_declined()
+
+    def _apply_declined(self) -> None:
+        if self._input is not None:
+            self._input.set_enabled(False)
+        if self._button is not None:
+            self._button.set_enabled(False)
+        if self._status is not None:
+            self._status.set_text(formatting.YOUTUBE_DECLINED)
+            self._status.set_visibility(True)
+
+    def reset(self) -> None:
+        """Clear the field and errors so a reopened surface starts empty."""
+        if self._input is not None:
+            self._input.set_value("")
+        self._clear_field_error()
+        if self._status is not None:
+            self._status.set_visibility(False)
+        if self._declined:
+            self._apply_declined()
 
     def handle_submit(self) -> None:
         """Validate at submit, then either ask for consent or call the seam."""
@@ -170,13 +199,9 @@ class YouTubeRow:
         self._pending_url = None
         self._close_dialog()
         self._declined = True
-        if self._input is not None:
-            self._input.set_enabled(False)
-        if self._button is not None:
-            self._button.set_enabled(False)
-        if self._status is not None:
-            self._status.set_text(formatting.YOUTUBE_DECLINED)
-            self._status.set_visibility(True)
+        self._apply_declined()
+        if self._on_declined is not None:
+            self._on_declined()
 
     def _close_dialog(self) -> None:
         if self._dialog is not None:
