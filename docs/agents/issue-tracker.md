@@ -13,6 +13,12 @@ Issues, specs, and implementation tickets for this repo live as GitHub issues in
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
+## Git and pull requests
+
+- Merge with a merge commit, not a squash, so each commit keeps its own
+  message and the branch history stays visible.
+- Put `Closes #<n>` in the PR body so the merge closes the ticket.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_

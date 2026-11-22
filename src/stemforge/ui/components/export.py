@@ -41,12 +41,12 @@ from stemforge.ui.toast import toast
 if TYPE_CHECKING:
     from stemforge.application import WorkspaceService
 
-FORMAT_LABELS: Final[Mapping[ExportFormat, str]] = {
-    ExportFormat.WAV24: "WAV 24-bit",
-    ExportFormat.FLAC24: "FLAC 24-bit",
-    ExportFormat.MP3_320: "MP3 320",
-}
 FORMAT_ORDER: Final = (ExportFormat.WAV24, ExportFormat.FLAC24, ExportFormat.MP3_320)
+FORMAT_LABELS: Final[Mapping[ExportFormat, str]] = {
+    ExportFormat.WAV24: formatting.EXPORT_FORMAT_WAV24,
+    ExportFormat.FLAC24: formatting.EXPORT_FORMAT_FLAC24,
+    ExportFormat.MP3_320: formatting.EXPORT_FORMAT_MP3_320,
+}
 # A computed, deliberately rough
 # per-minute size. The Job's own free-space check is the authoritative estimate.
 _MB_PER_MINUTE: Final[Mapping[ExportFormat, float]] = {
@@ -55,20 +55,6 @@ _MB_PER_MINUTE: Final[Mapping[ExportFormat, float]] = {
     ExportFormat.MP3_320: 2.4,
 }
 DEFAULT_FORMAT: Final = ExportFormat.WAV24
-
-EXPORT_TITLE: Final = "Export"
-EXPORT_FORMAT: Final = "Format"
-EXPORT_SOURCE: Final = "Source"
-EXPORT_DEFAULT_NAME: Final = "File name"
-EXPORT_DESTINATION: Final = "Save to"
-EXPORT_DESTINATION_DEFAULT: Final = "Your system's default location"
-EXPORT_CONFIRM: Final = "Export"
-EXPORT_CANCEL: Final = "Cancel"
-EXPORT_RETRY: Final = "Retry"
-EXPORT_DISMISS: Final = "Dismiss"
-EXPORT_CHOOSE_FOLDER: Final = "Choose another folder…"
-EXPORT_CANCELLED: Final = "Export cancelled."
-EXPORT_NO_TARGETS: Final = "No exportable audio is available for this Track."
 
 JobStarted = Callable[[str, "ExportSpec"], None]
 
@@ -180,12 +166,12 @@ class ExportSheet:
         targets = self._service.export_targets(track)
         selected_target = self._selected_target(track, targets)
         with body:
-            ui.label(EXPORT_TITLE).classes("sf-export-title")
+            ui.label(formatting.EXPORT_TITLE).classes("sf-export-title")
             if selected_target is None:
-                ui.label(EXPORT_NO_TARGETS).classes("sf-lede")
+                ui.label(formatting.EXPORT_NO_TARGETS).classes("sf-lede")
                 self._footer(busy=busy, can_submit=False)
                 return
-            ui.label(EXPORT_FORMAT).classes("sf-versions-label")
+            ui.label(formatting.EXPORT_FORMAT_LABEL).classes("sf-versions-label")
             self._format_rows(track)
             self._summary(track, selected_target)
             self._submit_error_block()
@@ -212,15 +198,15 @@ class ExportSheet:
         fmt = self._formats.get(track.track_id, DEFAULT_FORMAT)
         with ui.element("div").classes("sf-export-summary"):
             with ui.element("div").classes("sf-fact"):
-                ui.label(EXPORT_SOURCE).classes("sf-fact-key")
+                ui.label(formatting.EXPORT_SOURCE_LABEL).classes("sf-fact-key")
                 ui.label(target.label).classes("sf-fact-value").mark("export-source-label")
             with ui.element("div").classes("sf-fact"):
-                ui.label(EXPORT_DEFAULT_NAME).classes("sf-fact-key")
+                ui.label(formatting.EXPORT_DEFAULT_NAME_LABEL).classes("sf-fact-key")
                 ui.label(f"{target.base_name}{fmt.suffix}").classes("sf-fact-value").mark(
                     "export-default-name"
                 )
             with ui.element("div").classes("sf-fact"):
-                ui.label(EXPORT_DESTINATION).classes("sf-fact-key")
+                ui.label(formatting.EXPORT_DESTINATION_LABEL).classes("sf-fact-key")
                 ui.label(self._destination_label()).classes("sf-fact-value").mark(
                     "export-destination-hint"
                 )
@@ -248,13 +234,13 @@ class ExportSheet:
     def _footer(self, *, busy: bool, can_submit: bool) -> None:
         with ui.element("div").classes("sf-export-footer"):
             cancel = (
-                ui.button(EXPORT_CANCEL, on_click=lambda _=None: self.close(), color=None)
+                ui.button(formatting.CANCEL, on_click=lambda _=None: self.close(), color=None)
                 .props("flat no-caps size=sm")
                 .mark("export-cancel")
             )
             cancel.set_enabled(not busy)
             confirm = (
-                ui.button(EXPORT_CONFIRM, on_click=self._confirm)
+                ui.button(formatting.EXPORT_CONFIRM, on_click=self._confirm)
                 .props("unelevated no-caps size=sm")
                 .classes("sf-export-confirm")
                 .mark("export-confirm")
@@ -275,7 +261,7 @@ class ExportSheet:
     @staticmethod
     def _estimate(track: Track, fmt: ExportFormat) -> str:
         minutes = max(0.0, track.duration_s or 0.0) / 60
-        return f"about {minutes * _MB_PER_MINUTE[fmt]:.1f} MB"
+        return formatting.EXPORT_ESTIMATE.format(size=f"{minutes * _MB_PER_MINUTE[fmt]:.1f}")
 
     # -- submission ---------------------------------------------------------
 
@@ -307,7 +293,10 @@ class ExportSheet:
             # persistent sheet body instead of the deleted click context.
             with body:
                 toast(
-                    f"Extension changed to {fmt.suffix} for {FORMAT_LABELS[fmt]}.",
+                    formatting.EXPORT_EXTENSION_CHANGED.format(
+                        suffix=fmt.suffix,
+                        label=FORMAT_LABELS[fmt],
+                    ),
                     type="info",
                 )
         spec = self._spec(track, target, fmt, selection)
@@ -351,7 +340,7 @@ class ExportSheet:
 
     def _destination_label(self) -> str:
         preferred = self._default_directory()
-        return str(preferred) if preferred is not None else EXPORT_DESTINATION_DEFAULT
+        return str(preferred) if preferred is not None else formatting.EXPORT_DESTINATION_DEFAULT
 
 
 class ExportStatusBar:
@@ -387,16 +376,20 @@ class ExportStatusBar:
         with ui.element("div").classes("sf-exportbar is-success").mark("export-success"):
             ui.icon("check", size="sm").classes("sf-exportbar-icon")
             with ui.element("div").classes("sf-exportbar-main"):
-                ui.label(f"Exported to {notice.path}").classes("sf-exportbar-title").mark(
-                    "export-destination"
-                )
+                ui.label(formatting.EXPORTED_TO.format(path=notice.path)).classes(
+                    "sf-exportbar-title"
+                ).mark("export-destination")
                 if notice.spec.corrected:
                     ui.label(
-                        f"Extension changed to {notice.spec.fmt.suffix} "
-                        f"for {FORMAT_LABELS[notice.spec.fmt]}."
+                        formatting.EXPORT_EXTENSION_CHANGED.format(
+                            suffix=notice.spec.fmt.suffix,
+                            label=FORMAT_LABELS[notice.spec.fmt],
+                        )
                     ).classes("sf-exportbar-detail").mark("export-correction")
             (
-                ui.button(EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None)
+                ui.button(
+                    formatting.EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None
+                )
                 .props("flat dense no-caps size=sm")
                 .mark("export-dismiss")
             )
@@ -437,7 +430,7 @@ class ExportStatusBar:
                 )
             if failure.retryable:
                 retry = (
-                    ui.button(EXPORT_RETRY, on_click=lambda _=None: on_retry())
+                    ui.button(formatting.RETRY, on_click=lambda _=None: on_retry())
                     .props("unelevated dense no-caps size=sm")
                     .mark("export-retry")
                 )
@@ -448,7 +441,7 @@ class ExportStatusBar:
             }:
                 choose = (
                     ui.button(
-                        EXPORT_CHOOSE_FOLDER,
+                        formatting.EXPORT_CHOOSE_FOLDER,
                         on_click=lambda _=None: on_choose_folder(),
                         color=None,
                     )
@@ -457,7 +450,9 @@ class ExportStatusBar:
                 )
                 choose.set_enabled(not busy)
             (
-                ui.button(EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None)
+                ui.button(
+                    formatting.EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None
+                )
                 .props("flat dense no-caps size=sm")
                 .mark("export-dismiss")
             )

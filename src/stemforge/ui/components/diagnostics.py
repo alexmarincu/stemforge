@@ -123,7 +123,9 @@ def error_details(
 ) -> None:
     """Render the Details disclosure for one coded failure."""
     with ui.expansion(label).classes("sf-details").mark(marker):
-        line = f"{code} · job {job_id[:8]}" if job_id else code
+        line = (
+            formatting.ERROR_CODE_WITH_JOB.format(code=code, job_id=job_id[:8]) if job_id else code
+        )
         ui.label(line).classes("sf-notice-detail").mark(f"{marker}-code")
         if log_path is not None:
             ui.label(str(log_path)).classes("sf-notice-detail").mark(f"{marker}-log")
