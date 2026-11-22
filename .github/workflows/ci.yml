@@ -95,18 +95,9 @@ jobs:
           enable-cache: true
       - name: Install the lightweight environment (no torch, torchaudio, or demucs)
         run: uv sync --frozen --no-install-package torch --no-install-package torchaudio --no-install-package demucs
-      - name: Parse the vendor fetch script
+      - name: Parse every PowerShell script and inline workflow step
         shell: pwsh
-        run: |
-          $errors = $null
-          $tokens = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Join-Path $PWD 'scripts/vendor-fetch.ps1'), [ref]$tokens, [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
-          }
+        run: uv run --frozen --no-sync python scripts/check_powershell.py
       - name: Unit tests
         run: uv run --frozen --no-sync pytest -m unit
 
