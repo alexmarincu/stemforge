@@ -1229,8 +1229,7 @@ class WorkspacePage:
                 )
                 .props("flat dense no-caps")
                 .classes(
-                    "sf-version-tab sf-control"
-                    + (" is-active" if active_key == "original" else "")
+                    "sf-version-tab sf-control" + (" is-active" if active_key == "original" else "")
                 )
                 .mark("output-tab", "output-tab-original")
             )
