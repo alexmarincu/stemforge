@@ -71,9 +71,9 @@ are stored once and every package row links the same file. No model weights,
 
 ## Bundle contract for the build scripts
 
-Tickets #20, #21, and #23 consume this tree. The licence tree is a **first-class
+The bundle build scripts consume this tree. The licence tree is a **first-class
 Bundle root** member, beside `_internal/` and `vendor/` — never duplicated
-inside the frozen payload (ticket 10 §3, ADR 0010):
+inside the frozen payload (ADR 0010):
 
 ```text
 StemForge-<ver>/
@@ -109,7 +109,7 @@ exist and that no weights appear.
   the wheel ships no licence declaration or file, add an `[[override]]` to
   `python.toml` with an SPDX expression, source URL, and `texts`.
 - **Vendor binary:** update `packaging/vendor.lock.json` and `SOURCES.md` first
-  (ticket 19), then bump `native.toml` only if the notice prose or build line
+, then bump `native.toml` only if the notice prose or build line
   changes. Versions come from the vendor lock.
 - **Frontend asset:** add a `[[component.assets]]` row with `slug`, name,
   version, SPDX, copyright, URL, and `texts`.

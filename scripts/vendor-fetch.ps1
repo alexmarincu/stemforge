@@ -1,12 +1,12 @@
-# Fetch, verify, and lay out the pinned vendor set on Windows (ticket 19).
+# Fetch, verify, and lay out the pinned vendor set on Windows.
 #
 # Inputs:  packaging/vendor.lock.json (the only pin list)
 # Output:  vendor\{ffmpeg,deno,rubberband}\...
 #
 # FFmpeg and Deno are downloaded from the pinned archives and SHA-256-verified.
 # Rubber Band 4.0.0 and libsndfile 1.2.2 are built from their pinned source
-# archives with MSVC, CMake, and Meson on windows-2022 (ticket 10 section 8 and
-# ticket 21). The configure/build lines are read from packaging/vendor.lock.json.
+# archives with MSVC, CMake, and Meson on windows-2022. The configure/build
+# lines are read from packaging/vendor.lock.json.
 #
 # A pinned prebuilt pair is still accepted for environments without the MSVC
 # toolchain (the decision record names no public prebuilt archive):
@@ -553,8 +553,8 @@ function Build-RubberBandFromSource($Lock, $Sndfile) {
 function Import-RubberBandPrebuilt([string]$InputPath, [string]$ExpectedSha) {
     if (-not $InputPath) {
         throw @"
-Rubber Band 4.0.0 and libsndfile 1.2.2 must be MSVC-built on windows-2022
-(ticket 10 section 8). The decision record names no public prebuilt archive, so this
+Rubber Band 4.0.0 and libsndfile 1.2.2 must be MSVC-built on windows-2022.
+No prebuilt archive is pinned, so this
 script verifies a pinned build instead of inventing a URL. Pass either a
 directory or a zip containing:
   rubberband.exe   (must report 4.0.0)
@@ -592,7 +592,7 @@ The exact Meson/CMake lines are recorded in packaging/vendor.lock.json.
 
 function Show-Summary($Lock) {
     Write-Host ''
-    Write-Host 'Vendor set (ticket 19) - provenance and licences'
+    Write-Host 'Vendor set - provenance and licences'
     Write-Host '================================================'
     foreach ($name in $Components) {
         $record = Get-Component $Lock $name
@@ -613,7 +613,7 @@ function Show-Summary($Lock) {
     Write-Host 'Source offer: GPL-3.0-only section 6(b), valid for three years.'
     Write-Host '  contact:  https://github.com/alexmarincu/stemforge/issues'
     Write-Host '  releases: https://github.com/alexmarincu/stemforge/releases'
-    Write-Host '  inputs:   packaging/vendor/SOURCES.md (ticket 22)'
+    Write-Host '  inputs:   packaging/vendor/SOURCES.md'
     Write-Host 'No model weights are present in vendor/.'
 }
 

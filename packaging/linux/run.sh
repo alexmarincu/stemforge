@@ -1,5 +1,5 @@
 #!/bin/sh
-# Thin launcher for the Linux Bundle (ticket 10 §5, ticket 20).
+# Thin launcher for the Linux Bundle.
 #
 # The dependency probe lives in Python, not here: `--preflight --quiet` returns
 # 3 when GTK/WebKitGTK are missing and 4 when the GStreamer preview stack is

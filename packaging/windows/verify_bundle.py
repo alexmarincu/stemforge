@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify a Windows StemForge bundle before it becomes a release artifact.
 
-Ticket 21 and ticket 10 §9. The checks are deliberately executable on Linux so
+The checks are deliberately executable on Linux so
 the unit job can feed synthetic trees to the same code the Windows runner uses:
 
 * budgets for the portable ZIP (450 MiB target, 600 MiB hard fail) and the Inno
@@ -17,7 +17,7 @@ the unit job can feed synthetic trees to the same code the Windows runner uses:
 * ``StemForge.exe`` is a GUI-subsystem PE with a ``VS_VERSION_INFO`` resource;
 * the pinned WebView2 bootstrapper, when supplied, matches its lock.
 
-The release licence gate belongs to ticket 22. A build may pass
+The release licence gate needs the full licence tree. A build may pass
 ``--allow-licence-pending`` only for non-release evidence; ``package.ps1`` never
 does, and a bundle carrying ``LICENCE-GATE-PENDING.txt`` is refused there.
 """
@@ -63,7 +63,7 @@ LICENCE_REQUIRED_DIRS: Final = ("LICENSES", "LICENSES/common", "LICENSES/python"
 LICENCE_README: Final = "LICENSES/README.md"
 PYTHON_DEPENDENCIES: Final = "LICENSES/python/DEPENDENCIES.md"
 
-# Ticket 22's native.toml is a curated component list, not a file-path mapping.
+# native.toml is a curated component list, not a file-path mapping.
 # These are the components a shipped native file may be attributed to by
 # location; everything else must have a row in LICENSES/python/DEPENDENCIES.md.
 CURATED_NATIVE_NOTICES: Final = {
@@ -477,7 +477,7 @@ def _check_vendor(report: Report, bundle: Path, lock_path: Path) -> None:
 
 
 def _native_components(manifest: Path) -> dict[str, NativeComponent]:
-    """Read ticket 22's ``[[component]]`` rows from ``native.toml``."""
+    """Read the ``[[component]]`` rows from ``native.toml``."""
     payload = tomllib.loads(manifest.read_text(encoding="utf-8"))
     rows = payload.get("component")
     if not isinstance(rows, list):
@@ -675,7 +675,7 @@ def _check_licence_pending(report: Report, bundle: Path) -> None:
     if marker.is_file():
         report.warn(
             "licence.pending",
-            "the licence tree is pending ticket 22; this bundle is not releasable",
+            "the licence tree is incomplete; this bundle is not releasable",
         )
     else:
         report.pass_("licence.pending", "no licence-pending marker")
@@ -808,7 +808,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--allow-licence-pending",
         action="store_true",
-        help="skip the ticket 22 licence gate; never use for a release artifact",
+        help="skip the licence-tree gate; never use for a release artifact",
     )
     parser.add_argument("--zip", type=Path, help="portable ZIP to budget-check")
     parser.add_argument("--setup", type=Path, help="Inno setup executable to budget-check")

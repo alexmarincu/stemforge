@@ -90,7 +90,7 @@ done
 [ -f "$repo_root/scripts/release_assets.py" ] || fail "missing scripts/release_assets.py"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 
-# Ticket 10 section 8: no placeholder may reach a tag. The canonical gate is
+# No placeholder may reach a tag. The canonical gate is
 # the notices generator, so this is the same check CI's licensing job runs.
 if ! python3 "$repo_root/scripts/generate_notices.py" --check-release --root "$repo_root"; then
     echo "FAIL  release.config         packaging/release.toml carries a placeholder"

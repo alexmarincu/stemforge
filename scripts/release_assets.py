@@ -5,9 +5,8 @@ This module is deliberately stdlib-only. It exists so the shell entry point can
 stay a thin POSIX wrapper while the archive inspection (tar.gz, tar.zst, ZIP,
 AppImage, Inno setup) is testable in the unit layer.
 
-The expected names, budgets, and required licence tree come from ticket 10
-sections 8-9 and ticket 11 section 8. A release is the exact set; an extra file
-is a failure, not a warning.
+The expected names and budgets are pinned in this module; a release is the exact
+set, and an extra file is a failure, not a warning.
 """
 
 from __future__ import annotations
@@ -57,7 +56,7 @@ WEIGHT_SUFFIXES: Final = (
 WEIGHT_MARKERS: Final = ("/models/htdemucs/", "955717e8")
 MEGABYTE: Final = 1_000_000
 
-# Ticket 10 §9: targets are the release goal; only the failure line fails.
+# Targets are the release goal; only the failure line fails.
 BUDGET_TARGET_BYTES: Final[dict[str, int]] = {
     "linux-x86_64.tar.gz": 450 * MEGABYTE,
     "linux-x86_64.tar.zst": 320 * MEGABYTE,
@@ -125,7 +124,7 @@ class Archive:
 
 
 def asset_names(version: str) -> tuple[str, ...]:
-    """The eight release asset names for ``version`` in ticket order."""
+    """The eight release asset names for ``version``, in the order they publish."""
     return tuple(template.format(version=version) for template in ASSET_TEMPLATES)
 
 

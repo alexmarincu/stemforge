@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Assert the build virtualenv resolved the CPU-only torch wheel.
 
-Ticket 10 section 1: a PyPI fallback silently pulls CUDA wheels. PyInstaller
+A PyPI fallback silently pulls CUDA wheels. PyInstaller
 would happily bundle them and blow the size budget, so the Windows build fails
 closed before it runs.
 """

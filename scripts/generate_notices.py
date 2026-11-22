@@ -533,7 +533,7 @@ def _read_json(path: Path) -> Mapping[str, object]:
 def _verify_vendor_sources(path: Path, vendor: Mapping[str, object]) -> None:
     """Read the human-readable vendor record and cross-check it with the lock.
 
-    ``SOURCES.md`` is the prose source-offer input from ticket 19. It is not a
+    ``SOURCES.md`` is the prose source-offer input. It is not a
     second machine-readable pin list; the lock wins, but every pinned component
     must appear in the record, and the record must keep the offer term and the
     no-weights statement.
@@ -557,8 +557,8 @@ def _verify_source_offer_record(vendor: Mapping[str, object], config: ReleaseCon
     """Refuse a vendor lock whose duplicate URLs disagree with ``release.toml``.
 
     ``packaging/release.toml`` is the only source of truth; the vendor lock's
-    ``source_offer`` block is the ticket-19 record. Divergence is a config bug,
-    not something to silently prefer.
+    ``source_offer`` block records what was offered. Divergence is a config
+    bug, not something to silently prefer.
     """
     offer = vendor.get("source_offer")
     if not isinstance(offer, dict):

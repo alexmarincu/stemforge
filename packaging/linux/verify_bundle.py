@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify an assembled Linux Bundle against ticket 10 §2 and §9.
+"""Verify an assembled Linux Bundle against the release layout and budgets.
 
 The release gate checks the onedir layout, the licence tree, the torch trim, the
 absence of model weights, every vendor file against ``packaging/vendor.lock.json``,
@@ -42,9 +42,9 @@ TARGET: Final = "linux-x86_64"
 GIGABYTE: Final = 1_000_000_000
 MEGABYTE: Final = 1_000_000
 
-# Ticket 20's budgets: the release fails above these sizes. The larger
-# "fail the release" limits in ticket 10 §9 are the outer guard; this verifier
-# enforces the tighter target so a bundle cannot creep past it unnoticed.
+# The release fails above these sizes. The hard release limits are the outer
+# guard; this verifier enforces the tighter target so a bundle cannot creep past
+# it unnoticed.
 BUDGET_BYTES: Final[dict[str, int]] = {
     "bundle": 1_150_000_000,
     "tar.gz": 450 * MEGABYTE,
@@ -683,7 +683,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allow-missing-licences",
         action="store_true",
-        help="debug builds before ticket 22; never use for a release",
+        help="assemble a local bundle without the licence tree; never for a release",
     )
     parser.add_argument(
         "--skip-host-abi",

@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """Linux onedir spec: NiceGUI as data, the Bundle root beside ``_internal``.
 
-Ticket 10 §1–§3 and ticket 13. PyInstaller 6.22.3 places the frozen payload in
+PyInstaller 6.22.3 places the frozen payload in
 ``dist/StemForge/_internal``; ``packaging/linux/build.sh`` adds ``vendor/``,
 ``run.sh``, and the licence tree beside the launcher. The Separation worker's
 torch/Demucs imports happen inside ``run()``, so they are listed as hidden
@@ -24,7 +24,7 @@ SRC = ROOT / "src" / "stemforge"
 datas = [
     (str(SRC / "assets"), "assets"),
     (str(SRC / "models" / "models.lock.json"), "models"),
-    # The frozen preflight verifies vendor/ against this lock (ticket 19).
+    # The frozen preflight verifies vendor/ against this lock.
     (str(ROOT / "packaging" / "vendor.lock.json"), "."),
     *collect_data_files("nicegui"),
     # demucs/remote/files.txt is read by the legacy repo fallback; the HF path
@@ -43,8 +43,7 @@ hiddenimports = [
     "webview.platforms.gtk",
     "stemforge.ui.page",
     # The worker imports torch/Demucs inside run(); a call-time import is
-    # invisible to static analysis and research 04 measured a 150 MB bundle
-    # when these were omitted (ticket 13).
+    # invisible to static analysis, and omitting them measured a 150 MB bundle.
     "torch",
     "demucs.api",
     "demucs.apply",
@@ -84,7 +83,7 @@ a = Analysis(
     optimize=0,
 )
 
-# Ticket 13 / ticket 12: an inference-only bundle does not need torch's test
+# An inference-only bundle does not need torch's test
 # suite or its command-line helpers (~162 MB measured). ``import torch`` refuses
 # to load unless torch_shm_manager exists, so that one file stays.
 _TORCH_KEEP_BIN = {"torch_shm_manager", "torch_shm_manager.exe"}

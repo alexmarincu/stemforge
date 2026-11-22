@@ -1,10 +1,9 @@
 """The vendor lock: pins, targets, provenance, and the runtime contracts.
 
 ``packaging/vendor.lock.json`` is the single source of truth for the vendor
-set: ticket 10 §4 names it, the fetch scripts read it, ``platform.binaries``
-resolves the installed layout, and ``platform.preflight`` compares the
-``--version`` output with it. The expected values below come from CONTEXT.md
-(pinned 2026-11-16), not from the lock itself.
+set: the fetch scripts read it, ``platform.binaries`` resolves the installed
+layout, and ``platform.preflight`` compares the ``--version`` output with it.
+The expected values below are pinned here, not read from the lock itself.
 """
 
 from __future__ import annotations
@@ -259,7 +258,7 @@ def test_installs_are_relative_paths_under_vendor(lock: dict[str, object]) -> No
                     assert HEX64.match(str(item["sha256"])), (name, target)
 
 
-def test_the_installed_layout_matches_binaries_and_ticket_10(lock: dict[str, object]) -> None:
+def test_the_installed_layout_matches_binaries(lock: dict[str, object]) -> None:
     for target in TARGETS:
         system = "win32" if target.startswith("windows") else "linux"
         destinations: dict[str, set[str]] = {}
@@ -316,7 +315,7 @@ def test_preflight_reads_these_versions(lock: dict[str, object]) -> None:
         assert versions[tool] == _components(lock)[tool]["version"]
 
 
-def test_sources_markdown_captures_the_ticket_22_inputs() -> None:
+def test_sources_markdown_captures_the_source_offer_inputs() -> None:
     text = SOURCES_PATH.read_text(encoding="utf-8")
 
     for name in COMPONENTS:
@@ -328,4 +327,4 @@ def test_sources_markdown_captures_the_ticket_22_inputs() -> None:
         assert sha256 in text
     assert "three years" in text
     assert "https://github.com/alexmarincu/stemforge/issues" in text
-    assert "ticket 22" in text.lower()
+    assert "source-offer" in text.lower()
