@@ -16,6 +16,12 @@ Single-context: root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
 
 ## Code conventions
 
+### Design
+
+Read `DESIGN.md` before changing `src/stemforge/ui/`. `src/stemforge/ui/theme.py`
+is canonical; `tests/unit/test_design_doc.py` keeps the document's token table in
+sync.
+
 ### Comments
 
 Every comment states its reason in place; a citation is not a reason. A comment
