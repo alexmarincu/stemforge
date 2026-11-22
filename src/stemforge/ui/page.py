@@ -84,6 +84,21 @@ SHELL_CSS: Final = (
    blue primary; active tabs and A/B overrides below still win. */
 .q-btn--flat { color: var(--muted); }
 .q-btn--flat:hover { color: var(--text); }
+/* Compact controls own their box through this class, not Quasar's size prop:
+   size=sm writes an inline font-size that a stylesheet cannot override.
+   Applied to the controls named in ticket 42; other sm/dense buttons keep
+   Quasar's sizing. */
+.q-btn.sf-control { height: var(--control-h); min-height: var(--control-h);
+  min-width: var(--control-min-w); padding: 0 var(--control-pad-x);
+  font-size: var(--control-font); line-height: 1; }
+.q-btn.sf-control--icon { width: var(--control-icon);
+  min-width: var(--control-icon); height: var(--control-icon);
+  min-height: var(--control-icon); padding: 0; }
+.q-btn.sf-control--primary { height: var(--control-primary-h);
+  min-height: var(--control-primary-h);
+  min-width: var(--control-primary-min-w);
+  padding: 0 var(--control-primary-pad-x);
+  font-size: var(--control-primary-font); font-weight: 600; }
 .sf-shell { display: grid; grid-template-columns: 292px minmax(0, 1fr);
   width: 100vw; height: 100vh; overflow: hidden; background: var(--bg); color: var(--text);
   font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -255,7 +270,7 @@ SHELL_CSS: Final = (
   background: var(--well); border: 1px solid var(--line); border-radius: 8px; }
 .sf-ab-label { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--dim); padding: 0 5px; }
-.sf-ab .q-btn { border-radius: 6px; font-size: 10.5px; }
+.sf-ab .q-btn { border-radius: 6px; }
 .sf-ab .q-btn.is-active { background: var(--accent-soft); color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent-line); }
 .sf-stepper { display: inline-flex; align-items: center; gap: 8px; }
@@ -271,8 +286,8 @@ SHELL_CSS: Final = (
 .sf-versions-label { font-size: 10px; color: var(--dim); text-transform: uppercase;
   letter-spacing: 0.08em; font-weight: 600; }
 .sf-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.sf-version-tab { border: 1px solid var(--line2); border-radius: 999px; font-size: 10.5px;
-  color: var(--muted); padding: 2px 10px; }
+.sf-version-tab { border: 1px solid var(--line2); border-radius: 999px;
+  color: var(--muted); }
 .sf-version-tab.is-active { background: var(--accent-soft);
   border-color: var(--accent-line); color: var(--accent); }
 .sf-version-tab.is-stale { border-style: dashed; color: var(--warn); }
@@ -1126,8 +1141,8 @@ class WorkspacePage:
                             on_click=lambda _=None: self._select_ab(track, "original"),
                             color=None,
                         )
-                        .props("flat dense no-caps size=sm")
-                        .classes("is-active" if active_key == "original" else "")
+                        .props("flat dense no-caps")
+                        .classes("sf-control" + (" is-active" if active_key == "original" else ""))
                         .mark("ab-original")
                         .set_enabled(self._playback_allowed())
                     )
@@ -1137,13 +1152,16 @@ class WorkspacePage:
                             on_click=lambda _=None: self._select_ab(track, "latest"),
                             color=None,
                         )
-                        .props("flat dense no-caps size=sm")
+                        .props("flat dense no-caps")
                         # B names the latest set, so a non-latest render leaves
                         # neither side lit rather than mislabelling the active set.
                         .classes(
-                            "is-active"
-                            if latest is not None and active_key == latest.render_key
-                            else ""
+                            "sf-control"
+                            + (
+                                " is-active"
+                                if latest is not None and active_key == latest.render_key
+                                else ""
+                            )
                         )
                         .mark("ab-preview", "ab-latest")
                         .set_enabled(latest is not None and self._playback_allowed())
@@ -1156,7 +1174,8 @@ class WorkspacePage:
                         on_click=lambda _=None: self._open_export(track, export_key=export_key),
                         color=None,
                     )
-                    .props("flat dense no-caps size=sm")
+                    .props("flat dense no-caps")
+                    .classes("sf-control")
                     .mark("export-action")
                 )
                 export.set_enabled(not self._busy() and export_key is not None)
@@ -1222,12 +1241,14 @@ class WorkspacePage:
                     on_click=lambda _=None: self._select_version(track.track_id, "original"),
                     color=None,
                 )
-                .props("flat dense no-caps size=sm")
-                .classes("sf-version-tab" + (" is-active" if active_key == "original" else ""))
+                .props("flat dense no-caps")
+                .classes(
+                    "sf-version-tab sf-control" + (" is-active" if active_key == "original" else "")
+                )
                 .mark("output-tab", "output-tab-original")
             )
             for item in sets:
-                classes = "sf-version-tab"
+                classes = "sf-version-tab sf-control"
                 if item.render_key == active_key:
                     classes += " is-active"
                 if item.based_on_earlier_separation:
@@ -1243,7 +1264,7 @@ class WorkspacePage:
                         ),
                         color=None,
                     )
-                    .props("flat dense no-caps size=sm")
+                    .props("flat dense no-caps")
                     .classes(classes)
                     .mark("output-tab", f"output-tab-{item.render_key}")
                 )

@@ -355,7 +355,8 @@ class SeparationCard:
                 icon="call_split",
                 on_click=lambda _=None: self._submit(track),
             )
-            .props("unelevated no-caps size=sm")
+            .props("unelevated no-caps")
+            .classes("sf-control sf-control--primary")
             .mark("separation-action")
         )
         button.set_enabled(not busy)

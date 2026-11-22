@@ -1,12 +1,13 @@
-"""The visual root: the prototype palette, Quasar colours, and brand assets.
+"""The visual root: the prototype palette, control geometry, Quasar colours, and brand assets.
 
 Quasar ships a blue ``primary`` (``#1976D2``); StemForge must never show it. The
 page applies this palette once per client before building the shell, so every
 default-coloured control — buttons, sliders, progress bars, switches, focus
 rings — inherits the amber accent from ticket 08's prototype.
 
-The token block is the only place the shell declares colour literals. Every
-rule in :data:`stemforge.ui.page.SHELL_CSS` consumes a token, which keeps the
+The token block is the only place the shell declares colour literals. It also
+carries the shared compact-control geometry (ticket 42). Every rule in
+:data:`stemforge.ui.page.SHELL_CSS` consumes a token, which keeps the
 prototype's palette and the rendered app from drifting apart.
 
 The mark is ticket 17's *Badge*: an amber disc with four ink bars. Assets are
@@ -60,6 +61,18 @@ WARN_BG: Final = "#1d1a12"
 WARN_LINE: Final = "#40341d"
 RADIUS: Final = "12px"
 MONO: Final = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+
+# Compact control geometry (ticket 42). The ``sf-control`` classes in
+# ``SHELL_CSS`` consume these tokens.
+CONTROL_H: Final = "32px"
+CONTROL_MIN_W: Final = "44px"
+CONTROL_PAD_X: Final = "12px"
+CONTROL_ICON: Final = "32px"
+CONTROL_PRIMARY_H: Final = "36px"
+CONTROL_PRIMARY_MIN_W: Final = "120px"
+CONTROL_PRIMARY_PAD_X: Final = "16px"
+CONTROL_FONT: Final = "11px"
+CONTROL_PRIMARY_FONT: Final = "12.5px"
 
 LOGO_SVG: Final = assets.LOGO_SVG
 ABOUT_PNG: Final = assets.ABOUT_PNG
@@ -127,6 +140,15 @@ TOKENS_CSS: Final = f""":root {{
   --well: {WELL};
   --radius: {RADIUS};
   --mono: {MONO};
+  --control-h: {CONTROL_H};
+  --control-min-w: {CONTROL_MIN_W};
+  --control-pad-x: {CONTROL_PAD_X};
+  --control-icon: {CONTROL_ICON};
+  --control-primary-h: {CONTROL_PRIMARY_H};
+  --control-primary-min-w: {CONTROL_PRIMARY_MIN_W};
+  --control-primary-pad-x: {CONTROL_PRIMARY_PAD_X};
+  --control-font: {CONTROL_FONT};
+  --control-primary-font: {CONTROL_PRIMARY_FONT};
 }}
 """
 

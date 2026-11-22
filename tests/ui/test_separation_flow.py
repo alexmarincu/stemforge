@@ -780,6 +780,23 @@ async def test_progress_cancel_and_stall_use_the_injected_clock(tmp_path: Path) 
 
 
 # ---------------------------------------------------------------------------
+# Primary action
+# ---------------------------------------------------------------------------
+
+
+async def test_the_separation_primary_uses_the_shared_primary_box(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        await _import(harness, user, workspace_page)
+
+        action = _only(user, "separation-action")
+        # Ticket 42: the sibling card primary shares the Pitch primary box.
+        assert "sf-control" in action.classes
+        assert "sf-control--primary" in action.classes
+
+
+# ---------------------------------------------------------------------------
 # Result rows, playback, A/B, export target
 # ---------------------------------------------------------------------------
 

@@ -99,7 +99,8 @@ class PitchCard:
         with ui.element("div").classes("sf-stepper"):
             (
                 ui.button(icon="remove", on_click=lambda _=None: self._step(track, -1), color=None)
-                .props("flat dense round size=sm")
+                .props("flat dense round")
+                .classes("sf-control sf-control--icon")
                 .mark("pitch-down")
                 .set_enabled(semitones > MIN_SEMITONES)
             )
@@ -110,7 +111,8 @@ class PitchCard:
                 ui.label(formatting.PITCH_SEMITONES_UNIT).classes("sf-semi-unit")
             (
                 ui.button(icon="add", on_click=lambda _=None: self._step(track, 1), color=None)
-                .props("flat dense round size=sm")
+                .props("flat dense round")
+                .classes("sf-control sf-control--icon")
                 .mark("pitch-up")
                 .set_enabled(semitones < MAX_SEMITONES)
             )
@@ -142,10 +144,12 @@ class PitchCard:
         existing: PitchSet | None,
         busy: bool,
     ) -> None:
+        """The action slot: Render is primary-sized; Open is compact navigation."""
         if semitones == 0:
             (
                 ui.button(formatting.PITCH_RENDER)
-                .props("unelevated no-caps size=sm")
+                .props("unelevated no-caps")
+                .classes("sf-control sf-control--primary")
                 .mark("pitch-primary", "pitch-render")
                 .set_enabled(False)
             )
@@ -160,7 +164,8 @@ class PitchCard:
                     on_click=lambda _=None: self._select(track, existing.render_key),
                     color=None,
                 )
-                .props("flat no-caps size=sm")
+                .props("flat no-caps")
+                .classes("sf-control")
                 .mark("pitch-primary", "pitch-open")
             )
             return
@@ -170,7 +175,8 @@ class PitchCard:
                 f"{formatting.PITCH_RENDER} {rendered}",
                 on_click=lambda _=None: self._submit(track, semitones, self._current_scope(track)),
             )
-            .props("unelevated no-caps size=sm")
+            .props("unelevated no-caps")
+            .classes("sf-control sf-control--primary")
             .mark("pitch-primary", "pitch-render")
         )
         button.set_enabled(not busy)
