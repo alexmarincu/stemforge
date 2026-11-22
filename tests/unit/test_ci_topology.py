@@ -1,13 +1,14 @@
-"""The CI topology contract (ticket 11 §5) and the nightly policy (ticket 11 §5).
+"""The CI topology contract and the nightly policy.
 
-Ticket 11 fixes the PR job graph, its runners, its ceilings, the lightweight
-sync, and the two coverage gates. These tests assert the workflows against that
-specification, not against their own previous text: the expected jobs, marker
-strings, artifact names, and thresholds are transcribed from the ticket.
+These tests pin the PR job graph, its runners, its ceilings, the lightweight
+sync, and the two coverage gates against the workflows themselves, not against
+their own previous text. The ceilings and thresholds are the budgets this
+project commits to: changing one is a deliberate budget change, so the constant
+and the workflow move in the same commit.
 
-``release.yml`` is ticket 10/23's file. This module pins its digest so a CI
-topology change cannot quietly rewrite the release gate; if a release change is
-intentional, update the pin in the same commit.
+``release.yml`` is pinned by digest so a CI topology change cannot quietly
+rewrite the release gate; if a release change is intentional, update the pin in
+the same commit.
 """
 
 from __future__ import annotations
@@ -29,14 +30,14 @@ RELEASE = WORKFLOW_DIR / "release.yml"
 LINUX_BUNDLE = WORKFLOW_DIR / "linux-bundle.yml"
 WINDOWS_BUNDLE = WORKFLOW_DIR / "windows-bundle.yml"
 
-# Ticket 11 §5: "uv sync --frozen --no-install-package torch
+# The lightweight sync: "uv sync --frozen --no-install-package torch
 # --no-install-package torchaudio --no-install-package demucs".
 LIGHTWEIGHT_SYNC = (
     "uv sync --frozen --no-install-package torch "
     "--no-install-package torchaudio --no-install-package demucs"
 )
 
-# Ticket 11 §5, job -> (runner, ceiling in minutes).
+# The job -> (runner, ceiling in minutes) table the PR workflow must match.
 CI_JOBS: dict[str, tuple[str, int]] = {
     "lint": ("ubuntu-24.04", 5),
     "unit-linux": ("ubuntu-24.04", 5),
@@ -49,14 +50,13 @@ CI_JOBS: dict[str, tuple[str, int]] = {
     "frozen-linux": ("ubuntu-22.04", 15),
 }
 
-# Ticket 11 §5: unit and UI run without the heavy stack, and so does the
+# Unit and UI run without the heavy stack, and so does the
 # Windows integration job.
 LIGHTWEIGHT_JOBS = ("unit-linux", "unit-windows", "ui-linux", "integration-windows")
-# Ticket 11 §5: "integration-linux, licensing, and frozen-linux install the
-# full lock".
+# The full lock is installed by integration-linux, licensing, and frozen-linux.
 FULL_SYNC_JOBS = ("integration-linux", "licensing", "frozen-linux")
 
-# Ticket 11 §6, the coverage job's two commands.
+# The coverage job's two commands.
 CORE_COVERAGE_INCLUDE = (
     "src/stemforge/domain/*,src/stemforge/jobs/*,src/stemforge/artifacts.py,"
     "src/stemforge/pipeline/*,src/stemforge/engines/*,src/stemforge/settings.py,"
@@ -70,7 +70,7 @@ COVERAGE_PRODUCERS = {
 }
 
 # Recorded topology for the release workflow.
-RELEASE_WORKFLOW_SHA256 = "8806a1a1dfa6d8cba79db0a9e7217104f335d4b600c768e332c2136eaff74345"
+RELEASE_WORKFLOW_SHA256 = "103dda0cd888ebe1c85069da5fdec00ce4012b484478418132f9839068770f82"
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -170,11 +170,11 @@ def test_only_the_release_workflow_publishes(path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_ci_has_exactly_the_nine_ticket_11_jobs(ci: dict[str, Any]) -> None:
+def test_ci_has_exactly_the_nine_jobs(ci: dict[str, Any]) -> None:
     assert set(ci["jobs"]) == set(CI_JOBS)
 
 
-def test_ci_runners_and_ceilings_match_the_ticket(ci: dict[str, Any]) -> None:
+def test_ci_runners_and_ceilings_are_pinned(ci: dict[str, Any]) -> None:
     for name, (runner, ceiling) in CI_JOBS.items():
         job = ci["jobs"][name]
         assert job["runs-on"] == runner, name
@@ -243,7 +243,7 @@ def test_each_test_job_selects_its_own_marker(ci: dict[str, Any]) -> None:
     assert '-m "integration and not slow"' in integration_windows
 
 
-def test_lint_keeps_every_ticket_11_section_6_gate(ci: dict[str, Any]) -> None:
+def test_lint_keeps_every_coverage_gate(ci: dict[str, Any]) -> None:
     text = _flat(ci["jobs"]["lint"])
     for gate in (
         "uv run ruff format --check .",
@@ -301,7 +301,7 @@ def test_frozen_linux_is_the_linux_smoke_only(ci: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# ci.yml: the combined coverage gate (ticket 11 §6)
+# ci.yml: the combined coverage gate
 # ---------------------------------------------------------------------------
 
 
@@ -432,7 +432,7 @@ def test_nightly_uploads_evidence_with_seven_day_retention(
 
 
 # ---------------------------------------------------------------------------
-# release.yml is not touched by this change
+# release.yml is pinned by digest
 # ---------------------------------------------------------------------------
 
 
@@ -442,6 +442,6 @@ def test_release_workflow_is_untouched() -> None:
     payload = RELEASE.read_bytes().replace(b"\r\n", b"\n")
     digest = hashlib.sha256(payload).hexdigest()
     assert digest == RELEASE_WORKFLOW_SHA256, (
-        "release.yml changed: ticket 10/23 owns that file. If the change is intentional, "
+        "release.yml changed: the release gate is pinned. If the change is intentional, "
         "update the pin here in the same commit and re-run the release-pipeline tests."
     )

@@ -217,7 +217,7 @@ jobs:
         run: |
           $report = Join-Path $env:GITHUB_WORKSPACE 'build\reports\preflight.json'
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $report) | Out-Null
-          # Ticket 11 §3: WebView2 presence is a runner property. Exit 5 records
+          # WebView2 presence is a runner property. Exit 5 records
           # it; every other fatal result still fails the job.
           $lines = & uv run --frozen --no-sync stemforge --preflight --json --quiet --report $report
           $code = $LASTEXITCODE
@@ -287,12 +287,12 @@ jobs:
           merge-multiple: true
       - name: Combine the three coverage data files
         run: uv run --frozen --no-sync coverage combine
-      - name: Core coverage gate (ticket 11 §6, at least 85%)
+      - name: Core coverage gate (at least 85%)
         run: |
           uv run --frozen --no-sync coverage report \
             --fail-under=85 \
             --include="src/stemforge/domain/*,src/stemforge/jobs/*,src/stemforge/artifacts.py,src/stemforge/pipeline/*,src/stemforge/engines/*,src/stemforge/settings.py,src/stemforge/application/*,src/stemforge/worker_protocol.py,src/stemforge/errors.py"
-      - name: Overall coverage gate (ticket 11 §6, at least 70%)
+      - name: Overall coverage gate (at least 70%)
         run: uv run --frozen --no-sync coverage report --fail-under=70
 
   frozen-linux:

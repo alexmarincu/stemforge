@@ -1,6 +1,6 @@
 name: Nightly frozen separation
 
-# Ticket 11 §5. The nightly proves what PR CI deliberately leaves out: a real
+# The nightly proves what PR CI deliberately leaves out: a real
 # one-second separation through the frozen Bundle on both release images, plus
 # the AppImage extraction check on Linux. It runs at 03:00 UTC and on demand,
 # never on pull requests or pushes.
@@ -10,7 +10,7 @@ name: Nightly frozen separation
 # the called job applies it (linux 35, windows 50). Evidence only: the called
 # workflows upload JSON reports and build logs to Actions for 7 days and the
 # nightly disables the Windows binaries upload. Nothing here touches a GitHub
-# Release; release assets belong to release.yml (ticket 23).
+# Release; release assets belong to release.yml.
 
 on:
   schedule:
