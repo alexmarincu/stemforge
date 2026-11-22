@@ -50,7 +50,7 @@ def test_shell_colours_are_tokens_not_scattered_literals() -> None:
 
 
 def test_compact_controls_share_one_box() -> None:
-    css = page.SHELL_CSS
+    tokens = theme.TOKENS_CSS
     for declaration in (
         "--control-h: 32px;",
         "--control-min-w: 44px;",
@@ -62,10 +62,12 @@ def test_compact_controls_share_one_box() -> None:
         "--control-font: 11px;",
         "--control-primary-font: 12.5px;",
     ):
-        assert declaration in css
+        assert declaration in tokens
 
+    css = page.SHELL_CSS
     base = _rule(css, ".q-btn.sf-control")
     assert "height: var(--control-h)" in base
+    assert "min-height: var(--control-h)" in base
     assert "min-width: var(--control-min-w)" in base
     assert "padding: 0 var(--control-pad-x)" in base
     assert "font-size: var(--control-font)" in base
@@ -75,13 +77,16 @@ def test_compact_controls_share_one_box() -> None:
     assert "width: var(--control-icon)" in icon
     assert "min-width: var(--control-icon)" in icon
     assert "height: var(--control-icon)" in icon
+    assert "min-height: var(--control-icon)" in icon
     assert "px" not in icon
 
     primary = _rule(css, ".q-btn.sf-control--primary")
     assert "height: var(--control-primary-h)" in primary
+    assert "min-height: var(--control-primary-h)" in primary
     assert "min-width: var(--control-primary-min-w)" in primary
     assert "padding: 0 var(--control-primary-pad-x)" in primary
     assert "font-size: var(--control-primary-font)" in primary
+    assert "font-weight: 600" in primary
     assert "px" not in primary
 
 

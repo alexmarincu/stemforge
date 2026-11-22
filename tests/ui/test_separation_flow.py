@@ -562,9 +562,6 @@ async def test_offline_download_is_coded_and_retry_installs_the_model(tmp_path: 
             await user.should_not_see(marker="separation-gate")
             assert harness.models.is_installed() is True
             assert _enabled(user, "separation-action") is True
-            # Issue 42: the sibling card primary shares the Pitch primary box.
-            assert "sf-control" in _only(user, "separation-action").classes
-            assert "sf-control--primary" in _only(user, "separation-action").classes
             assert [job for job in harness.runner.jobs() if job.kind.value == "separate"] == []
     finally:
         harness.runner.stop(timeout=10)
@@ -780,6 +777,23 @@ async def test_progress_cancel_and_stall_use_the_injected_clock(tmp_path: Path) 
             assert list(harness.artifacts.staging_dir.iterdir()) == []
     finally:
         harness.runner.stop(timeout=10)
+
+
+# ---------------------------------------------------------------------------
+# Primary action
+# ---------------------------------------------------------------------------
+
+
+async def test_the_separation_primary_uses_the_shared_primary_box(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        await _import(harness, user, workspace_page)
+
+        action = _only(user, "separation-action")
+        # Ticket 42: the sibling card primary shares the Pitch primary box.
+        assert "sf-control" in action.classes
+        assert "sf-control--primary" in action.classes
 
 
 # ---------------------------------------------------------------------------

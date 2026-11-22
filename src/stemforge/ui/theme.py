@@ -1,12 +1,13 @@
-"""The visual root: the prototype palette, Quasar colours, and brand assets.
+"""The visual root: the prototype palette, control geometry, Quasar colours, and brand assets.
 
 Quasar ships a blue ``primary`` (``#1976D2``); StemForge must never show it. The
 page applies this palette once per client before building the shell, so every
 default-coloured control — buttons, sliders, progress bars, switches, focus
 rings — inherits the amber accent from ticket 08's prototype.
 
-The token block is the only place the shell declares colour literals. Every
-rule in :data:`stemforge.ui.page.SHELL_CSS` consumes a token, which keeps the
+The token block is the only place the shell declares colour literals. It also
+carries the shared compact-control geometry (ticket 42). Every rule in
+:data:`stemforge.ui.page.SHELL_CSS` consumes a token, which keeps the
 prototype's palette and the rendered app from drifting apart.
 
 The mark is ticket 17's *Badge*: an amber disc with four ink bars. Assets are
@@ -61,9 +62,8 @@ WARN_LINE: Final = "#40341d"
 RADIUS: Final = "12px"
 MONO: Final = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
-# Compact control geometry (issue 42). ``SHELL_CSS`` owns the box through the
-# ``sf-control`` classes: Quasar's ``size`` prop writes an inline font-size that
-# a stylesheet cannot override.
+# Compact control geometry (ticket 42). The ``sf-control`` classes in
+# ``SHELL_CSS`` consume these tokens.
 CONTROL_H: Final = "32px"
 CONTROL_MIN_W: Final = "44px"
 CONTROL_PAD_X: Final = "12px"

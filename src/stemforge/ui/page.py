@@ -85,7 +85,9 @@ SHELL_CSS: Final = (
 .q-btn--flat { color: var(--muted); }
 .q-btn--flat:hover { color: var(--text); }
 /* Compact controls own their box through this class, not Quasar's size prop:
-   size=sm writes an inline font-size that a stylesheet cannot override. */
+   size=sm writes an inline font-size that a stylesheet cannot override.
+   Applied to the controls named in ticket 42; other sm/dense buttons keep
+   Quasar's sizing. */
 .q-btn.sf-control { height: var(--control-h); min-height: var(--control-h);
   min-width: var(--control-min-w); padding: 0 var(--control-pad-x);
   font-size: var(--control-font); line-height: 1; }

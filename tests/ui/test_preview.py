@@ -303,7 +303,7 @@ async def test_transport_and_output_rows_drive_the_same_single_player(harness: H
         assert seek.props["track-size"] == "5px"
         assert seek.props["thumb-size"] == "0px"
         assert _only(user, "ab-label").text == "A/B"
-        # Issue 42: the A/B segments and the transport Export share one box,
+        # Ticket 42: the A/B segments and the transport Export share one box,
         # while the status chips stay label-sized.
         assert "sf-control" in _only(user, "ab-original").classes
         assert "sf-control" in _only(user, "ab-preview").classes

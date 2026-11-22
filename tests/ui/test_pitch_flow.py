@@ -452,7 +452,7 @@ async def test_render_is_disabled_at_zero_and_while_a_job_runs(harness: Harness)
 
         assert _only(user, "pitch-semitones").text == "0"
         assert _enabled(user, "pitch-render") is False
-        # Issue 42: the stepper and the primary action share the compact box;
+        # Ticket 42: the stepper and the primary action share the compact box;
         # the disabled Render keeps the primary size.
         assert "sf-control" in _only(user, "pitch-down").classes
         assert "sf-control--icon" in _only(user, "pitch-down").classes
@@ -489,6 +489,22 @@ async def test_render_is_disabled_at_zero_and_while_a_job_runs(harness: Harness)
         assert _enabled(user, "pitch-render") is True
 
 
+async def test_a_cached_set_offers_a_compact_open_action(harness: Harness) -> None:
+    async for user, workspace_page in _open_page(harness):
+        await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_render(source_id, semitones=3, scope="original")
+        await _refresh(harness, user, workspace_page)
+
+        _step(user, 3)
+        await asyncio.sleep(0.05)
+        action = _only(user, "pitch-open")
+        # Ticket 42: Open is navigation in the primary slot, so it keeps the
+        # compact box rather than the Render's primary size.
+        assert "sf-control" in action.classes
+        assert "sf-control--primary" not in action.classes
+
+
 # ---------------------------------------------------------------------------
 # Tabs, scopes, A/B
 # ---------------------------------------------------------------------------
@@ -505,11 +521,6 @@ async def test_a_single_scope_shows_a_bare_tab_and_both_scopes_stay_distinct(
 
         assert _only(user, f"output-tab-{master}").text == "+3"
         assert len(user.find(marker="output-tab").elements) == 2
-
-        _step(user, 3)
-        await asyncio.sleep(0.05)
-        assert "sf-control" in _only(user, "pitch-open").classes
-        assert "sf-control--primary" not in _only(user, "pitch-open").classes
 
         harness.add_separation(source_id)
         stems = harness.add_render(source_id, semitones=3, scope="stems")
@@ -694,7 +705,7 @@ async def test_old_stems_sets_stay_selectable_and_labelled_after_a_reseparation(
         await _refresh(harness, user, workspace_page)
         old_tab = _only(user, f"output-tab-{old}")
         assert "based on an earlier separation" in old_tab.text
-        # Issue 42: every version pill keeps the shared box in stale state.
+        # Ticket 42: every version pill keeps the shared box in stale state.
         assert "sf-control" in old_tab.classes
         assert "is-stale" in old_tab.classes
         assert "sf-control" in _only(user, "output-tab-original").classes

@@ -144,6 +144,7 @@ class PitchCard:
         existing: PitchSet | None,
         busy: bool,
     ) -> None:
+        """The action slot: Render is primary-sized; Open is compact navigation."""
         if semitones == 0:
             (
                 ui.button(formatting.PITCH_RENDER)
