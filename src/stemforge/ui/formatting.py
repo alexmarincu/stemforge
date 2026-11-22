@@ -54,12 +54,17 @@ YOUTUBE_CONSENT_BODY: Final = (
 )
 YOUTUBE_CONSENT_ACCEPT: Final = "I have the right to use this content"
 YOUTUBE_CONSENT_CANCEL: Final = "Cancel"
+YOUTUBE_ACTION_LABEL: Final = "From YouTube"
+YOUTUBE_MODAL_TITLE: Final = "Import from YouTube"
+ADD_HINT: Final = "or drop files anywhere"
+ADD_BUSY_HINT: Final = "Wait for the current job to finish."
+ADD_DIALOG_HINT: Final = "Finish choosing files first."
 YOUTUBE_IMPORT_LABEL: Final = "Import"
 YOUTUBE_DECLINED: Final = "YouTube import is off until you accept the notice."
 YOUTUBE_OFF: Final = "YouTube import is off."
 YOUTUBE_SETTING_LABEL: Final = "YouTube import"
 YOUTUBE_SETTING_HINT: Final = (
-    "Off hides the YouTube row. Local files, tracks, playback, and exports are unaffected."
+    "Off hides YouTube import. Local files, tracks, playback, and exports are unaffected."
 )
 SETTINGS_TITLE: Final = "Settings & About"
 SETTINGS_APP: Final = "App"
