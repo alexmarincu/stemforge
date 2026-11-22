@@ -1,6 +1,6 @@
 """The workspace page: variant A rail-and-detail shell for the load workflow.
 
-One window, a 292 px left rail (brand, Add audio, Tracks, Recent, cache footer)
+One window, a 292 px left rail (brand, Import audio, Tracks, Recent, cache footer)
 and a main pane whose selected Track shows its source facts; with no selection
 the main pane carries the empty state. One Job bar sits at the bottom of the
 main pane. The page only reads immutable snapshots from ``WorkspaceService``;
@@ -575,7 +575,7 @@ class WorkspacePage:
                     ui.label("local · offline").classes("sf-brand-sub")
             with ui.element("div").classes("sf-add"):
                 self._add_button = (
-                    ui.button("Add audio", icon="add", on_click=self._open_files)
+                    ui.button(formatting.IMPORT_AUDIO_LABEL, icon="add", on_click=self._open_files)
                     .props("unelevated no-caps")
                     .classes("w-full sf-primary-button")
                     .mark("add-audio")
@@ -901,7 +901,7 @@ class WorkspacePage:
             ui.element("div").classes("sf-empty").mark("empty-state"),
             ui.element("div").classes("sf-empty-card"),
         ):
-            ui.label("Bring in a track").classes("sf-empty-title")
+            ui.label(formatting.EMPTY_TITLE).classes("sf-empty-title")
             ui.label(lede).classes("sf-lede")
             dropzone = (
                 ui.element("div")
@@ -2243,7 +2243,7 @@ class WorkspacePage:
         if selection.accepted:
             self._submit_paths(selection.accepted)
         if selection.ignored:
-            toast("That drop didn't include a usable audio file. Use Add audio.", type="info")
+            toast(formatting.DROP_UNUSABLE_AUDIO, type="info")
         self._sync_actions()
         self._refresh_all()
 

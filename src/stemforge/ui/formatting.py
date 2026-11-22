@@ -54,11 +54,15 @@ YOUTUBE_CONSENT_BODY: Final = (
 )
 YOUTUBE_CONSENT_ACCEPT: Final = "I have the right to use this content"
 YOUTUBE_CONSENT_CANCEL: Final = "Cancel"
-YOUTUBE_ACTION_LABEL: Final = "From YouTube"
+YOUTUBE_ACTION_LABEL: Final = "Import from YouTube"
 YOUTUBE_MODAL_TITLE: Final = "Import from YouTube"
+IMPORT_AUDIO_LABEL: Final = "Import audio"
 ADD_HINT: Final = "or drop files anywhere"
 ADD_BUSY_HINT: Final = "Wait for the current job to finish."
 ADD_DIALOG_HINT: Final = "Finish choosing files first."
+DROP_UNUSABLE_AUDIO: Final = (
+    f"That drop didn't include a usable audio file. Use {IMPORT_AUDIO_LABEL}."
+)
 YOUTUBE_IMPORT_LABEL: Final = "Import"
 YOUTUBE_DECLINED: Final = "YouTube import is off until you accept the notice."
 YOUTUBE_OFF: Final = "YouTube import is off."
@@ -114,13 +118,14 @@ YOUTUBE_CACHE_HINT: Final = (
 YOUTUBE_CACHE_CLEAR: Final = "Clear YouTube cache"
 EMPTY_LEDE: Final = "Drop a local file. Everything runs on this machine."
 EMPTY_LEDE_YOUTUBE: Final = (
-    "Drop a local file or pull audio from YouTube. Everything runs on this machine."
+    "Drop a local file or import from YouTube. Everything runs on this machine."
 )
+EMPTY_TITLE: Final = "Import a track"
 
 # Ticket 05 §1 and ticket 08 §2: the multichannel decode note and empty-state card.
 DOWNMIX_NOTE: Final = "Multichannel source downmixed to stereo."
 EMPTY_MODEL_CARD: Final = (
-    "Separation model not installed yet · 84 MB — you can load and preview now; "
+    "Separation model not installed yet · 84 MB — you can import and preview now; "
     "Separation asks for the download the first time you use it."
 )
 

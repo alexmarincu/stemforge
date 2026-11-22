@@ -233,7 +233,10 @@ async def _finish_jobs(
 
 async def test_empty_state_explains_the_way_in(harness: Harness) -> None:
     async for user, _workspace_page in _open_page(harness):
-        await user.should_see("Bring in a track")
+        await user.should_see("Import a track")
+        await user.should_see("Import audio")
+        await user.should_see("Import from YouTube")
+        await user.should_see("Drop a local file or import from YouTube.")
         await user.should_see("Everything runs on this machine.")
         await user.should_see("Drop audio files here")
         await user.should_see("WAV, MP3, FLAC, M4A — or choose files…")
@@ -243,7 +246,7 @@ async def test_empty_state_explains_the_way_in(harness: Harness) -> None:
         assert brand.content.startswith('<img src="data:image/svg+xml;base64,')
         await user.should_see(marker="empty-model-card")
         await user.should_see(
-            "Separation model not installed yet · 84 MB — you can load and preview now; "
+            "Separation model not installed yet · 84 MB — you can import and preview now; "
             "Separation asks for the download the first time you use it."
         )
         await user.should_not_see(marker="track-detail")
@@ -256,7 +259,7 @@ async def test_the_empty_state_omits_the_model_card_once_installed(
     monkeypatch.setattr(harness.service, "model_status", lambda: installed)
 
     async for user, _workspace_page in _open_page(harness):
-        await user.should_see("Bring in a track")
+        await user.should_see("Import a track")
         await user.should_not_see(marker="empty-model-card")
         await user.should_not_see("Separation model not installed yet")
 
@@ -723,7 +726,7 @@ async def test_drop_accepts_real_paths_and_quietly_ignores_fake_ones(harness: Ha
     async for user, workspace_page in _open_page(harness):
         with user:
             workspace_page.handle_drop([r"C:\fakepath\song.wav", "file:///tmp/song.wav"])
-        await user.should_see("That drop didn't include a usable audio file. Use Add audio.")
+        await user.should_see("That drop didn't include a usable audio file. Use Import audio.")
         await user.should_not_see(marker="job-bar")
         assert harness.service.snapshot().tracks == ()
 
