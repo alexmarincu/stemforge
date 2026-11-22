@@ -38,7 +38,7 @@ jobs:
       - name: Install ShellCheck
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends shellcheck
       - name: ShellCheck
-        run: shellcheck -x scripts/*.sh packaging/linux/*.sh
+        run: shellcheck -x scripts/*.sh packaging/linux/*.sh .githooks/pre-push .githooks/pre-commit
 
   licensing:
     name: licensing
