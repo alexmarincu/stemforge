@@ -1,4 +1,4 @@
-"""The Pitch Job's disk-space gate (ticket 05 §4, ticket 07 §8)."""
+"""The Pitch Job's disk-space gate."""
 
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 """``JobRunner``: FIFO execution, dedupe, cancellation, snapshots, and logs.
 
 The runner is the only thing that owns Job state, so these tests drive it only
-through its public API and observe immutable snapshots (ticket 06 §3). Jobs are
+through its public API and observe immutable snapshots. Jobs are
 plain callables that coordinate through events, which proves one-active-at-a-time
 without sleeping on a loaded machine.
 """

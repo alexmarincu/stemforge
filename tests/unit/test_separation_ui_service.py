@@ -1,7 +1,7 @@
 """The Separation UI's application seams: sets, previews, export rows, gate.
 
-The UI never derives a set key, guesses a stem role, or reads a manifest itself
-(ticket 14); these tests pin the service contract it uses instead. Everything is
+The UI never derives a set key, guesses a stem role, or reads a manifest
+itself; these tests pin the service contract it uses instead. Everything is
 headless: the artifact store is real under ``tmp_path`` and no engine runs.
 """
 

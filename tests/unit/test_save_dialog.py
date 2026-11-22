@@ -1,8 +1,8 @@
 """The native save-dialog wrapper: filters, extension repair, and path trust.
 
 The backend is injected so these tests never import pywebview's window stack and
-never open a dialog. Ticket 01 owns pywebview's strict filter grammar; ticket 08
-owns the filename and extension rules.
+never open a dialog. pywebview owns the strict filter grammar; the filename and
+extension rules are owned elsewhere.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from stemforge.integration.dialogs import (
 
 pytestmark = pytest.mark.unit
 
-# pywebview 6.2.1 ``util.parse_file_type`` (research 01 §4.2), copied verbatim.
+# pywebview 6.2.1 ``util.parse_file_type``, copied verbatim.
 _FILTER_GRAMMAR = re.compile(r"^([\w ]+)\((\*(?:\.(?:\w+|\*))*(?:;\*(?:\.(?:\w+|\*))*)*)\)$")
 
 

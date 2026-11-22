@@ -1,11 +1,11 @@
-"""The release pipeline's executable contract (ticket 23).
+"""The release pipeline's executable contract.
 
 These tests do not build a bundle. They exercise the pieces the tag workflow
 depends on: the workflow graph itself, the asset-name contract, the release
 checklist scaffold, the release-notes renderer, ``verify-release.sh`` against
 synthetic asset sets, and ``fetch_sources.py`` against a local ``file://``
-source. Expected asset names, budgets, and checklist rows come from tickets 10
-and 11, not from the implementation.
+source. Expected asset names, budgets, and checklist rows are pinned here, not
+read from the implementation.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ VERIFY_SCRIPT = REPO_ROOT / "scripts" / "verify-release.sh"
 VERSION = "9.9.9"
 TAG = f"v{VERSION}"
 
-# Ticket 10 section 8. Names, not a computed pattern: a mismatch must fail.
+# Names, not a computed pattern: a mismatch must fail.
 EXPECTED_ASSETS = {
     f"StemForge-{VERSION}-linux-x86_64.tar.gz",
     f"StemForge-{VERSION}-linux-x86_64.tar.zst",
@@ -128,7 +128,7 @@ def test_release_can_write_release_assets(workflow: dict[str, Any]) -> None:
     assert workflow["permissions"]["contents"] == "write"
 
 
-def test_release_job_graph_and_timeouts_match_ticket_10(workflow: dict[str, Any]) -> None:
+def test_release_job_graph_and_timeouts_are_pinned(workflow: dict[str, Any]) -> None:
     jobs = workflow["jobs"]
     assert {"prepare", "linux", "windows", "sources", "publish"} <= set(jobs)
     assert jobs["prepare"]["timeout-minutes"] == 10
@@ -200,7 +200,7 @@ def test_next_image_jobs_are_non_blocking(workflow: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_asset_names_are_the_ticket_10_set() -> None:
+def test_asset_names_are_the_pinned_set() -> None:
     assert set(release_assets.asset_names(VERSION)) == EXPECTED_ASSETS
 
 
@@ -903,7 +903,7 @@ def test_release_notes_name_the_shipped_yt_dlp_and_unsigned_caveat() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Ticket 10 §9: a target is a goal, the failure line is a gate
+# A target is a goal, the failure line is a gate
 # ---------------------------------------------------------------------------
 
 

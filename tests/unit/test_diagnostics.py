@@ -1,4 +1,4 @@
-"""The copy-only diagnostics report (ticket 14 §10).
+"""The copy-only diagnostics report.
 
 The renderer is pure: tests build facts by hand and inspect the exact text. The
 collector is exercised against a temporary ``STEMFORGE_HOME`` only, so no test
@@ -76,7 +76,7 @@ def _facts(**overrides: object) -> diagnostics.DiagnosticsFacts:
     return replace(base, **overrides)  # type: ignore[arg-type]
 
 
-def test_report_has_the_full_ticket_14_structure() -> None:
+def test_report_has_the_full_structure() -> None:
     text = diagnostics.render_diagnostics(_facts())
     lines = text.splitlines()
 

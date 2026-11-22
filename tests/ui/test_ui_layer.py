@@ -1,4 +1,4 @@
-"""UI-layer placeholder until page tests arrive with ticket 2's load flow."""
+"""UI-layer placeholder until page tests arrive with the load flow."""
 
 from __future__ import annotations
 

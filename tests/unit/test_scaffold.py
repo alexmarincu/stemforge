@@ -51,7 +51,8 @@ CORE_MODULES = [
     "stemforge.platform.resources",
 ]
 
-# Independent copy of the taxonomy in ticket 06 §9 plus the ticket 14 amendments.
+# An independent copy of the error taxonomy, so a rename here cannot silently
+# agree with the implementation.
 EXPECTED_CODES = frozenset(
     {
         "import.no_audio_stream",

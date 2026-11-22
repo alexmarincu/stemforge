@@ -470,7 +470,7 @@ async def test_the_gate_shows_size_revision_licence_and_consent(tmp_path: Path) 
             assert _enabled(user, "model-download") is True
             await user.should_not_see(marker="separation-action")
 
-            # Ticket 08 §10: Licence details opens About, not a modal of its own.
+            # Licence details opens About, not a modal of its own.
             user.find(marker="model-licence-details").click()
             await user.should_see(marker="settings-dialog")
             user.find(marker="settings-close").click()
@@ -610,7 +610,7 @@ async def test_one_successful_install_resubmits_a_pending_separation_exactly_onc
             assert _enabled(user, "separation-action") is True
 
             # The model disappears after the card was built; pressing Separate
-            # is the historical "pending" path ticket 08 §10 describes.
+            # is the "pending" path that must re-gate on the missing model.
             harness.models.delete()
             user.find(marker="separation-action").click()
             await _poll(harness, user, workspace_page)
@@ -687,7 +687,7 @@ async def test_a_checksum_failure_shows_the_gate_and_latches_one_resubmit(
 async def test_an_install_checksum_mismatch_uses_the_checksum_gate_copy(
     tmp_path: Path,
 ) -> None:
-    """Ticket 14 §4.3: a download that fails its pins is a checksum failure."""
+    """A download that fails its pins is a checksum failure."""
     corrupt = b"x" * len(PAYLOAD)
     harness = Harness(
         root=tmp_path,
@@ -791,7 +791,7 @@ async def test_the_separation_primary_uses_the_shared_primary_box(
         await _import(harness, user, workspace_page)
 
         action = _only(user, "separation-action")
-        # Ticket 42: the sibling card primary shares the Pitch primary box.
+        # The sibling card primary shares the Pitch primary box.
         assert "sf-control" in action.classes
         assert "sf-control--primary" in action.classes
 
@@ -810,7 +810,7 @@ async def test_primary_rows_are_visible_secondary_hidden_and_every_row_plays(
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
         await _poll(harness, user, workspace_page)
 
-        # Ticket 08 §3 and §7: the rail reflects stem state; stems are Outputs rows.
+        # The rail reflects stem state; stems are Outputs rows.
         assert "4 stems" in _only(user, f"track-meta-{track_id}").text
         assert "is-ok" in _only(user, f"track-dot-{track_id}").classes
         await user.should_see(marker="output-row-vocals")
@@ -836,7 +836,7 @@ async def test_primary_rows_are_visible_secondary_hidden_and_every_row_plays(
             assert player.props["src"] == target.url
             assert len(user.find(marker="player").elements) == 1
 
-        # Ticket 08 §8: switching artifacts never carries the position over.
+        # Switching artifacts never carries the position over.
         user.find(marker="output-play-vocals").click()
         await asyncio.sleep(0.05)
         user.find(marker="player").trigger("timeupdate", 42.0)
@@ -857,7 +857,7 @@ async def test_primary_rows_are_visible_secondary_hidden_and_every_row_plays(
         await asyncio.sleep(0.05)
 
         # A/B stays the transport's Original | latest-render shortcut; playing
-        # a stem does not repurpose it (ticket 08 §7).
+        # a stem does not repurpose it.
         original = harness.service.preview_targets(track_id)[0]
         user.find(marker="output-play-vocals").click()
         await asyncio.sleep(0.05)
@@ -883,7 +883,7 @@ async def test_rendering_committed_stems_never_rehashes_audio(
             raise AssertionError(f"the card re-hashed {path}")
 
         # A refresh after Separation must read manifests and stats, never the
-        # hundreds of megabytes those manifests describe (issue #27).
+        # hundreds of megabytes those manifests describe.
         monkeypatch.setattr("stemforge.artifacts._sha256_file", unexpected)
         with user:
             workspace_page._detail.refresh()

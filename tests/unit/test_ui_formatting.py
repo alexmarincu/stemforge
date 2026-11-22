@@ -21,7 +21,7 @@ def test_duration_is_m_ss_and_handles_hours() -> None:
     assert formatting.format_duration(-1) == "—"
 
 
-def test_audio_facts_read_like_the_prototype() -> None:
+def test_audio_facts_are_compact_and_readable() -> None:
     assert formatting.format_sample_rate(44_100) == "44.1 kHz"
     assert formatting.format_sample_rate(48_000) == "48 kHz"
     assert formatting.format_sample_rate(None) is None
@@ -50,7 +50,7 @@ def _track(origin: str, kind: OriginKind, *, title: str = "Song") -> Track:
 
 
 def test_detail_meta_names_source_duration_and_format() -> None:
-    """Ticket 08 §4: origin · filename or URL · duration · 44.1 kHz stereo."""
+    """Origin · filename or URL · duration · 44.1 kHz stereo."""
     local = formatting.detail_meta(_track("/music/My Song.WAV", OriginKind.FILE))
     youtube = formatting.detail_meta(
         _track("https://www.youtube.com/watch?v=dQw4w9WgXcQ", OriginKind.YOUTUBE)
@@ -67,12 +67,12 @@ def test_detail_meta_names_source_duration_and_format() -> None:
 
 
 def test_track_icons_distinguish_local_audio_from_youtube_video() -> None:
-    """Ticket 08 §3: the rail's 26 px type icon follows the Source origin."""
+    """The rail's 26 px type icon follows the Source origin."""
     assert formatting.track_icon(OriginKind.FILE) == "music_note"
     assert formatting.track_icon(OriginKind.YOUTUBE) == "movie"
 
 
-def test_cache_sizes_use_one_decimal_and_the_ticket_units() -> None:
+def test_cache_sizes_use_one_decimal_and_binary_units() -> None:
     assert formatting.format_bytes(3_650_000_000) == "3.4 GB"
     assert formatting.format_bytes(120_000_000) == "114.4 MB"
     assert formatting.format_bytes(0) == "0.0 MB"
@@ -143,7 +143,7 @@ def test_export_disk_full_chooses_another_location() -> None:
 
 
 def test_import_copy_names_the_actual_duration() -> None:
-    """Ticket 14 §4.1: ``This track is <m:ss> long. The limit is 30:00.``"""
+    """``This track is <m:ss> long. The limit is 30:00.``"""
     copy = formatting.copy_for(errors.IMPORT_TOO_LONG, context={"duration_s": 1_872.0})
 
     assert copy.headline == "This track is 31:12 long. The limit is 30:00."
@@ -151,14 +151,14 @@ def test_import_copy_names_the_actual_duration() -> None:
 
 
 def test_youtube_too_long_copy_names_the_actual_duration() -> None:
-    """Ticket 09 §8: ``This video is 24:10 — longer than the 15-minute limit.``"""
+    """``This video is 24:10 — longer than the 15-minute limit.``"""
     copy = formatting.copy_for(errors.IMPORT_YOUTUBE_TOO_LONG, context={"duration_s": 1_450.0})
 
     assert copy.headline == "This video is 24:10 — longer than the 15-minute limit."
 
 
 def test_youtube_no_audio_is_a_video_not_a_file() -> None:
-    """Ticket 09 §8 owns the video wording for the shared import code."""
+    """The shared import code carries its own video wording."""
     local = formatting.copy_for(errors.IMPORT_NO_AUDIO_STREAM)
     video = formatting.copy_for(errors.IMPORT_NO_AUDIO_STREAM, origin=OriginKind.YOUTUBE)
 
@@ -168,7 +168,7 @@ def test_youtube_no_audio_is_a_video_not_a_file() -> None:
 
 
 def test_export_write_copy_names_the_folder_not_the_full_path() -> None:
-    """Ticket 14 §4.6: the headline names the last path component."""
+    """The headline names the last path component."""
     copy = formatting.copy_for(
         errors.EXPORT_WRITE_FAILED,
         "permission",
@@ -191,7 +191,7 @@ def test_export_disk_full_copy_names_the_folder_and_needed_size() -> None:
 
 
 def test_import_disk_full_copy_reports_needed_and_free() -> None:
-    """Ticket 14 §4.1/§4.7: report needed vs free, then the cache action."""
+    """Report needed vs free, then the cache action."""
     copy = formatting.copy_for(
         errors.STORAGE_DISK_FULL,
         context={"path": "/home/alex/stemforge", "required": 120_000_000, "free": 10_485_760},
@@ -213,7 +213,7 @@ def test_storage_permission_copy_names_the_path_when_known() -> None:
 
 
 def test_dynamic_copy_never_exceeds_the_headline_cap() -> None:
-    """Ticket 14 §9: interpolated copy keeps the 90-character ceiling."""
+    """Interpolated copy keeps the 90-character ceiling."""
     folder = "a-very-long-export-folder-name-that-would-overflow"
     copy = formatting.copy_for(
         errors.STORAGE_DISK_FULL,

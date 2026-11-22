@@ -1,8 +1,8 @@
 """The frozen-build contract: lazy imports and the two Bundle roots.
 
-Ticket 06 §11 fixes ``freeze_support()`` as the first statement in the main
+The contract fixes ``freeze_support()`` as the first statement in the main
 guard and keeps torch/Demucs imports inside ``workers/separation.py::run()``.
-Ticket 10 §3 and ADR 0010 split resource resolution into a **data root**
+ADR 0010 splits resource resolution into a **data root**
 (``sys._MEIPASS`` when frozen) and a **Bundle root**
 (``Path(sys.executable).resolve().parent`` when frozen), both of which are the
 development checkout's package and repo roots respectively.
@@ -220,8 +220,8 @@ def test_development_missing_binary_falls_back_to_path(
         return "/usr/bin/ffmpeg" if name == "ffmpeg" else None
 
     monkeypatch.delenv("STEMFORGE_TEST_FFMPEG", raising=False)
-    # Ticket 19 gives a developer checkout an optional vendor/ tree; this test
-    # is about the fallback when that tree is absent.
+    # A developer checkout may carry an optional vendor/ tree; this test is
+    # about the fallback when that tree is absent.
     monkeypatch.setattr(binaries, "bundle_root", lambda: tmp_path)
     monkeypatch.setattr(binaries.shutil, "which", fake_which)
 

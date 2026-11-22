@@ -1,7 +1,7 @@
 """The diagnostic flags: ``--self-test``, ``--smoke-test``, ``--smoke-separation``.
 
 Each flag prints one JSON report, writes the same report with ``--report``, and
-uses its exit code as the authoritative result (ticket 10 §7).
+uses its exit code as the authoritative result.
 """
 
 from __future__ import annotations
@@ -190,7 +190,7 @@ def test_self_test_imports_the_gui_stack_but_not_demucs(tmp_path: Path) -> None:
     ]
     assert len(reports) == 1
     imported = set(reports[0].split("=", 1)[1].split(",")) - {""}
-    # torch is optional until ticket 12; when installed, --self-test asserts +cpu.
+    # torch is optional; when installed, --self-test asserts +cpu.
     assert "nicegui" in imported
     assert "demucs" not in imported
     assert imported <= {"nicegui", "torch"}

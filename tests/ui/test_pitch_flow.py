@@ -452,7 +452,7 @@ async def test_render_is_disabled_at_zero_and_while_a_job_runs(harness: Harness)
 
         assert _only(user, "pitch-semitones").text == "0"
         assert _enabled(user, "pitch-render") is False
-        # Ticket 42: the stepper and the primary action share the compact box;
+        # The stepper and the primary action share the compact box;
         # the disabled Render keeps the primary size.
         assert "sf-control" in _only(user, "pitch-down").classes
         assert "sf-control--icon" in _only(user, "pitch-down").classes
@@ -499,7 +499,7 @@ async def test_a_cached_set_offers_a_compact_open_action(harness: Harness) -> No
         _step(user, 3)
         await asyncio.sleep(0.05)
         action = _only(user, "pitch-open")
-        # Ticket 42: Open is navigation in the primary slot, so it keeps the
+        # Open is navigation in the primary slot, so it keeps the
         # compact box rather than the Render's primary size.
         assert "sf-control" in action.classes
         assert "sf-control--primary" not in action.classes
@@ -668,7 +668,7 @@ async def test_a_failed_render_is_inline_coded_and_retry_resubmits_the_request(
 
 
 async def test_a_non_retryable_render_failure_has_no_retry(harness: Harness) -> None:
-    """Ticket 14 §8: Retry appears iff the raising code marks itself retryable."""
+    """Retry appears iff the raising code marks itself retryable."""
     async for user, workspace_page in _open_page(harness):
         await _import(harness, user, workspace_page)
         _step(user, 3)
@@ -705,7 +705,7 @@ async def test_old_stems_sets_stay_selectable_and_labelled_after_a_reseparation(
         await _refresh(harness, user, workspace_page)
         old_tab = _only(user, f"output-tab-{old}")
         assert "based on an earlier separation" in old_tab.text
-        # Ticket 42: every version pill keeps the shared box in stale state.
+        # Every version pill keeps the shared box in stale state.
         assert "sf-control" in old_tab.classes
         assert "is-stale" in old_tab.classes
         assert "sf-control" in _only(user, "output-tab-original").classes

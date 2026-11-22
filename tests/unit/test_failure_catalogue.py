@@ -516,10 +516,10 @@ def test_no_duplicate_trigger_or_copy_keys() -> None:
 
 
 def test_the_independent_taxonomy_copies_stay_in_sync() -> None:
-    from tests.unit.test_error_codes import TICKET_14_CODES
+    from tests.unit.test_error_codes import EXPECTED_ERROR_CODES
     from tests.unit.test_scaffold import EXPECTED_CODES
 
-    assert errors.ALL_CODES == TICKET_14_CODES == EXPECTED_CODES
+    assert errors.ALL_CODES == EXPECTED_ERROR_CODES == EXPECTED_CODES
 
 
 def test_retry_flags_are_owned_by_the_raising_code() -> None:

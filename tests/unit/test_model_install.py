@@ -2,7 +2,7 @@
 
 The tests drive only the public seams: ``ModelStore`` and ``ModelInstallJob``.
 No test reaches the network; the download transport is injected and reads bytes
-that live in the test process. Ticket 14 §8 allows no automatic retries, so a
+that live in the test process. No failure is retried automatically, so a
 transient transport failure is a single failed attempt.
 """
 

@@ -1,4 +1,4 @@
-"""A scripted JSONL worker for protocol tests (ticket 11 §1, ticket 06 §4).
+"""A scripted JSONL worker for protocol tests.
 
 It is a plain Python script: no torch, no Demucs, no real audio work. Each mode
 emits a different stream or exit code so the parent's parser, progress mapping,

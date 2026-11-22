@@ -1,4 +1,4 @@
-"""Integration-layer placeholder until real-binary tests arrive in ticket 2."""
+"""Integration-layer placeholder until real-binary tests arrive."""
 
 from __future__ import annotations
 

@@ -1,9 +1,9 @@
-"""Headless tests for the YouTube row, consent, and toggle (ticket 15).
+"""Headless tests for the YouTube row, consent, and toggle.
 
 Every write stays under ``tmp_path``; the page is built through NiceGUI's user
 simulation; the import seam is spied so a rejected URL can prove it was never
-called. No test may open a socket or import ``yt_dlp`` (ticket 15, ticket 16 is
-where the adapter arrives).
+called. No test may open a socket or import ``yt_dlp``; a fake YouTube adapter
+stands in for the real one.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ CONSENT_BODY = (
 
 @pytest.fixture(autouse=True)
 def _no_network(no_external_network: None) -> None:
-    """Any non-local connection attempt in this module fails the test (ticket 15)."""
+    """Any non-local connection attempt in this module fails the test."""
 
 
 class FakeMedia:

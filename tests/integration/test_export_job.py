@@ -426,7 +426,7 @@ def test_each_format_round_trips_codec_depth_rate_tags_cover_and_peak(
     for key in expected_tags:
         assert info.tags[key] == TAGS[key], (fmt, key, info.tags)
     if fmt is ExportFormat.WAV24:
-        # Ticket 05 §9: no WAV comment tag, hence no ICMT INFO chunk.
+        # No WAV comment tag, hence no ICMT INFO chunk.
         assert "comment" not in info.tags
         assert b"ICMT" not in result.path.read_bytes()
 

@@ -1,6 +1,6 @@
 """The Pitch UI's application seams: tab order, scope lookup, set selection.
 
-The UI never derives a render key or reads a manifest itself (ticket 11); these
+The UI never derives a render key or reads a manifest itself; these
 tests pin the service contract it uses instead. Everything here is headless:
 the artifact store is real under ``tmp_path`` and no engine runs.
 """
@@ -329,7 +329,7 @@ def test_old_stems_sets_stay_listed_but_are_marked_and_not_offered_for_the_new_s
     assert [item.render_key for item in after_reseparation] == [old]
     assert after_reseparation[0].based_on_earlier_separation is True
     # The old set is no longer a cache hit for the current Stems, so Render is
-    # offered instead of Open (ticket 05 §2, ticket 08 §5).
+    # offered instead of Open.
     assert service.pitch_set(_track(), 3, RenderScope.STEMS) is None
 
     new = _commit_render(

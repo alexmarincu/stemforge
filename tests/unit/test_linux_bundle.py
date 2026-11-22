@@ -1,11 +1,11 @@
 """The Linux Bundle verifier and the packaging scripts it guards.
 
-``packaging/linux/verify_bundle.py`` is the release gate from ticket 10 §2 and
-§9: the onedir budget, the licence tree, no model weights, the torch trim, and
-every vendor file matching ``packaging/vendor.lock.json``. The shell scripts are
-asserted here only for parseability and the flags that tie them to the pinned
-AppImage tool and the bundle verifier; the real build runs in ticket 20's
-verification pass, not in the unit layer.
+``packaging/linux/verify_bundle.py`` is the release gate: the onedir budget, the
+licence tree, no model weights, the torch trim, and every vendor file matching
+``packaging/vendor.lock.json``. The shell scripts are asserted here only for
+parseability and the flags that tie them to the pinned AppImage tool and the
+bundle verifier; the real build runs from ``packaging/linux/build.sh``, not in
+the unit layer.
 """
 
 from __future__ import annotations

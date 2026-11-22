@@ -1,8 +1,8 @@
 """The native open-dialog wrapper: filters, normalization, and path trust.
 
 The backend is injected so these tests never import pywebview's window stack and
-never open a dialog. Ticket 01 owns the filter grammar; ticket 08 owns the
-selection rules.
+never open a dialog. The filter grammar and the selection rules are owned
+elsewhere.
 """
 
 from __future__ import annotations

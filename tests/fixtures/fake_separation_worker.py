@@ -1,6 +1,6 @@
 """A fast fake Separation worker used by the Separation Job integration test.
 
-It speaks the ticket 06 §4 JSONL protocol and writes five real float32 WAVs — the
+It speaks the worker JSONL protocol and writes five real float32 WAVs — the
 four stems plus their in-memory sum as Instrumental — with distinct tones, so the
 Job's ffmpeg probing, gain, previews, manifest, and commit are exercised through
 a real subprocess without torch, Demucs, or the 84 MB weights.

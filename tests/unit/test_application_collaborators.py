@@ -1,7 +1,7 @@
 """The application collaborators are usable without the facade (ADR 0013).
 
-These tests pin the seam the ticket asks for: each feature service receives its
-own dependencies, so a fake job runner or engine is enough to exercise it.
+These tests pin the seam: each feature service receives its own dependencies, so
+a fake job runner or engine is enough to exercise it.
 """
 
 from __future__ import annotations

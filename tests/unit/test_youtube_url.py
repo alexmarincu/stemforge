@@ -1,7 +1,7 @@
-"""The YouTube URL grammar: accepted shapes, rejected shapes, and codes (ticket 09 §1, §8).
+"""The YouTube URL grammar: accepted shapes, rejected shapes, and codes.
 
 The parser is pure: no network, no yt-dlp, and every refusal is a coded error the
-UI can render as a field message. Expected values come from ticket 09's table.
+UI can render as a field message. Expected values are pinned here.
 """
 
 from __future__ import annotations

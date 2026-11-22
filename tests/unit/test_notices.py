@@ -1,4 +1,4 @@
-"""The licence-tree generator's contract (ticket 22).
+"""The licence-tree generator's contract.
 
 The generator reads the committed lock and manifests plus the installed
 ``.venv`` metadata. Every assertion here is behaviour a release builds on: the

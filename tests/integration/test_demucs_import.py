@@ -1,6 +1,6 @@
 """Integration (slow): the CPU torch + Demucs API import gate.
 
-Ticket 11 §4: the released ``demucs==4.1.0`` omits numpy on Linux and Windows, so
+The released ``demucs==4.1.0`` omits numpy on Linux and Windows, so
 ``from demucs.api import Separator`` fails on a clean install. This test catches
 that release blocker in seconds, without weights and without network. Imports
 are inside the test function on purpose: importing torch at module scope would

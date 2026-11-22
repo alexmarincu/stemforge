@@ -1,7 +1,7 @@
 """Pure pitch math: range validation, frequency helpers, render keys, gain.
 
 No external binaries: this module pins the arithmetic and the identity rules that
-the engine and the Job compose (ticket 05 §4-§5, ticket 10).
+the engine and the Job compose.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from stemforge.pipeline.gain import PEAK_TARGET_DBFS, max_peak_dbfs, presentatio
 
 
 @pytest.mark.unit
-def test_semitone_range_includes_the_ticket_bounds() -> None:
+def test_semitone_range_includes_the_bounds() -> None:
     assert MIN_SEMITONES == -12
     assert MAX_SEMITONES == 12
     for semitones in range(MIN_SEMITONES, MAX_SEMITONES + 1):
@@ -44,7 +44,7 @@ def test_semitone_range_rejects_out_of_range_values(semitones: int) -> None:
 
 @pytest.mark.unit
 def test_zero_semitones_is_not_a_render() -> None:
-    # Ticket 08 §5: the UI disables Render at 0; the Original is the 0 view.
+    # The UI disables Render at 0; the Original is the 0 view.
     with pytest.raises(ValueError, match="0"):
         validate_semitones(0)
 
