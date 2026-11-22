@@ -11,6 +11,8 @@
 # --allow-missing-licences is a local-layout debug switch for the interval before
 # ticket 22 lands the licence tree. It must never be used by a release or CI
 # build; without it a missing LICENSE, notice, source offer, or LICENSES/ fails.
+# --bundle-only stops after the onedir payload verifies: the PR smoke gate uses
+# it, while the release archives and AppImage stay with linux-bundle.yml.
 set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
@@ -22,12 +24,15 @@ reports="$repo_root/build/reports"
 tools="$repo_root/build/tools"
 allow_missing_licences=0
 skip_host_abi=0
+bundle_only=0
 source_date_epoch="${SOURCE_DATE_EPOCH:-315532800}"
 
 usage() {
     cat <<'EOF'
-Usage: packaging/linux/build.sh [--allow-missing-licences] [--skip-host-abi]
+Usage: packaging/linux/build.sh [--bundle-only] [--allow-missing-licences] [--skip-host-abi]
 
+  --bundle-only             stop after the verified onedir payload; skip the
+                            tar.gz, tar.zst, and AppImage (PR smoke gate).
   --allow-missing-licences  debug only: assemble a local bundle before ticket 22
                             supplies LICENSE/THIRD_PARTY_NOTICES.md/SOURCE_OFFER.md/
                             LICENSES. Never use for a release or CI build.
@@ -38,6 +43,7 @@ EOF
 
 while (($# > 0)); do
     case "$1" in
+        --bundle-only) bundle_only=1 ;;
         --allow-missing-licences) allow_missing_licences=1 ;;
         --skip-host-abi) skip_host_abi=1 ;;
         -h | --help)
@@ -181,6 +187,14 @@ if ((skip_host_abi)); then
 fi
 note "verifying the assembled Bundle before compressing it"
 .venv/bin/python packaging/linux/verify_bundle.py "${verify_args[@]}"
+
+if ((bundle_only)); then
+    echo
+    du -sh "$bundle"
+    note "bundle-only build; skipping the release archives and AppImage"
+    note "done in ${SECONDS}s"
+    exit 0
+fi
 
 note "building the release archives"
 rm -f "$tarball" "$zstdball" "$appimage"

@@ -292,7 +292,9 @@ def test_windows_integration_fails_closed_when_the_vendor_build_fails(
 def test_frozen_linux_is_the_linux_smoke_only(ci: dict[str, Any]) -> None:
     job = ci["jobs"]["frozen-linux"]
     text = _flat(job)
-    assert "packaging/linux/build.sh" in text
+    # The PR gate builds the onedir only; the compressed release archives are
+    # too expensive for every PR and belong to linux-bundle.yml.
+    assert "packaging/linux/build.sh --bundle-only" in text
     assert "packaging/linux/smoke-test.sh" in text
     assert "package.sh" not in text
     assert "AppImage" not in text
@@ -403,6 +405,8 @@ def test_nightly_builds_and_runs_the_real_separation(
     linux_text = _flat(linux_bundle["jobs"]["bundle"])
     assert "scripts/vendor-fetch.sh" in linux_text
     assert "packaging/linux/build.sh" in linux_text
+    # The nightly keeps the full archive and AppImage path.
+    assert "--bundle-only" not in linux_text
     assert "--install-model" in linux_text
     assert "--accept-model-licence" in linux_text
     assert "--smoke-separation" in linux_text or "--with-separation" in linux_text

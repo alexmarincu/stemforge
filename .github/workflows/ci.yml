@@ -353,8 +353,10 @@ jobs:
           print(f"{result.name}: {result.status}: {result.message}")
           raise SystemExit(0 if result.status == preflight.STATUS_OK else 1)
           PY
-      - name: Build the frozen bundle
-        run: bash packaging/linux/build.sh
+      - name: Build the frozen bundle (onedir only, no release archives)
+        # The PR gate only exercises the tree smoke-test.sh runs; the compressed
+        # archives are built by linux-bundle.yml on the nightly and dispatch.
+        run: bash packaging/linux/build.sh --bundle-only
       - name: Assert the frozen native window is available
         run: |
           version=$(uv run --frozen --no-sync python -c 'import stemforge; print(stemforge.__version__)')
