@@ -118,16 +118,6 @@ class YouTubeRow:
             self._status.set_text(formatting.YOUTUBE_DECLINED)
             self._status.set_visibility(True)
 
-    def reset(self) -> None:
-        """Clear the field and errors so a reopened surface starts empty."""
-        if self._input is not None:
-            self._input.set_value("")
-        self._clear_field_error()
-        if self._status is not None:
-            self._status.set_visibility(False)
-        if self._declined:
-            self._apply_declined()
-
     def handle_submit(self) -> None:
         """Validate at submit, then either ask for consent or call the seam."""
         if self._declined or self._input is None:
@@ -198,8 +188,7 @@ class YouTubeRow:
     def _decline(self) -> None:
         self._pending_url = None
         self._close_dialog()
-        self._declined = True
-        self._apply_declined()
+        self.set_declined()
         if self._on_declined is not None:
             self._on_declined()
 

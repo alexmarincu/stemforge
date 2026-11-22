@@ -477,7 +477,6 @@ class WorkspacePage:
         self._recent_signature: tuple[tuple[str, bool], ...] | None = None
         self._client: Client | None = None
         self._dialog_host: ui.element | None = None
-        self._youtube_dialog_host: ui.element | None = None
         self._last_busy = False
         self._player: ui.audio | None = None
         self._loaded_track_id: str | None = None
@@ -557,10 +556,9 @@ class WorkspacePage:
                         self._on_ended,
                         js_handler="() => emit(true)",
                     )
-                # Hosts outside every refreshable region so dialogs stay open
-                # when a Job finishes and refreshes the page.
+                # A host outside every refreshable region so Settings & About
+                # stays open when a Job finishes and refreshes the rail footer.
                 self._dialog_host = ui.element("div")
-                self._youtube_dialog_host = ui.element("div")
         # The sheet is one persistent dialog; see ExportSheet.build for why.
         self._export_sheet.build()
         ui.timer(POLL_INTERVAL_S, self.poll)
@@ -582,7 +580,9 @@ class WorkspacePage:
                     .classes("w-full sf-primary-button")
                     .mark("add-audio")
                 )
-                self._add_hint = ui.label(formatting.ADD_HINT).classes("sf-add-hint")
+                self._add_hint = ui.label(
+                    formatting.ADD_BUSY_HINT if self._busy() else formatting.ADD_HINT
+                ).classes("sf-add-hint")
                 self._youtube_action = (
                     ui.button(
                         formatting.YOUTUBE_ACTION_LABEL,
@@ -915,16 +915,7 @@ class WorkspacePage:
                 ui.label("WAV, MP3, FLAC, M4A — or choose files…").classes("sf-drop-sub")
             if youtube_on:
                 ui.label("or").classes("sf-or")
-                self._youtube_row = YouTubeRow(
-                    self.service,
-                    busy=busy,
-                    declined=self._youtube_declined,
-                    on_submitted=self._on_youtube_submitted,
-                    on_declined=self._on_youtube_declined,
-                    diagnostics=self.context.diagnostics,
-                    clipboard=self.context.clipboard,
-                    open_path=self.context.open_path,
-                )
+                self._youtube_row = self._make_youtube_row(busy=busy)
                 self._youtube_row.build()
             else:
                 self._youtube_row = None
@@ -1757,41 +1748,41 @@ class WorkspacePage:
         self._sync_actions()
 
     def _open_youtube(self) -> None:
-        """Open the persistent YouTube surface without moving the selection."""
+        """Open the YouTube import modal without moving the selection."""
         if self._busy() or not self.service.youtube_enabled():
             return
         if self._youtube_dialog is None:
             self._build_youtube_dialog()
-        if self._youtube_dialog_row is not None:
-            self._youtube_dialog_row.reset()
         if self._youtube_dialog is not None:
             self._youtube_dialog.open()
 
     def _build_youtube_dialog(self) -> None:
-        """Build the modal once, outside every refreshable region."""
-        host = self._youtube_dialog_host
-        with host if host is not None else contextlib.nullcontext():
-            dialog = ui.dialog()
-            self._youtube_dialog = dialog
-            dialog.on_value_change(self._on_youtube_dialog_change)
-            with dialog, ui.card().classes("sf-card sf-youtube-modal").mark("youtube-modal"):
-                with ui.row().classes("w-full items-center justify-between"):
-                    ui.label(formatting.YOUTUBE_MODAL_TITLE).classes("sf-title")
-                    (
-                        ui.button(icon="close", on_click=self._close_youtube_dialog, color=None)
-                        .props("flat dense round size=sm")
-                        .mark("youtube-modal-close")
-                    )
-                self._youtube_dialog_row = YouTubeRow(
-                    self.service,
-                    declined=self._youtube_declined,
-                    on_submitted=self._on_youtube_submitted,
-                    on_declined=self._on_youtube_declined,
-                    diagnostics=self.context.diagnostics,
-                    clipboard=self.context.clipboard,
-                    open_path=self.context.open_path,
+        """Build the modal for one open; NiceGUI parents it to the client layout."""
+        dialog = ui.dialog()
+        self._youtube_dialog = dialog
+        dialog.on_value_change(self._on_youtube_dialog_change)
+        with dialog, ui.card().classes("sf-card sf-youtube-modal").mark("youtube-modal"):
+            with ui.row().classes("w-full items-center justify-between"):
+                ui.label(formatting.YOUTUBE_MODAL_TITLE).classes("sf-title")
+                (
+                    ui.button(icon="close", on_click=self._close_youtube_dialog, color=None)
+                    .props("flat dense round size=sm")
+                    .mark("youtube-modal-close")
                 )
-                self._youtube_dialog_row.build()
+            self._youtube_dialog_row = self._make_youtube_row(busy=self._busy())
+            self._youtube_dialog_row.build()
+
+    def _make_youtube_row(self, *, busy: bool) -> YouTubeRow:
+        return YouTubeRow(
+            self.service,
+            busy=busy,
+            declined=self._youtube_declined,
+            on_submitted=self._on_youtube_submitted,
+            on_declined=self._on_youtube_declined,
+            diagnostics=self.context.diagnostics,
+            clipboard=self.context.clipboard,
+            open_path=self.context.open_path,
+        )
 
     def _on_youtube_declined(self) -> None:
         """One declined consent disables every YouTube surface this session."""
@@ -2406,12 +2397,23 @@ class WorkspacePage:
         if self._add_button is not None:
             self._add_button.set_enabled(not busy)
         if self._add_hint is not None:
-            self._add_hint.set_text(formatting.ADD_BUSY_HINT if busy else formatting.ADD_HINT)
+            if self._dialog_busy:
+                hint = formatting.ADD_DIALOG_HINT
+            elif busy:
+                hint = formatting.ADD_BUSY_HINT
+            else:
+                hint = formatting.ADD_HINT
+            self._add_hint.set_text(hint)
+        youtube_on = self.service.youtube_enabled()
         if self._youtube_action is not None:
-            self._youtube_action.set_visibility(self.service.youtube_enabled())
+            self._youtube_action.set_visibility(youtube_on)
             self._youtube_action.set_enabled(not busy)
         if self._youtube_row is not None:
             self._youtube_row.set_busy(busy)
+        if self._youtube_dialog_row is not None:
+            self._youtube_dialog_row.set_busy(busy)
+        if not youtube_on:
+            self._close_youtube_dialog()
         if busy != self._last_busy:
             self._last_busy = busy
             self._notice_block.refresh()
