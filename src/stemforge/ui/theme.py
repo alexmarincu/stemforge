@@ -61,6 +61,19 @@ WARN_LINE: Final = "#40341d"
 RADIUS: Final = "12px"
 MONO: Final = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
+# Compact control geometry (issue 42). ``SHELL_CSS`` owns the box through the
+# ``sf-control`` classes: Quasar's ``size`` prop writes an inline font-size that
+# a stylesheet cannot override.
+CONTROL_H: Final = "32px"
+CONTROL_MIN_W: Final = "44px"
+CONTROL_PAD_X: Final = "12px"
+CONTROL_ICON: Final = "32px"
+CONTROL_PRIMARY_H: Final = "36px"
+CONTROL_PRIMARY_MIN_W: Final = "120px"
+CONTROL_PRIMARY_PAD_X: Final = "16px"
+CONTROL_FONT: Final = "11px"
+CONTROL_PRIMARY_FONT: Final = "12.5px"
+
 LOGO_SVG: Final = assets.LOGO_SVG
 ABOUT_PNG: Final = assets.ABOUT_PNG
 
@@ -127,6 +140,15 @@ TOKENS_CSS: Final = f""":root {{
   --well: {WELL};
   --radius: {RADIUS};
   --mono: {MONO};
+  --control-h: {CONTROL_H};
+  --control-min-w: {CONTROL_MIN_W};
+  --control-pad-x: {CONTROL_PAD_X};
+  --control-icon: {CONTROL_ICON};
+  --control-primary-h: {CONTROL_PRIMARY_H};
+  --control-primary-min-w: {CONTROL_PRIMARY_MIN_W};
+  --control-primary-pad-x: {CONTROL_PRIMARY_PAD_X};
+  --control-font: {CONTROL_FONT};
+  --control-primary-font: {CONTROL_PRIMARY_FONT};
 }}
 """
 

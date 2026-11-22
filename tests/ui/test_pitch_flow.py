@@ -452,6 +452,14 @@ async def test_render_is_disabled_at_zero_and_while_a_job_runs(harness: Harness)
 
         assert _only(user, "pitch-semitones").text == "0"
         assert _enabled(user, "pitch-render") is False
+        # Issue 42: the stepper and the primary action share the compact box;
+        # the disabled Render keeps the primary size.
+        assert "sf-control" in _only(user, "pitch-down").classes
+        assert "sf-control--icon" in _only(user, "pitch-down").classes
+        assert "sf-control" in _only(user, "pitch-up").classes
+        assert "sf-control--icon" in _only(user, "pitch-up").classes
+        assert "sf-control" in _only(user, "pitch-render").classes
+        assert "sf-control--primary" in _only(user, "pitch-render").classes
 
         _step(user, 2)
         await asyncio.sleep(0.05)
@@ -497,6 +505,11 @@ async def test_a_single_scope_shows_a_bare_tab_and_both_scopes_stay_distinct(
 
         assert _only(user, f"output-tab-{master}").text == "+3"
         assert len(user.find(marker="output-tab").elements) == 2
+
+        _step(user, 3)
+        await asyncio.sleep(0.05)
+        assert "sf-control" in _only(user, "pitch-open").classes
+        assert "sf-control--primary" not in _only(user, "pitch-open").classes
 
         harness.add_separation(source_id)
         stems = harness.add_render(source_id, semitones=3, scope="stems")
@@ -681,6 +694,10 @@ async def test_old_stems_sets_stay_selectable_and_labelled_after_a_reseparation(
         await _refresh(harness, user, workspace_page)
         old_tab = _only(user, f"output-tab-{old}")
         assert "based on an earlier separation" in old_tab.text
+        # Issue 42: every version pill keeps the shared box in stale state.
+        assert "sf-control" in old_tab.classes
+        assert "is-stale" in old_tab.classes
+        assert "sf-control" in _only(user, "output-tab-original").classes
         assert len(user.find(marker="output-tab").elements) == 2
 
         new = harness.add_render(source_id, semitones=3, scope="stems", inputs=second, tag="new")
@@ -688,6 +705,7 @@ async def test_old_stems_sets_stay_selectable_and_labelled_after_a_reseparation(
 
         assert "based on an earlier separation" in _only(user, f"output-tab-{old}").text
         assert "based on an earlier separation" not in _only(user, f"output-tab-{new}").text
+        assert "sf-control" in _only(user, f"output-tab-{new}").classes
         assert len(user.find(marker="output-tab").elements) == 3
 
         track = harness.service.snapshot().tracks[0]
@@ -700,6 +718,8 @@ async def test_old_stems_sets_stay_selectable_and_labelled_after_a_reseparation(
         user.find(marker=f"output-tab-{old}").click()
         await asyncio.sleep(0.05)
         assert player.props["src"] == old_target.url
+        assert "sf-control" in _only(user, f"output-tab-{old}").classes
+        assert "is-stale" in _only(user, f"output-tab-{old}").classes
         assert len(user.find(marker="player").elements) == 1
 
         user.find(marker=f"output-tab-{new}").click()

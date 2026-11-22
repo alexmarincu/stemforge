@@ -562,6 +562,9 @@ async def test_offline_download_is_coded_and_retry_installs_the_model(tmp_path: 
             await user.should_not_see(marker="separation-gate")
             assert harness.models.is_installed() is True
             assert _enabled(user, "separation-action") is True
+            # Issue 42: the sibling card primary shares the Pitch primary box.
+            assert "sf-control" in _only(user, "separation-action").classes
+            assert "sf-control--primary" in _only(user, "separation-action").classes
             assert [job for job in harness.runner.jobs() if job.kind.value == "separate"] == []
     finally:
         harness.runner.stop(timeout=10)
