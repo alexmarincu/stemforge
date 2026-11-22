@@ -1,12 +1,12 @@
-"""The separation worker's JSONL protocol (stdlib only; ticket 06 §4).
+"""The separation worker's JSONL protocol (stdlib only).
 
 Stdout is protocol only: one UTF-8 JSON object per line, each carrying ``"v": 1``.
 Stderr is human log only. This module owns the event names, the exit codes, and
 the parser used by :class:`~stemforge.engines.separation.WorkerSeparationEngine`.
 It imports nothing outside the standard library because ``platform``,
-``domain``, and ``workers`` depend on it (ticket 06 §1).
+``domain``, and ``workers`` depend on it.
 
-Event types (ticket 06 §4)::
+Event types::
 
     {"v":1,"event":"hello","engine":"demucs","engine_version":"4.1.0",
      "model":"htdemucs","model_revision":"cbc8a9b","device":"cpu",
@@ -25,7 +25,7 @@ Event types (ticket 06 §4)::
 
 Unknown event names are ignored so a newer worker can add events without
 breaking an older parent. A ``v`` other than :data:`PROTOCOL_VERSION` is a
-protocol mismatch. Exit codes are fixed by ticket 06 §4.
+protocol mismatch.
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ INSTRUMENTAL_NAME: Final = "instrumental"
 WORKER_OUTPUT_NAMES: Final[tuple[str, ...]] = (*STEM_NAMES, INSTRUMENTAL_NAME)
 WORKER_OUTPUTS: Final[frozenset[str]] = frozenset(WORKER_OUTPUT_NAMES)
 
-# Ticket 06 §4: 0 success, 2 handled failure, 3 model unavailable, 4 invalid input.
+# 0 success, 2 handled failure, 3 model unavailable, 4 invalid input.
 EXIT_OK: Final = 0
 EXIT_HANDLED: Final = 2
 EXIT_MODEL_UNAVAILABLE: Final = 3

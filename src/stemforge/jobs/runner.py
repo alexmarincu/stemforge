@@ -7,7 +7,7 @@ is recorded and the runner continues with the next Job.
 
 Per-Job logs are created when a Job starts and closed when it ends; the app log
 gets one runner-level line per start and finish. A retention sweep runs once per
-runner start (ticket 07 §6).
+runner start.
 """
 
 from __future__ import annotations

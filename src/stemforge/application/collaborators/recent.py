@@ -38,5 +38,4 @@ class RecentService:
         return Path(entry.origin).is_file()
 
     def clear_recent(self) -> None:
-        """Clear the recent-files list; cached audio is untouched (ticket 07)."""
         self._settings.clear_recent()

@@ -1,6 +1,6 @@
 """Storage policy constants shared by settings and the artifact store.
 
-The default cache cap is a product decision (ticket 07 §2); it lives in the
+The default cache cap is a product decision; it lives in the
 platform layer so both ``settings`` and ``artifacts`` can use one value without
 depending on each other.
 """

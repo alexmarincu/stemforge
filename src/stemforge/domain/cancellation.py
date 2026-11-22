@@ -1,7 +1,7 @@
 """Cooperative cancellation for Jobs and the engine adapters that serve them.
 
 ``CancelToken`` wraps a ``threading.Event`` and raises :class:`JobCancelled` at
-safe checkpoints (ticket 06 §10). It lives in the domain layer rather than
+safe checkpoints. It lives in the domain layer rather than
 ``jobs/job.py`` because the engine protocols take it and the enforced import
 contract keeps ``engines`` independent of ``jobs``; ``jobs.job`` re-exports it
 for the documented import path.

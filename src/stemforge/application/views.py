@@ -131,7 +131,7 @@ class RemoveOutcome:
 
 @dataclass(frozen=True, slots=True)
 class PreviewTarget:
-    """One playable preview URL for a Track (ticket 09).
+    """One playable preview URL for a Track.
 
     ``original`` is the unshifted source preview; committed pitch renders expose
     their original preview for the A/B hook. The UI never builds these URLs
@@ -159,7 +159,7 @@ class ExportedFile:
 
 @dataclass(frozen=True, slots=True)
 class LicenceFiles:
-    """The Bundle-root licence artifacts the About modal exposes (ticket 22).
+    """The Bundle-root licence artifacts the About modal exposes.
 
     Frozen builds resolve these beside ``_internal/`` (``Path(sys.executable)``
     parent); a source checkout resolves them at the repository root. Nothing is
@@ -188,12 +188,12 @@ class LicenceFiles:
 
 @dataclass(frozen=True, slots=True)
 class PitchSet:
-    """One immutable Render set as version tabs and A/B see it (ticket 11).
+    """One immutable Render set as version tabs and A/B see it.
 
     ``label`` is the tab text (``+3`` or, when both scopes exist at one
-    semitone, ``+3 master`` / ``+3 stems``). ``based_on_earlier_separation`` is
-    the ticket-05/08 note that the set's recorded input hashes no longer match
-    the current Stems; such a set stays listed and selectable.
+    semitone, ``+3 master`` / ``+3 stems``). ``based_on_earlier_separation``
+    records that the set's recorded input hashes no longer match the current
+    Stems; such a set stays listed and selectable.
     """
 
     render_key: str
@@ -209,7 +209,7 @@ class SeparationSet:
     """One committed Separation set as the Separation card sees it.
 
     The artifact store keeps one Stems set per Source: a re-separation
-    replaces it (ticket 05). The view is still a list so the UI contract does
+    replaces it. The view is still a list so the UI contract does
     not have to change when an archived set appears; ``set_key`` is the stable
     identity used by preview lookups.
     """

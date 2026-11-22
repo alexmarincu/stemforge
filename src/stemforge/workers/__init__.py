@@ -1,7 +1,7 @@
 """Worker entry points reached only by executable dispatch, never by import.
 
 ``workers.separation`` is the only module allowed to import torch or Demucs, and
-only inside its run function (ticket 06 §8/§11). ``dispatch`` is called by
+only inside its run function. ``dispatch`` is called by
 ``stemforge.__main__`` for the frozen ``--worker <name>`` form; development runs
 ``python -m stemforge.workers.<name>`` directly, so both paths share ``run()``.
 """

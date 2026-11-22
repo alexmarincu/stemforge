@@ -1,11 +1,10 @@
-"""``WorkspaceService``: the only API the UI calls (ticket 06 §2).
+"""``WorkspaceService``: the only API the UI calls.
 
 The facade owns the composition root and the cross-feature operations: it wires
 the per-feature collaborators (ADR 0013), delegates their reads and Job
 submissions, and keeps ``remove_track`` and ``open_recent`` here because each
 spans more than one feature. It is constructible headless: no NiceGUI, no torch,
-and injectable placeholders for the ArtifactStore, JobRunner, and engine adapters
-(ticket 06 §13).
+and injectable placeholders for the ArtifactStore, JobRunner, and engine adapters.
 """
 
 from __future__ import annotations
@@ -199,8 +198,8 @@ class WorkspaceService:
         This is cross-feature composition, so it stays on the facade (ADR 0013):
         the entry is either a local file handled by ``ImportService`` or a
         YouTube URL handled by ``YouTubeService``. A missing local file raises
-        the coded ``import.file_unavailable`` before any Job starts (ticket 07
-        §5: nothing starts until the user acts).
+        the coded ``import.file_unavailable`` before any Job starts (nothing
+        starts until the user acts).
         """
         entry = self._recent.find(source_id)
         if entry is None:
@@ -221,7 +220,7 @@ class WorkspaceService:
         """Remove a Track and delete its cached audio when nothing else uses it.
 
         Removing the Track that owns an active Job cancels that Job first and
-        waits for the runner to acknowledge it (ticket 14 §6), so the runner can
+        waits for the runner to acknowledge it, so the runner can
         never delete a cache subtree that a Job is still writing.
         """
         track = self._state.find(track_id)
@@ -251,7 +250,7 @@ class WorkspaceService:
         return self._cache.sweep_stale()
 
     def enforce_cache_cap(self) -> EvictionReport:
-        """Run the startup LRU pass after the sweep (ticket 07 §2, §7)."""
+        """Run the startup LRU pass after the sweep."""
         return self._cache.enforce_cache_cap()
 
     def cache_usage_bytes(self) -> int:
@@ -259,7 +258,7 @@ class WorkspaceService:
         return self._cache.cache_usage_bytes()
 
     def cache_cap_bytes(self) -> int:
-        """The configured cache ceiling (ticket 07 §2)."""
+        """The configured cache ceiling."""
         return self._cache.cache_cap_bytes()
 
     def logs_dir(self) -> Path:
@@ -275,11 +274,11 @@ class WorkspaceService:
         return self._cache.clear_youtube_cache()
 
     def clear_cache(self) -> ClearReport:
-        """Delete every non-live cached artifact plus the tool caches (ticket 07)."""
+        """Delete every non-live cached artifact plus the tool caches."""
         return self._cache.clear_cache()
 
     def clear_recent(self) -> None:
-        """Clear the recent-files list; cached audio is untouched (ticket 07)."""
+        """Clear the recent-files list; cached audio is untouched."""
         self._recent.clear_recent()
 
     # -- Preview -----------------------------------------------------------
@@ -298,7 +297,7 @@ class WorkspaceService:
         render_key: str,
         role: str,
     ) -> PreviewTarget | None:
-        """The preview of one member of a Render set (ticket 08 §7)."""
+        """The preview of one member of a Render set."""
         return self._preview.pitch_render_preview_target(track, render_key, role)
 
     def pitch_preview_target(self, track: Track, render_key: str) -> PreviewTarget | None:
@@ -308,7 +307,7 @@ class WorkspaceService:
     # -- Pitch -------------------------------------------------------------
 
     def pitch_sets(self, track: Track) -> tuple[PitchSet, ...]:
-        """Every committed render set for the Track, oldest first (ticket 08 §7)."""
+        """Every committed render set for the Track, oldest first."""
         return self._pitch.pitch_sets(track)
 
     def pitch_set(
@@ -326,7 +325,7 @@ class WorkspaceService:
         semitones: int,
         scope: RenderScope | str,
     ) -> str:
-        """Submit one Pitch Render Job and return its id (ticket 03, ticket 08 §5)."""
+        """Submit one Pitch Render Job and return its id."""
         return self._pitch.render_pitch(track, semitones, scope)
 
     # -- Separation --------------------------------------------------------
@@ -336,7 +335,7 @@ class WorkspaceService:
         return self._separation.has_separation(track)
 
     def separation_sets(self, track: Track) -> tuple[SeparationSet, ...]:
-        """Every committed Separation set for the Track, oldest first (ticket 14)."""
+        """Every committed Separation set for the Track, oldest first."""
         return self._separation.separation_sets(track)
 
     def separation_preview_target(
@@ -371,7 +370,7 @@ class WorkspaceService:
         return self._export.preferred_export_dir()
 
     def remember_export_dir(self, directory: Path) -> None:
-        """Persist the destination the native save dialog returned (ticket 08 §9)."""
+        """Persist the destination the native save dialog returned."""
         self._export.remember_export_dir(directory)
 
     def export_targets(self, track: Track | str) -> tuple[ExportTarget, ...]:
@@ -454,15 +453,15 @@ class WorkspaceService:
         return self._ledger.snapshot(job_id)
 
     def cancel_job(self, job_id: str) -> bool:
-        """Request cancellation of one Job (ticket 06 §3)."""
+        """Request cancellation of one Job."""
         return self._ledger.cancel(job_id)
 
     def youtube_enabled(self) -> bool:
-        """Whether the empty-state YouTube row is enabled (ticket 09 §7)."""
+        """Whether the empty-state YouTube row is enabled."""
         return self._youtube.youtube_enabled()
 
     def youtube_tool_versions(self) -> Mapping[str, str]:
-        """The yt-dlp, yt-dlp-ejs, and Deno versions About must show (09 §9).
+        """The yt-dlp, yt-dlp-ejs, and Deno versions About must show.
 
         About renders from package metadata and the pinned Deno version. It
         never instantiates or calls an engine adapter, so opening the modal
@@ -493,9 +492,9 @@ class WorkspaceService:
         """Validate one YouTube URL synchronously, then submit its import Job.
 
         The field-level parser runs first, so a playlist, channel, search, or
-        foreign host never creates a Job (ticket 09 §1). The runner dedupes the
+        foreign host never creates a Job. The runner dedupes the
         Job identity, so a second submit while any ``import_youtube`` Job is
-        active returns that Job's id (ticket 09 §3).
+        active returns that Job's id.
         """
         return self._youtube.submit_youtube(url)
 

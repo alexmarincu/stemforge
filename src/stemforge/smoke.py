@@ -1,6 +1,6 @@
 """The frozen-build test flags: ``--self-test``, ``--smoke-test``, ``--smoke-separation``.
 
-Each flag builds a JSON report (ticket 10 §7), prints it to stdout, optionally
+Each flag builds a JSON report, prints it to stdout, optionally
 writes it to ``--report <path>``, and returns the exit code: ``0`` when every
 required check passed, ``1`` otherwise.
 
@@ -10,7 +10,7 @@ torch build *if* torch is installed. ``--smoke-test`` runs the same checks, then
 boots the NiceGUI server headlessly and polls ``/`` for HTTP 200.
 ``--smoke-separation`` runs a one-second synthetic source through the real
 Separation worker using the installed weights; it never downloads, and it is not
-part of ``--smoke-test`` (ticket 11 §4).
+part of ``--smoke-test``.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ VENDOR_BINARIES: Final = (
     ("vendor.deno", binaries.deno),
 )
 # FFmpeg's long form is ``-version``; the other two tools accept ``--version``.
-# Preflight and the vendor lock use the same flags (ticket 19).
+# Preflight and the vendor lock use the same flags.
 VENDOR_VERSION_FLAGS: Final = {
     "ffmpeg": "-version",
     "ffprobe": "-version",
@@ -178,9 +178,10 @@ def _check_bundle_root(checks: list[Check], *, require_vendor: bool) -> None:
         try:
             path = resolver()
         except OSError as exc:
-            # Ticket 4's skeleton Bundle has no vendor binaries yet; ticket 19
-            # flips REQUIRE_VENDOR=1 and turns this into a failure. In
-            # development a tool missing from vendor/ and PATH also lands here.
+            # A development checkout may have no vendor binaries; missing ones
+            # are reported as ``missing`` unless ``STEMFORGE_REQUIRE_VENDOR`` is set,
+            # which makes them failures. A tool missing from both vendor/ and
+            # PATH also lands here.
             _check(
                 checks,
                 name,
@@ -200,7 +201,7 @@ def _check_bundle_root(checks: list[Check], *, require_vendor: bool) -> None:
             continue
         # A PATH stand-in is a development convenience: a system tool that will
         # not run is reported as missing, not as a broken Bundle. A frozen build
-        # (or REQUIRE_VENDOR) treats it as fatal, as ticket 14's preflight does.
+        # (or REQUIRE_VENDOR) treats it as fatal, as the preflight does.
         strict = resources.is_frozen() or require_vendor
         tool = name.removeprefix("vendor.")
         flag = VENDOR_VERSION_FLAGS.get(tool, "--version")
@@ -707,7 +708,7 @@ def _wav_facts(path: Path) -> tuple[int, int, int, float] | None:
 
 
 class _ChildRssSampler:
-    """Measure the worker's peak RSS (ticket 11 §4).
+    """Measure the worker's peak RSS.
 
     Linux uses ``RUSAGE_CHILDREN`` after the child exits. Windows keeps a polling
     thread reading ``PeakWorkingSetSize`` through ``GetProcessMemoryInfo``.

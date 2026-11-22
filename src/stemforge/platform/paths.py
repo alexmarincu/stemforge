@@ -1,9 +1,9 @@
 """Application data directories.
 
 Every runtime and test write goes through this module. The exact per-OS strings
-are fixed by ticket 07 §1: platform-idiomatic per-user roots, or one
-``STEMFORGE_HOME`` root for portable and CI use. Construction never touches the
-filesystem; only :meth:`AppPaths.ensure` creates directories.
+are platform-idiomatic per-user roots, or one ``STEMFORGE_HOME`` root for
+portable and CI use. Construction never touches the filesystem; only
+:meth:`AppPaths.ensure` creates directories.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ class AppPaths:
         """Create every root with private permissions and return the resolved set.
 
         Symlinks are resolved *after* creation so the ``/media`` route compares
-        real paths (ticket 07 §1).
+        real paths.
         """
         for directory in self.roots:
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -100,8 +100,8 @@ class AppPaths:
     def storage_secret(self) -> str:
         """The per-install NiceGUI storage secret, 32 random bytes as hex.
 
-        Ticket 06 §7 stores it under ``AppPaths.config`` with mode ``0600`` and
-        regenerates it when the file is unreadable. There are no accounts, so a
+        It lives under ``AppPaths.config`` with mode ``0600`` and is
+        regenerated when the file is unreadable. There are no accounts, so a
         regeneration costs only a fresh browser session.
         """
         path = self.config / STORAGE_SECRET_FILENAME

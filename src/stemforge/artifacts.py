@@ -6,7 +6,7 @@ manifest whose paths are relative to that directory; the manifest is written las
 inside ``staging/<job_id>/`` and the completed directory is promoted with one
 atomic rename (ADR 0012). No database and no second index exist.
 
-Layout (ticket 05 §8, ticket 07 §1)::
+Layout::
 
     sources/<source_id>/native.<ext>
     sources/<source_id>/canonical.wav
@@ -40,8 +40,8 @@ own directory)::
 Every file must exist and, when the manifest records one, match its size; a
 recorded ``sha256`` is provenance and is checked only by a deep verification
 (``verify_hashes=True``) or when a set is committed. Routine lookups stay
-metadata-only so the UI never reads hundreds of megabytes of audio per refresh
-(issue #27). Caller-specific fields (metadata, semitones, engine version,
+metadata-only so the UI never reads hundreds of megabytes of audio per refresh.
+Caller-specific fields (metadata, semitones, engine version,
 validation result) are preserved as written. A schema newer than
 :data:`SCHEMA_VERSION` is ignored by lookup and left untouched by the sweep, but
 remains eligible for LRU eviction.
@@ -88,7 +88,7 @@ RENDER_KIND: Final = "render"
 CACHE_KIND_SOURCE: Final = "source"
 CACHE_KIND_RENDER: Final = "render"
 
-# Ticket 07 §8: PCM 44.1 kHz stereo float32 WAV, MP3 192 preview, WAV 24 export.
+# PCM 44.1 kHz stereo float32 WAV, MP3 192 preview, WAV 24 export.
 MIB: Final = 1024 * 1024
 GIB: Final = 1024 * MIB
 PCM_F32_BYTES_PER_MINUTE: Final = 21_200_000
@@ -113,7 +113,7 @@ _WINDOWS_RESERVED: Final = frozenset(
 
 
 # ---------------------------------------------------------------------------
-# Disk-space estimates (pure; ticket 07 §8)
+# Disk-space estimates (pure)
 # ---------------------------------------------------------------------------
 
 
@@ -175,7 +175,7 @@ def require_free_space(path: Path, needed: int, *, floor: int = GIB) -> None:
     """Fail ``storage.disk_full`` unless ``max(floor, needed)`` bytes are free.
 
     ``needed`` is the final requirement (use :func:`free_space_requirement` for
-    the ticket-07 1.5x rule). Export checks pass ``floor=0`` so a small file can
+    the 1.5x rule). Export checks pass ``floor=0`` so a small file can
     fit a nearly full destination.
     """
     if needed < 0:
@@ -843,7 +843,7 @@ class ArtifactStore:
     # -- cache usage and LRU ------------------------------------------------
 
     def usage_bytes(self) -> int:
-        """Bytes used by ``sources/`` and ``renders/`` only (ticket 07 §2)."""
+        """Bytes used by ``sources/`` and ``renders/`` only."""
         with self._lock:
             return sum(
                 _directory_size(directory) for directory in (self.sources_dir, self.renders_dir)
@@ -852,7 +852,7 @@ class ArtifactStore:
     def enforce_cap(self, needed_bytes: int = 0) -> EvictionReport:
         """Evict whole non-live sets oldest-first until the cap admits a reservation.
 
-        ``needed_bytes`` is the next Job's output estimate (ticket 07 §2): the
+        ``needed_bytes`` is the next Job's output estimate: the
         cache must reach ``usage + needed_bytes <= cap``, not merely fit today's
         bytes. Raises ``storage.cache_full`` when everything left is live.
         """
@@ -1081,7 +1081,7 @@ class ArtifactStore:
     def clear_youtube_cache(self) -> int:
         """Delete ``<cache>/yt-dlp/`` only; return the bytes freed.
 
-        Ticket 09 §7: never ``sources/``, ``renders/``, recent files, the model
+        Never ``sources/``, ``renders/``, recent files, the model
         store, or the Deno cache.
         """
         with self._lock:
@@ -1298,7 +1298,7 @@ def _read_manifest(
     Existence and recorded sizes are always checked when ``require_files`` is
     set; recorded hashes are re-read only when ``verify_hashes`` is set. The
     default keeps a lookup proportional to the manifest's metadata rather than
-    to the size of the audio it references (issue #27).
+    to the size of the audio it references.
     """
     try:
         raw = manifest_path.read_text(encoding="utf-8")

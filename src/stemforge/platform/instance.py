@@ -3,7 +3,7 @@
 The handle stays open for the life of the process; the OS releases it when the
 process exits, so a crash cannot leave a stale lock. A second instance gets
 ``acquire() is False`` and the entry point shows the native "already running"
-message instead of starting a sweep or touching artifacts (ticket 07 §7).
+message instead of starting a sweep or touching artifacts.
 """
 
 from __future__ import annotations

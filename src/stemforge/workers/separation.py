@@ -1,17 +1,17 @@
 """The Separation worker: reads one canonical WAV, writes five outputs as JSONL.
 
 Invoked by the frozen binary as ``stemforge --worker separation`` or in
-development as ``python -m stemforge.workers.separation`` (ticket 06 §4). Stdout
+development as ``python -m stemforge.workers.separation``. Stdout
 is protocol only; stderr is the human log. The worker imports torch and Demucs
-**inside** :func:`run`, never at module scope (ticket 06 §11): the app must start
+**inside** :func:`run`, never at module scope: the app must start
 without the heavyweight stack.
 
 The 30-minute source is processed in 8-minute blocks with a 1-second linear
-crossfade (ticket 12, ADR 0008), so peak memory stays bounded independent of
+crossfade (ADR 0008), so peak memory stays bounded independent of
 track length. Blocks use ``shifts=0``: the random equivariant shift is disabled
 in block mode so it cannot change timbre at a block boundary. Instrumental is the
 float32 sum of drums + bass + other, written in the same pass while the stems are
-in memory (ticket 05 §3). Each output is written to ``<role>.partial.wav`` inside
+in memory. Each output is written to ``<role>.partial.wav`` inside
 ``--out`` and renamed into place only after every block succeeded; a cancel, an
 error, or a closed stdin removes the partials and leaves no output behind.
 """
@@ -754,7 +754,7 @@ def _start_stdin_watch(stop: _Stop) -> None:
 
 
 def _pipe_stream(fd: int) -> TextIO | None:
-    """Recover stdout/stderr in a Windows windowed frozen build (ticket 06 §11)."""
+    """Recover stdout/stderr in a Windows windowed frozen build."""
     try:
         return os.fdopen(fd, "w", encoding="utf-8", errors="replace", closefd=False)
     except OSError:

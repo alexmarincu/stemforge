@@ -1,12 +1,12 @@
 """``MediaTool``: probe, decode, encode, sum, and peak via FFmpeg.
 
-One adapter owns every FFmpeg/ffprobe invocation in the application (ticket 06
-§10). It validates what it produced with ffprobe before returning, writes only
+One adapter owns every FFmpeg/ffprobe invocation in the application. It
+validates what it produced with ffprobe before returning, writes only
 ``<name>.partial.<ext>`` files and renames them into place, raises coded
 :class:`~stemforge.errors.StemForgeError` values, and never touches manifests or
 the Workspace.
 
-Policy: ticket 05 (canonical audio, preview, export, 30-minute cap) and ADR 0001.
+Policy: canonical audio, preview, export, the 30-minute cap, and ADR 0001.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ class MediaInfo:
 
 @dataclass(frozen=True, slots=True)
 class CanonicalMetadata:
-    """The record-driven metadata carried by a Source (ticket 05 §7)."""
+    """The record-driven metadata carried by a Source."""
 
     title: str = ""
     artist: str = ""
@@ -105,7 +105,7 @@ class DecodeResult:
 
 
 class ExportFormat(StrEnum):
-    """The three export formats (ticket 05 §7)."""
+    """The three export formats."""
 
     WAV24 = "wav24"
     FLAC24 = "flac24"
@@ -136,7 +136,7 @@ EXPORT_TAG_FIELDS = (
     "copyright",
 )
 
-# Ticket 05 §7: WAV carries INFO tags only. The RIFF/INFO mapping has no
+# WAV carries INFO tags only. The RIFF/INFO mapping has no
 # album-artist, disc, or composer field that FFmpeg persists, so the writer and
 # the verifier share this exact subset; MP3 and FLAC carry all eleven.
 WAV_TAG_FIELDS = (
@@ -210,7 +210,7 @@ def _tag_args(tags: Mapping[str, str], fields: Sequence[str] = EXPORT_TAG_FIELDS
 
 
 class MediaTool(Protocol):
-    """The single FFmpeg/ffprobe adapter (ticket 06 §10)."""
+    """The single FFmpeg/ffprobe adapter."""
 
     def probe(self, path: Path) -> MediaInfo: ...
 

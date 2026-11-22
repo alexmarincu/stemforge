@@ -1,6 +1,6 @@
 """Startup preflight checks for the window stack, storage, and bundled files.
 
-The report is ordered exactly as ticket 14 §3 lists the checks. Every result is
+The report lists the checks in a fixed order. Every result is
 recorded; the first fatal result decides the process exit code, and a missing
 preview stack is only a degraded capability (exit 4 in ``--preflight``, never a
 fatal error for the GUI). The module stays stdlib-only at import time and loads
@@ -218,7 +218,7 @@ def build_fatal_message(
     log_path: Path | None,
     copy_text: str,
 ) -> FatalMessage:
-    """Assemble the exact ticket 14 §3 body for the native fatal box."""
+    """Assemble the body of the native fatal box."""
     return FatalMessage(
         code=code,
         sentence=sentence,
@@ -264,7 +264,7 @@ def run_preflight(
     checkers: Sequence[Callable[[], CheckResult]] | None = None,
     fail_on_degraded: bool = True,
 ) -> PreflightReport:
-    """Run every check in ticket 14 §3 order and return the recorded report."""
+    """Run every check in order and return the recorded report."""
     resolved_system = sys.platform if system is None else system
     resolved_machine = platform.machine() if machine is None else machine
     if checkers is not None:
@@ -398,7 +398,7 @@ def check_bundle(
     A frozen Bundle must contain every file ``vendor.lock.json`` names for its
     target, each executable must run and report the locked version, and the
     Rubber Band CLI must have its co-located libsndfile. A development checkout
-    keeps the ticket 4 fallback: no ``vendor/`` means PATH is the source.
+    keeps the fallback: no ``vendor/`` means PATH is the source.
     """
     resolved_system = sys.platform if system is None else system
     is_frozen = _is_frozen() if frozen is None else frozen
@@ -580,7 +580,7 @@ def _verify_fallback_layout(
     resolved_system: str,
     version_of: Callable[[Path, str], str | None] | None,
 ) -> list[str]:
-    """The ticket 4 layout, used by an older or minimal lock without installs."""
+    """The fallback layout, used by an older or minimal lock without installs."""
     problems: list[str] = []
     for tool in VENDOR_TOOLS:
         path = vendor / _tool_directory(tool) / f"{tool}{executable_suffix}"
@@ -914,7 +914,7 @@ def _first_existing(candidates: Sequence[Path]) -> Path | None:
 def read_vendor_lock_versions(path: Path) -> dict[str, str] | None:
     """The tool versions recorded in ``vendor.lock.json``, or ``None``.
 
-    Accepts the ticket 19 schema (``components.<tool>.version``) and the older
+    Accepts the ``components.<tool>.version`` schema and the older
     skeleton spellings (``versions`` and loose ``name``/``tool``/``id`` records)
     so a stale development lock cannot crash the preflight.
     """

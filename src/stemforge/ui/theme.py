@@ -1,16 +1,16 @@
-"""The visual root: the prototype palette, control geometry, Quasar colours, and brand assets.
+"""The visual root: the shell palette, control geometry, Quasar colours, and brand assets.
 
 Quasar ships a blue ``primary`` (``#1976D2``); StemForge must never show it. The
 page applies this palette once per client before building the shell, so every
 default-coloured control — buttons, sliders, progress bars, switches, focus
-rings — inherits the amber accent from ticket 08's prototype.
+rings — inherits the amber accent.
 
 The token block is the only place the shell declares colour literals. It also
-carries the shared compact-control geometry (ticket 42). Every rule in
+carries the shared compact-control geometry. Every rule in
 :data:`stemforge.ui.page.SHELL_CSS` consumes a token, which keeps the
-prototype's palette and the rendered app from drifting apart.
+shell's palette and the rendered app from drifting apart.
 
-The mark is ticket 17's *Badge*: an amber disc with four ink bars. Assets are
+The mark is the *Badge*: an amber disc with four ink bars. Assets are
 embedded as data URLs so the rail and About modal do not depend on a static
 route being registered by a particular entry point.
 """
@@ -26,7 +26,7 @@ from nicegui import ui
 
 from stemforge.integration import assets
 
-# prototypes/08-ui-layout.html:26-35
+# The shell palette.
 BG: Final = "#0e1014"
 RAIL: Final = "#11141a"
 PANEL: Final = "#151920"
@@ -51,7 +51,7 @@ BAD_DIM: Final = "#a97f7f"
 BAD_SOFT: Final = "rgba(239, 112, 112, 0.1)"
 BAD_BG: Final = "#241617"
 BAD_LINE: Final = "#5b2c2c"
-# ticket 17 §Resolved sub-questions: the bars are ink on the amber disc.
+# The bars are ink on the amber disc.
 INK: Final = "#1d1204"
 
 # App-specific surfaces derived from the same palette.
@@ -62,7 +62,7 @@ WARN_LINE: Final = "#40341d"
 RADIUS: Final = "12px"
 MONO: Final = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
-# Compact control geometry (ticket 42). The ``sf-control`` classes in
+# Compact control geometry. The ``sf-control`` classes in
 # ``SHELL_CSS`` consume these tokens.
 CONTROL_H: Final = "32px"
 CONTROL_MIN_W: Final = "44px"

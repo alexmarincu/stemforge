@@ -3,7 +3,7 @@
 ``configure()`` resolves :class:`~stemforge.platform.paths.AppPaths`, creates the
 roots (and the tool-cache subdirectories that environment variables point at),
 and sets ``NICEGUI_STORAGE_PATH``, ``HF_HOME``, ``DENO_DIR``, and the temp
-variables before NiceGUI or Demucs is imported (ticket 06 §6, ticket 07 §9).
+variables before NiceGUI or Demucs is imported.
 """
 
 from __future__ import annotations

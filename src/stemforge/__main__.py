@@ -1,6 +1,6 @@
 """Executable entry point.
 
-The frozen-build contract (ticket 06 §11) requires ``freeze_support()`` to be the
+The frozen-build contract requires ``freeze_support()`` to be the
 first statement in the main guard, and the heavy stack (NiceGUI, torch, Demucs) to
 stay out of this module's imports. ``--self-test``, ``--smoke-test``, and
 ``--smoke-separation`` live in :mod:`stemforge.smoke`; ``--preflight`` runs the
@@ -186,7 +186,7 @@ def _run_preflight(paths: AppPaths, args: argparse.Namespace) -> int:
 
 
 def _diagnostics_text(report: preflight.PreflightReport, paths: AppPaths) -> str:
-    """The full copy-only diagnostics report (ticket 14 §10)."""
+    """The full copy-only diagnostics report."""
     from stemforge.integration import diagnostics
 
     return diagnostics.collect_diagnostics(paths, report=report)
@@ -273,10 +273,10 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
             separation=WorkerSeparationEngine(),
         ),
     )
-    # Ticket 07 §7: the sweep runs once behind the single-instance lock, before
+    # The sweep runs once behind the single-instance lock, before
     # the Workspace is built; its residue alone triggers the recovery banner.
     sweep = service.sweep_stale()
-    # Ticket 07 §2: startup enforces the cap after the sweep. Nothing is live
+    # Startup enforces the cap after the sweep. Nothing is live
     # yet, so this normally succeeds; a failure must not keep the window shut.
     try:
         service.enforce_cache_cap()
@@ -309,7 +309,7 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
         )
     )
     configure_window(paths)
-    # Ticket 05 §6: one cache-rooted route, registered before the window starts.
+    # One cache-rooted route, registered before the window starts.
     register_media_route(app, paths.cache)
 
     runner = service.runner
@@ -576,7 +576,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Parse the entry-point flags and return a process exit code."""
     raw = list(sys.argv[1:] if argv is None else argv)
 
-    # Ticket 06 §7 order: worker dispatch happens before environment setup and
+    # Worker dispatch happens before environment setup and
     # the instance lock, so a second process can still run the bundled worker.
     # The worker's own flags are not the app's, so this scan precedes argparse.
     if "--worker" in raw:

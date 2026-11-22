@@ -1,6 +1,6 @@
-"""The Settings & About modal (ticket 08 §12, ticket 09 §7, ticket 22).
+"""The Settings & About modal.
 
-Three sections, in the order ticket 08 fixes:
+Three sections, in this order:
 
 * **App** — version, GPL-3.0-only, the bundled notices and source offer, and the
   ``LICENSES/`` folder. Paths resolve from the Bundle root through
@@ -10,7 +10,7 @@ Three sections, in the order ticket 08 fixes:
 * **Storage** — the 8 GiB cache meter, Clear cached audio (live tracks stay),
   Clear recent files, the YouTube tool cache, and Open log folder.
 * **Behaviour** — the persisted YouTube import toggle, the close/shutdown
-  contract, and the force-quit export-partial note (ticket 14 §8).
+  contract, and the force-quit export-partial note.
 
 A missing licence tree is a coded ``licensing.files_missing`` message, not a
 traceback; a file manager that cannot start is ``licensing.open_failed``.
@@ -339,7 +339,7 @@ class SettingsDialog:
         return any(snapshot.active for snapshot in self._service.jobs())
 
     def _sync_job_actions(self) -> None:
-        """Ticket 14 §6: the two cache clears are disabled while any Job runs."""
+        """The two cache clears are disabled while any Job runs."""
         busy = self._any_job_active()
         for button in (self._clear_cache_button, self._clear_youtube_button):
             if button is not None:

@@ -1,11 +1,11 @@
 """Local import Job: probe, decode, metadata, manifest, and atomic commit.
 
 The pipeline function composes the engine adapter, ``ArtifactStore``, and the
-Workspace through a callback; it imports no UI or application module (ticket 06
-§1). Progress is monotonic and uses the four ticket labels: Probing, Decoding,
-Reading metadata, Saving. Cancellation is honoured at every checkpoint before the
-manifest is written; once the store starts promoting, the Job is not interruptible
-(ticket 14 §5).
+Workspace through a callback; it imports no UI or application module. Progress
+is monotonic and uses the four stage labels: Probing, Decoding, Reading
+metadata, Saving. Cancellation is honoured at every checkpoint before the
+manifest is written; once the store starts promoting, the Job is not
+interruptible.
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def run_local_import(
             ctx.progress(1.0, stage=STAGE_SAVING)
             return ImportResult(source=source, track=track, artifact=cached, cached=True)
 
-        # Ticket 07 §2: the Job reserves its output estimate before it writes.
+        # The Job reserves its output estimate before it writes.
         artifacts.enforce_cap(estimate)
         staging = artifacts.stage(ctx.job_id)
         native_path = staging / _native_name(source_path)
@@ -157,7 +157,7 @@ def run_local_import(
             title=title,
             gain_db=gain_db,
         )
-        # From here on the commit is not interruptible (ticket 14 §5).
+        # From here on the commit is not interruptible.
         artifact = artifacts.commit_source(staging, source_id, manifest)
         staging = None
 

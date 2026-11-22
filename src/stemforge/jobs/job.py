@@ -1,7 +1,7 @@
 """Job values: ``Job``, ``JobContext``, and the re-exported ``CancelToken``.
 
 ``JobRunner`` owns execution; this module owns the shapes a caller supplies and
-the seam a pipeline function receives (ticket 06 §2, §3). ``CancelToken`` lives
+the seam a pipeline function receives. ``CancelToken`` lives
 in ``domain.cancellation`` because engine adapters take it and ``engines`` must
 not import ``jobs``; it is re-exported here for the documented import path.
 """

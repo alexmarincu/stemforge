@@ -1,8 +1,7 @@
 """The pinned model identity, read from the bundled ``models.lock.json``.
 
 The lock file is the single record of what may be downloaded. It is read-only
-package data: the weights themselves are never bundled, mirrored, or committed
-(ADR 0009, ticket 13 §7).
+package data: the weights themselves are never bundled, mirrored, or committed (ADR 0009).
 """
 
 from __future__ import annotations

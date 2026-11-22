@@ -1,8 +1,7 @@
 """``SettingsStore``: recent sources, export directory, and first-run flags.
 
 A single JSON document under ``<config>/settings.json`` with ``os.replace``
-atomic writes and one process lock. Never browser or NiceGUI storage
-(ticket 06 §5, ticket 07 §5).
+atomic writes and one process lock. Never browser or NiceGUI storage.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ from stemforge.platform.storage import DEFAULT_CACHE_CAP_BYTES
 SCHEMA_VERSION: Final = 1
 MAX_RECENT_FILES: Final = 10
 SETTINGS_FILENAME: Final = "settings.json"
-# Ticket 09 §7: the shipped YouTube consent wording has one version.
+# The shipped YouTube consent wording has one version.
 YOUTUBE_NOTICE_VERSION: Final = 1
 
 _LOG = logging.getLogger(__name__)
@@ -33,7 +32,7 @@ _LOG = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class RecentFile:
-    """One entry in the recent-files list (ticket 07 §5)."""
+    """One entry in the recent-files list."""
 
     source_id: str
     title: str
@@ -51,11 +50,11 @@ class Settings:
     recent: tuple[RecentFile, ...] = ()
     export_dir: Path | None = None
     first_run: bool = True
-    # Ticket 07 §2: the audio cache cap, counted over sources/ and renders/ only.
+    # The audio cache cap, counted over sources/ and renders/ only.
     cache_cap_bytes: int = DEFAULT_CACHE_CAP_BYTES
-    # Ticket 13 §7: explicit consent for the htdemucs download.
+    # Explicit consent for the htdemucs download.
     model_consent: ModelConsent | None = None
-    # Ticket 09 §7: the YouTube row toggle and the one-time ToS acknowledgment.
+    # The YouTube row toggle and the one-time ToS acknowledgment.
     youtube_enabled: bool = True
     youtube_notice_acknowledged: bool = False
     youtube_notice_version: int = 0
@@ -121,7 +120,7 @@ class SettingsStore:
                 return
             self._write_locked(replace(self._settings, model_consent=None))
 
-    # -- YouTube (ticket 09 §7) --------------------------------------------
+    # -- YouTube -----------------------------------------------------------
 
     @property
     def youtube_enabled(self) -> bool:

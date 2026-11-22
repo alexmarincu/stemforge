@@ -1,10 +1,10 @@
 """The YouTube import Job: resolve, pace, download, decode, preview, commit.
 
-One Job kind, ``import_youtube``, running on the single JobRunner thread (ticket
-06 §3, ticket 09 §3). The network work is delegated to
-:class:`~stemforge.engines.youtube.YouTubeTool`; this module owns the stage
-weights, the two 5 s politeness waits, the cache-hit shortcut, the manifest, and
-the atomic commit. It imports no UI or application module.
+One Job kind, ``import_youtube``, running on the single JobRunner thread. The
+network work is delegated to :class:`~stemforge.engines.youtube.YouTubeTool`;
+this module owns the stage weights, the two 5 s politeness waits, the cache-hit
+shortcut, the manifest, and the atomic commit. It imports no UI or application
+module.
 
 Stage labels are the four the Job bar shows: ``Checking video`` (resolve and the
 first wait), ``Downloading audio`` (download and the second wait), ``Decoding
@@ -97,7 +97,7 @@ def run_youtube_import(
     if cached is not None:
         return _finish_cached(ctx, artifacts, cached, video, finalize)
 
-    # Ticket 09 §5 case 2: a valid native file repairs a missing or invalid
+    # A valid native file repairs a missing or invalid
     # canonical/preview without touching the network.
     recovered = _recover_from_native(ctx, artifacts, media, video, finalize)
     if recovered is not None:
@@ -109,7 +109,7 @@ def run_youtube_import(
 
     source_id = f"yt-{metadata.video_id}"
     if source_id != video.source_id:
-        # Ticket 09 §1: yt-dlp's id is authoritative after resolve.
+        # ``yt-dlp``'s id is authoritative after resolve.
         cached = artifacts.find_source(source_id, verify_hashes=True)
         if cached is not None:
             return _finish_cached(
@@ -176,7 +176,7 @@ def run_youtube_import(
         )
         ctx.cancel.check()
 
-        # Ticket 09 §5: the estimate is checked again before promotion.
+        # The estimate is checked again before promotion.
         _check_free_space(artifacts, decoded.duration_s)
         ctx.progress(0.95, stage=STAGE_FINISHING, detail="Writing manifest")
         manifest = _source_manifest(
@@ -195,7 +195,7 @@ def run_youtube_import(
             gain_db=gain_db,
             tools=youtube.tool_versions(),
         )
-        # From here on the commit is not interruptible (ticket 14 §5).
+        # From here on the commit is not interruptible.
         artifact = artifacts.commit_source(staging, source_id, manifest)
         staging = None
 
@@ -280,7 +280,7 @@ def _recover_from_native(
     except OSError:
         return None
     if _sha256_file(native_path) != native_sha256:
-        # Ticket 09 §5 case 3: the native file no longer matches its hash.
+        # The native file no longer matches its hash.
         _discard_broken_source(ctx, artifacts, source_id)
         return None
 
@@ -438,7 +438,7 @@ def _polite_wait(
     """Wait between network phases, publishing the countdown at 2 Hz.
 
     The sleep function is injectable so tests do not spend real seconds; the
-    Job bar still sees progress at least every 5 s while blocked (ticket 09 §3).
+    Job bar still sees progress at least every 5 s while blocked.
     """
     remaining = seconds
     while remaining > 0:

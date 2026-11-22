@@ -1,6 +1,6 @@
 """The durable model store: install, verify, and delete the pinned weights.
 
-Layout (ticket 07 §4 and ticket 12)::
+Layout::
 
     <data>/models/htdemucs/<filename>
     <data>/models/htdemucs/<filename>.partial
@@ -8,8 +8,8 @@ Layout (ticket 07 §4 and ticket 12)::
 
 The marker appears only after the streamed bytes matched the pinned size and
 SHA-256. The store never bundles weights; ``verify`` re-hashes the file on every
-call because ticket 07 §4 requires a re-hash before every Separation. There is
-deliberately no cross-call hash cache: 84 MB is cheap against a multi-minute Job.
+call because every Separation requires a re-hash first. There is deliberately no
+cross-call hash cache: 84 MB is cheap against a multi-minute Job.
 """
 
 from __future__ import annotations
@@ -139,7 +139,7 @@ class ModelStore:
         """Re-hash the weights and repair the marker; discard a mismatch.
 
         A size or SHA-256 mismatch deletes the weights and marker so the UI can
-        offer a fresh download (ticket 07 §4). An unreadable file raises
+        offer a fresh download. An unreadable file raises
         ``separation.engine_error``.
         """
         target = self.path()

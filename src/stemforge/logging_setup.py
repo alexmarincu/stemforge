@@ -1,8 +1,8 @@
 """Logging configuration: the app log and the per-Job log handlers.
 
 Stdlib ``logging`` only. Root logger ``stemforge``, ``logs/stemforge.log`` with
-2 MiB with 3 backups, and one capped file per Job under ``logs/jobs``
-(ticket 06 §9, ticket 07 §6). No telemetry and no network handlers.
+2 MiB with 3 backups, and one capped file per Job under ``logs/jobs``. No
+telemetry and no network handlers.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ def sweep_job_logs(
 
     Both rules apply: a file is removed when it falls outside the newest ``keep``
     *or* its mtime is older than the age limit. Missing or unreadable entries are
-    ignored; this is a best-effort startup sweep (ticket 07 §6).
+    ignored; this is a best-effort startup sweep.
     """
     if keep < 1:
         raise ValueError("keep must be positive")

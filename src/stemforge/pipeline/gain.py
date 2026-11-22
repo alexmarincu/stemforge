@@ -4,8 +4,7 @@ Every stage that produces an artifact set (import, separation, pitch render)
 measures the set's sample peak once it is complete. If the loudest sample exceeds
 0 dBFS, the whole set records one gain that brings that peak to -1.0 dBFS;
 otherwise the gain is ``0``. The gain is metadata only: preview and export
-encoders apply it, and master float32 WAVs are never attenuated in place
-(ticket 05 §5).
+encoders apply it, and master float32 WAVs are never attenuated in place.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ def max_peak_dbfs(peaks_dbfs: Iterable[float]) -> float | None:
 
     ``None`` covers both an empty measurement set and a set whose every peak is
     ``-inf`` (digital silence). A NaN measurement is a bug in the measuring
-    stage, not silence, so it raises instead of being skipped (ticket 05 §5).
+    stage, not silence, so it raises instead of being skipped.
     """
     loudest = float("-inf")
     for peak in peaks_dbfs:

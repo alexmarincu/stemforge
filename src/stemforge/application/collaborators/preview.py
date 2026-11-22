@@ -26,7 +26,6 @@ class PreviewService:
         self._workspace = workspace
 
     def has_preview(self, track_id: str) -> bool:
-        """Whether the Track's source preview exists inside the cache."""
         track = self._workspace.find(track_id)
         return track is not None and self._preview_url(track.source.preview_path) is not None
 
@@ -50,7 +49,7 @@ class PreviewService:
         render_key: str,
         role: str,
     ) -> PreviewTarget | None:
-        """The preview of one member of a Render set (ticket 08 §7).
+        """The preview of one member of a Render set.
 
         A master set carries only its shifted master; a stems set carries Vocals,
         Instrumental, Drums, Bass, and Other. The key is stable and unique across
@@ -85,7 +84,6 @@ class PreviewService:
         )
 
     def pitch_preview_target(self, track: Track, render_key: str) -> PreviewTarget | None:
-        """The playable preview of one render set, or ``None`` when it is gone."""
         return next(
             (target for target in self._preview_targets(track) if target.key == render_key),
             None,

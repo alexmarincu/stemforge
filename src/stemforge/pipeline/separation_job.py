@@ -1,7 +1,7 @@
 """Separation Job: verify the model, run the worker, validate, sum, and commit.
 
 One function, :func:`run_separation_job`, owns everything a Separation produces
-(ticket 05 §3, ticket 06 §4, ticket 13): it re-verifies the pinned weights before
+: it re-verifies the pinned weights before
 spawning anything, runs the worker into ``staging/<job_id>/``, validates all five
 outputs (the worker writes Instrumental in-process), measures one presentation gain, encodes the
 previews, writes the manifest last, and promotes the directory with one atomic
@@ -136,7 +136,7 @@ def run_separation_job(
     ``models.require_verified()`` re-hashes the weights before the worker is
     spawned; a missing or tampered cache raises ``separation.model_missing`` and
     no staging directory is created. A cancel or any failure discards
-    ``staging/<job_id>/`` (ticket 14 §5).
+    ``staging/<job_id>/``.
     """
     cancel = ctx.cancel
     log = ctx.log
@@ -172,7 +172,7 @@ def run_separation_job(
         )
     estimate = estimate_separation_bytes(expected_duration)
     require_free_space(artifacts.root, free_space_requirement(estimate))
-    # Ticket 07 §2: reserve the set's cache footprint before it is written.
+    # Reserve the set's cache footprint before it is written.
     artifacts.enforce_cap(estimate)
     plan = block_plan(
         duration_s=expected_duration,

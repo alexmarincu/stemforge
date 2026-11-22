@@ -1,4 +1,4 @@
-"""The single writer for ``source.json`` (ticket 05 §8, ADR 0004).
+"""The single writer for ``source.json`` (ADR 0004).
 
 Local and YouTube imports share every field except the origin-specific record,
 so the schema version, kind, timestamps, and app version have one source here.

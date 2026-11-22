@@ -1,6 +1,6 @@
 """The per-Track Pitch card: request stepper and one scoped Render action.
 
-The stepper is a request, not a view (ticket 08 §5): stepping only changes what a
+The stepper is a request, not a view: stepping only changes what a
 later Render would ask for. Version tabs live in the Outputs card; nothing in
 this module touches an artifact, a manifest, or an engine. Every read and every
 Render goes through ``WorkspaceService``.

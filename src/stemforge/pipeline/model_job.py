@@ -78,7 +78,7 @@ Transport = Callable[[str, Mapping[str, str] | None], DownloadResponse]
 
 
 class _NetworkFailure(Exception):
-    """A classified transport failure; ticket 14 §8 forbids automatic retries."""
+    """A classified transport failure; automatic retries are forbidden."""
 
     def __init__(self, reason: str, *, detail: str, cause: BaseException) -> None:
         super().__init__(detail)

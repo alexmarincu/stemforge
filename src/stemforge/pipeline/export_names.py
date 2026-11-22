@@ -1,10 +1,9 @@
 """Pure Windows-safe export names, collision suffixes, and space estimates.
 
-Ticket 05 §7 fixes the suggested names and the sanitizing rules; ticket 17 §1
-adds the 255-byte filename cap and deterministic collision suffixes. Everything
-here is filesystem-free except :func:`unique_export_path`, whose existence probe
-is injectable, so the unit layer can test every branch without FFmpeg or a real
-destination.
+The suggested names and sanitizing rules, the 255-byte filename cap, and
+deterministic collision suffixes all live here. Everything is filesystem-free
+except :func:`unique_export_path`, whose existence probe is injectable, so the
+unit layer can test every branch without FFmpeg or a real destination.
 """
 
 from __future__ import annotations
@@ -82,7 +81,7 @@ def sanitize_base_name(name: str) -> str:
 
 
 def suggest_base_name(title: str, *, role: str | None = None, semitones: int = 0) -> str:
-    """Build the ticket 05 §7 suggestion, without an extension.
+    """Build the suggested export name, without an extension.
 
     ``title`` for the original; ``title - Vocals`` for an unshifted output;
     ``title +3st`` for a shifted original; ``title - Vocals +3st`` for a shifted
@@ -170,7 +169,7 @@ def unique_export_path(
 
 
 def required_export_space(duration_s: float) -> int:
-    """Free space an export needs: the ticket 07 §8 WAV-24 worst case.
+    """Free space an export needs: the WAV-24 worst case.
 
     The estimate already carries the 1.2 job headroom and 64 MiB of slack, so
     export passes ``floor=0`` to :func:`~stemforge.artifacts.require_free_space`
