@@ -1,12 +1,9 @@
 """The comment policy: every comment states its reason in place (ADR 0014).
 
-A citation is not a reason. The tickets these comments pointed at were deleted
-with the decision-record scaffolding, leaving 512 pointers into nothing. These
-assertions hold the tree to the policy so an edit cannot quietly reintroduce
-the habit.
-
-``§`` is deliberately absent from the patterns below: five occurrences are GPL
-statute references (``GPL-3.0 §6(b)``) and they must survive.
+A pointer to a document is not a reason: it sends the reader away from the line
+that needs it. These assertions fail on a work-item citation, on a section sign
+that is not part of a licence reference, and on a collaborator docstring that
+repeats the facade contract.
 """
 
 from __future__ import annotations
@@ -25,15 +22,20 @@ APPLICATION = REPO_ROOT / "src" / "stemforge" / "application"
 # A work item is not a location in this repository; nothing here can resolve
 # one. The policy is about pointers, not about the words.
 FORBIDDEN = (
-    (re.compile(r"\btickets?[\s_-]+\d", re.IGNORECASE), "ticket citation"),
+    (re.compile(r"\btickets?[\s_-]+#?\d", re.IGNORECASE), "ticket citation"),
+    (re.compile(r"\bissues?\s+#\d", re.IGNORECASE), "issue citation"),
     (re.compile(r"\bresearch[\s_-]+\d", re.IGNORECASE), "research-note citation"),
     (re.compile(r"\bCONTEXT\.md\b"), "CONTEXT.md pointer"),
 )
 
+# A section sign is only legitimate in a licence reference, where it names a
+# statute clause (GPL-3.0 §6(b)); anywhere else it is a work-item section.
+LICENCE_MARKER = re.compile(r"\b(?:A?GPL|LGPL)\b")
+
 SCANNED_SUFFIXES = frozenset(
     {".py", ".spec", ".sh", ".ps1", ".yml", ".toml", ".json", ".iss", ".md"}
 )
-SCANNED_DIRECTORIES = ("src", "tests", "scripts", "packaging", ".github", "docs/adr")
+SCANNED_DIRECTORIES = ("src", "tests", "scripts", "packaging", ".github", "docs", "LICENSES")
 # README and GLOSSARY are the public prose; a work item there is worse than in a
 # comment. LICENSE, THIRD_PARTY_NOTICES.md and SOURCE_OFFER.md are generator
 # output and are already proven byte-for-byte by `generate_notices.py --check`.
@@ -47,7 +49,7 @@ GENERATED_PREFIX = "LICENSES/"
 AGENT_DOCS_PREFIX = "docs/agents/"
 
 # Below this, two identical sentences are a naming coincidence rather than a
-# contract copied into the wrong layer.
+# contract copied into the wrong layer: "The Track." is a label, not a rule.
 MINIMUM_SHARED_CONTRACT = 30
 
 # This file spells out the patterns it forbids, so it is the one file the scan
@@ -56,7 +58,7 @@ POLICY_TEST = Path(__file__).resolve()
 
 
 def _scanned_files() -> list[Path]:
-    files = [REPO_ROOT / name for name in SCANNED_FILES if (REPO_ROOT / name).is_file()]
+    files = [REPO_ROOT / name for name in SCANNED_FILES]
     for directory in SCANNED_DIRECTORIES:
         for path in sorted((REPO_ROOT / directory).rglob("*")):
             if not path.is_file() or path.suffix not in SCANNED_SUFFIXES:
@@ -70,6 +72,11 @@ def _scanned_files() -> list[Path]:
                 continue
             files.append(path)
     return files
+
+
+def test_scanned_files_exist() -> None:
+    missing = [name for name in SCANNED_FILES if not (REPO_ROOT / name).is_file()]
+    assert not missing, f"the comment policy no longer scans {missing}: restore or drop them"
 
 
 def test_no_work_item_citations() -> None:
@@ -86,8 +93,24 @@ def test_no_work_item_citations() -> None:
     )
 
 
+def test_section_signs_are_licence_references() -> None:
+    violations: list[str] = []
+    for path in _scanned_files():
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "§" not in line or LICENCE_MARKER.search(line):
+                continue
+            relative = path.relative_to(REPO_ROOT).as_posix()
+            violations.append(f"{relative}:{number}: {line.strip()[:120]}")
+    assert not violations, (
+        "A section sign must name a licence clause (GPL-3.0 §6(b)); a work-item "
+        "section is a citation (ADR 0014).\n" + "\n".join(violations)
+    )
+
+
 def test_generated_exemption_is_generator_output() -> None:
-    """The exemption may only cover a path the generator actually writes."""
+    """The exemption may only cover paths the generator actually writes."""
+    exempt = [path for path in (REPO_ROOT / GENERATED_PREFIX).rglob("*") if path.is_file()]
+    assert exempt, f"nothing lives under {GENERATED_PREFIX!r}; drop the exemption"
     output_roots = _generator_output_roots()
     assert GENERATED_PREFIX.split("/")[0] in output_roots, (
         f"{GENERATED_PREFIX!r} is exempt from the comment policy but "

@@ -4,7 +4,7 @@ status: accepted
 
 # Separation runs in bounded 8-minute blocks; local tracks are capped at 30 minutes
 
-Demucs buffers a track's full input and all four float32 stems in RAM before writing. Benchmarks on a 4-core Haswell put that at **~278 MiB per minute plus ~355 MiB** of fixed torch/Demucs overhead: 1.8 GiB at 4 minutes, 8.5 GiB at 30, and 17.2 GiB at 60. A full-track 30-minute Separation therefore misses the 4 GB-free-RAM precondition that research 02 set for the app, and 8 GB machines fail well before that.
+Demucs buffers a track's full input and all four float32 stems in RAM before writing. Benchmarks on a 4-core Haswell put that at **~278 MiB per minute plus ~355 MiB** of fixed torch/Demucs overhead: 1.8 GiB at 4 minutes, 8.5 GiB at 30, and 17.2 GiB at 60. A full-track 30-minute Separation therefore misses the app's 4 GB-free-RAM precondition, and 8 GB machines fail well before that.
 
 So the Separation worker will process **8-minute blocks with a 1-second linear crossfade**, holding peak RSS near **2.7 GiB regardless of track length**. `htdemucs` only ever sees 7.8-second internal segments, so app-level blocks do not reduce model context; the only new edge is the stitch. Block mode uses `shifts=0` so Demucs' random equivariant shift cannot change timbre between blocks. Progress is reported per block and per internal segment, not per stem.
 
