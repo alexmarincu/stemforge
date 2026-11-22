@@ -24,7 +24,15 @@ from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.domain.models import JobKind, JobState, OriginKind, Source, SourceMetadata
+from stemforge.domain.models import (
+    JobKind,
+    JobState,
+    OriginKind,
+    Source,
+    SourceMetadata,
+    Track,
+)
+from stemforge.domain.workspace import Workspace
 from stemforge.engines.media import ExportFormat, FfmpegTool
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import JobContext
@@ -780,12 +788,14 @@ def test_the_service_submits_an_export_and_reads_the_finished_file(
     canonical = _make_tone(ffmpeg_path, tmp_path / "tone.wav")
     _commit_source(store, canonical)
     runner = JobRunner(paths=paths)
+    workspace = Workspace()
     service = WorkspaceService(
         SettingsStore(paths),
         paths=paths,
         artifacts=store,
         runner=runner,
         engines=ServiceEngines(media=media),
+        workspace=workspace,
     )
     artifact = store.find_source(SOURCE_ID)
     assert artifact is not None
@@ -797,7 +807,8 @@ def test_the_service_submits_an_export_and_reads_the_finished_file(
         canonical_path=artifact.canonical_path,
         created_at=artifact.created_at,
     )
-    track = service._accept_source(source)
+    track = Track(track_id="track-export-service", source=source, title=TITLE)
+    workspace.add_track(track)
     destination = tmp_path / "exports"
     destination.mkdir()
     runner.start()

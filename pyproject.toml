@@ -148,7 +148,7 @@ markers = [
 #   overall: >= 70% line over src/stemforge excluding ui/ and workers/ (below)
 #   core:    >= 85% line over domain, jobs, artifacts, pipeline, engines,
 #            settings, application, worker_protocol, and errors:
-#   coverage report --fail-under=85 --include="src/stemforge/domain/*,src/stemforge/jobs/*,src/stemforge/artifacts.py,src/stemforge/pipeline/*,src/stemforge/engines/*,src/stemforge/settings.py,src/stemforge/application.py,src/stemforge/worker_protocol.py,src/stemforge/errors.py"
+#   coverage report --fail-under=85 --include="src/stemforge/domain/*,src/stemforge/jobs/*,src/stemforge/artifacts.py,src/stemforge/pipeline/*,src/stemforge/engines/*,src/stemforge/settings.py,src/stemforge/application/*,src/stemforge/worker_protocol.py,src/stemforge/errors.py"
 [tool.coverage.run]
 source = ["stemforge"]
 omit = ["src/stemforge/ui/*", "src/stemforge/workers/*"]
@@ -199,6 +199,22 @@ forbidden_modules = [
 # Ticket 06 §1 says ui may import application; application legitimately imports
 # jobs, pipeline, and engines. The contract forbids the direct UI dependency,
 # not the application's internal ones.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "UI talks to the application facade only"
+type = "forbidden"
+source_modules = ["stemforge.ui"]
+forbidden_modules = [
+  "stemforge.application.collaborators",
+  "stemforge.application.identity",
+  "stemforge.application.renders",
+  "stemforge.application.service",
+  "stemforge.application.state",
+  "stemforge.application.views",
+]
+# The facade re-exports the view types; UI must keep importing them from
+# ``stemforge.application`` so there is one public path (ADR 0013).
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]

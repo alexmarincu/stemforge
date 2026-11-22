@@ -34,6 +34,12 @@ The local summary of versions, paths, settings, and recent log lines a user copi
 
 Copying an Artifact to a user-chosen location on disk through a native save dialog.
 
+## Import
+
+Loading a Track's audio from a Source into the Workspace and Cache. A local import reads a file; a YouTube import downloads it first.
+
+_Avoid_: Load, add, ingest
+
 ## Instrumental
 
 The non-vocal mix of a Track, stored as a derived Artifact (the sum of the non-vocal Stems) and presented as one of the two primary Separation outputs. It is not a Stem.

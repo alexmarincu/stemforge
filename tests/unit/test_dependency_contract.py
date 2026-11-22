@@ -17,6 +17,17 @@ pytestmark = pytest.mark.unit
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = REPO_ROOT / "src" / "stemforge"
 
+# ADR 0013: the UI keeps importing the facade and view types from
+# ``stemforge.application``; the package's internals stay private.
+APPLICATION_INTERNALS = (
+    "stemforge.application.collaborators",
+    "stemforge.application.identity",
+    "stemforge.application.renders",
+    "stemforge.application.service",
+    "stemforge.application.state",
+    "stemforge.application.views",
+)
+
 
 def _imports(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -52,6 +63,10 @@ def test_ui_imports_only_the_ui_layer_or_below() -> None:
     assert problems == []
 
 
+def test_ui_imports_only_the_application_facade() -> None:
+    assert _violations(PACKAGE / "ui", APPLICATION_INTERNALS) == []
+
+
 def test_workers_import_only_their_own_lower_layer() -> None:
     problems = _violations(
         PACKAGE / "workers",
@@ -81,6 +96,8 @@ def test_the_import_contract_declares_the_same_edges() -> None:
     forbidden = {item["name"]: item for item in contracts if item["type"] == "forbidden"}
     ui = forbidden["UI never imports engines, workers, pipeline, or jobs"]
     assert "stemforge.platform" in ui["forbidden_modules"]
+    facade = forbidden["UI talks to the application facade only"]
+    assert set(facade["forbidden_modules"]) == set(APPLICATION_INTERNALS)
     workers = forbidden["Workers stay below the app"]
     assert "stemforge.pipeline" in workers["forbidden_modules"]
     assert "stemforge.application" in workers["forbidden_modules"]

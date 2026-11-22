@@ -13,7 +13,15 @@ from stemforge import errors
 from stemforge.application import ExportedFile, ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.domain.models import JobKind, JobState, OriginKind, Source, SourceMetadata
+from stemforge.domain.models import (
+    JobKind,
+    JobState,
+    OriginKind,
+    Source,
+    SourceMetadata,
+    Track,
+)
+from stemforge.domain.workspace import Workspace
 from stemforge.engines.media import ExportFormat, MediaInfo
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import JobContext
@@ -153,10 +161,11 @@ def _service(
     tmp_path: Path,
     *,
     with_media: bool = True,
-) -> tuple[WorkspaceService, ArtifactStore, RecordingRunner]:
+) -> tuple[WorkspaceService, ArtifactStore, RecordingRunner, Workspace]:
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     store = ArtifactStore(paths)
     runner = RecordingRunner()
+    workspace = Workspace()
     media = object() if with_media else None
     service = WorkspaceService(
         SettingsStore(paths),
@@ -164,11 +173,17 @@ def _service(
         artifacts=store,
         runner=runner,  # type: ignore[arg-type]
         engines=ServiceEngines(media=media),  # type: ignore[arg-type]
+        workspace=workspace,
     )
-    return service, store, runner
+    return service, store, runner, workspace
 
 
-def _add_track(service: WorkspaceService, store: ArtifactStore, *, title: str = TITLE) -> object:
+def _add_track(
+    store: ArtifactStore,
+    workspace: Workspace,
+    *,
+    title: str = TITLE,
+) -> Track:
     artifact = store.find_source(SOURCE_ID)
     assert artifact is not None
     source = Source(
@@ -179,13 +194,15 @@ def _add_track(service: WorkspaceService, store: ArtifactStore, *, title: str = 
         canonical_path=artifact.canonical_path,
         created_at=artifact.created_at,
     )
-    return service._accept_source(source)
+    track = Track(track_id="track-export", source=source, title=title)
+    workspace.add_track(track)
+    return track
 
 
 def test_export_targets_lists_only_the_master_for_a_plain_source(tmp_path: Path) -> None:
-    service, store, _ = _service(tmp_path)
+    service, store, _, workspace = _service(tmp_path)
     _commit_source(store, gain_db=-1.5)
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
 
     targets = service.export_targets(track)
 
@@ -199,10 +216,10 @@ def test_export_targets_lists_only_the_master_for_a_plain_source(tmp_path: Path)
 
 
 def test_export_targets_adds_unshifted_stems_and_the_instrumental(tmp_path: Path) -> None:
-    service, store, _ = _service(tmp_path)
+    service, store, _, workspace = _service(tmp_path)
     _commit_source(store)
     _commit_separation(store, gain_db=-2.0)
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
 
     targets = service.export_targets(track)
 
@@ -222,10 +239,10 @@ def test_export_targets_adds_unshifted_stems_and_the_instrumental(tmp_path: Path
 
 
 def test_the_instrumental_is_an_output_not_a_stem_key(tmp_path: Path) -> None:
-    service, store, _ = _service(tmp_path)
+    service, store, _, workspace = _service(tmp_path)
     _commit_source(store)
     _commit_separation(store)
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
 
     by_key = {target.key: target for target in service.export_targets(track)}
 
@@ -235,7 +252,7 @@ def test_the_instrumental_is_an_output_not_a_stem_key(tmp_path: Path) -> None:
 
 
 def test_export_targets_adds_every_member_of_a_pitch_set(tmp_path: Path) -> None:
-    service, store, _ = _service(tmp_path)
+    service, store, _, workspace = _service(tmp_path)
     _commit_source(store)
     _commit_render(
         store,
@@ -255,7 +272,7 @@ def test_export_targets_adds_every_member_of_a_pitch_set(tmp_path: Path) -> None
         gain_db=-3.0,
         minute=2,
     )
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
 
     targets = service.export_targets(track)
 
@@ -285,7 +302,7 @@ def test_export_targets_adds_every_member_of_a_pitch_set(tmp_path: Path) -> None
 
 
 def test_export_targets_ignores_an_invalid_or_missing_render(tmp_path: Path) -> None:
-    service, store, _ = _service(tmp_path)
+    service, store, _, workspace = _service(tmp_path)
     _commit_source(store)
     _commit_render(
         store,
@@ -297,13 +314,13 @@ def test_export_targets_ignores_an_invalid_or_missing_render(tmp_path: Path) -> 
         minute=1,
     )
     (store.renders_dir / "render-original" / "original.wav").unlink()
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
 
     assert [target.key for target in service.export_targets(track)] == ["master"]
 
 
 def test_export_targets_for_an_unknown_track_is_empty(tmp_path: Path) -> None:
-    service, _, _ = _service(tmp_path)
+    service, _, _, _workspace = _service(tmp_path)
 
     assert service.export_targets("missing-track") == ()
 
@@ -311,9 +328,9 @@ def test_export_targets_for_an_unknown_track_is_empty(tmp_path: Path) -> None:
 def test_resolve_export_target_refuses_a_role_that_the_set_does_not_have(
     tmp_path: Path,
 ) -> None:
-    service, store, _ = _service(tmp_path)
+    service, store, _, workspace = _service(tmp_path)
     _commit_source(store)
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
 
     assert resolve_export_target(store, source_id=SOURCE_ID, key="stem:vocals") is None
     assert service.export_targets(track)[0].key == "master"
@@ -322,9 +339,9 @@ def test_resolve_export_target_refuses_a_role_that_the_set_does_not_have(
 def test_submit_export_queues_one_export_job_with_the_selection_identity(
     tmp_path: Path,
 ) -> None:
-    service, store, runner = _service(tmp_path)
+    service, store, runner, workspace = _service(tmp_path)
     _commit_source(store)
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
     target = service.export_targets(track)[0]
     destination = tmp_path / "exports"
     destination.mkdir()
@@ -347,9 +364,9 @@ def test_submit_export_queues_one_export_job_with_the_selection_identity(
 
 
 def test_submit_export_accepts_a_target_key_and_string_format(tmp_path: Path) -> None:
-    service, store, runner = _service(tmp_path)
+    service, store, runner, workspace = _service(tmp_path)
     _commit_source(store)
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
     destination = tmp_path / "exports"
     destination.mkdir()
 
@@ -360,9 +377,9 @@ def test_submit_export_accepts_a_target_key_and_string_format(tmp_path: Path) ->
 
 
 def test_submit_export_carries_the_dialog_chosen_name(tmp_path: Path) -> None:
-    service, store, runner = _service(tmp_path)
+    service, store, runner, workspace = _service(tmp_path)
     _commit_source(store)
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
     destination = tmp_path / "exports"
     destination.mkdir()
 
@@ -387,9 +404,9 @@ def test_submit_export_carries_the_dialog_chosen_name(tmp_path: Path) -> None:
 def test_submit_export_refuses_a_target_that_does_not_belong_to_the_track(
     tmp_path: Path,
 ) -> None:
-    service, store, runner = _service(tmp_path)
+    service, store, runner, workspace = _service(tmp_path)
     _commit_source(store)
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
     target = resolve_export_target(store, source_id=SOURCE_ID, key="master")
     assert target is not None
     foreign = ExportJobTarget(
@@ -418,9 +435,9 @@ def test_submit_export_refuses_a_target_that_does_not_belong_to_the_track(
 
 
 def test_submit_export_needs_a_media_engine(tmp_path: Path) -> None:
-    service, store, runner = _service(tmp_path, with_media=False)
+    service, store, runner, workspace = _service(tmp_path, with_media=False)
     _commit_source(store)
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
 
     with pytest.raises(StemForgeError) as raised:
         service.submit_export(track, "master", ExportFormat.WAV24, tmp_path / "exports")
@@ -430,7 +447,7 @@ def test_submit_export_needs_a_media_engine(tmp_path: Path) -> None:
 
 
 def test_export_result_reads_the_finished_job_keys(tmp_path: Path) -> None:
-    service, _, runner = _service(tmp_path)
+    service, _, runner, _workspace = _service(tmp_path)
     destination = tmp_path / "exports"
     destination.mkdir()
     output = destination / "Song.wav"
@@ -461,7 +478,7 @@ def test_export_result_reads_the_finished_job_keys(tmp_path: Path) -> None:
 
 
 def test_export_result_is_none_while_the_job_is_unfinished(tmp_path: Path) -> None:
-    service, _, runner = _service(tmp_path)
+    service, _, runner, _workspace = _service(tmp_path)
     runner.snapshot_value = JobSnapshot(
         job_id="job-export",
         kind=JobKind.EXPORT,
@@ -472,15 +489,15 @@ def test_export_result_is_none_while_the_job_is_unfinished(tmp_path: Path) -> No
 
 
 def test_export_result_returns_none_for_an_unknown_job(tmp_path: Path) -> None:
-    service, _, _ = _service(tmp_path)
+    service, _, _, _workspace = _service(tmp_path)
 
     assert service.export_result("missing") is None
 
 
 def test_preview_export_returns_the_next_free_name_without_writing(tmp_path: Path) -> None:
-    service, store, _ = _service(tmp_path)
+    service, store, _, workspace = _service(tmp_path)
     _commit_source(store)
-    track = _add_track(service, store)
+    track = _add_track(store, workspace)
     destination = tmp_path / "exports"
     destination.mkdir()
     (destination / f"{TITLE}.wav").write_bytes(b"already here")

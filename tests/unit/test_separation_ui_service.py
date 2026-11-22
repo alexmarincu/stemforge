@@ -22,6 +22,7 @@ from stemforge.domain.models import (
     SourceMetadata,
     Track,
 )
+from stemforge.domain.workspace import Workspace
 from stemforge.errors import StemForgeError
 from stemforge.jobs.runner import JobRunner
 from stemforge.models import ModelSpec, ModelStore
@@ -127,6 +128,7 @@ def _service(
     tmp_path: Path,
     *,
     models: ModelStore | None = None,
+    workspace: Workspace | None = None,
 ) -> tuple[WorkspaceService, ArtifactStore]:
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     settings = SettingsStore(paths)
@@ -139,6 +141,7 @@ def _service(
         runner=JobRunner(paths=paths),
         engines=ServiceEngines(separation=_FakeSeparation(), media=_FakeMedia()),
         models=model_store,
+        workspace=workspace,
     )
     return service, store
 
@@ -217,11 +220,12 @@ def test_re_separation_replaces_the_set_and_its_key(tmp_path: Path) -> None:
 def test_export_targets_cover_vocals_instrumental_and_the_three_secondary_stems(
     tmp_path: Path,
 ) -> None:
-    service, store = _service(tmp_path)
+    workspace = Workspace()
+    service, store = _service(tmp_path, workspace=workspace)
     _commit_source(store)
     _commit_separation(store)
     track = _track()
-    service._workspace.add_track(track)
+    workspace.add_track(track)
     (item,) = service.separation_sets(track)
 
     targets = [target for target in service.export_targets(track) if target.scope == "separation"]

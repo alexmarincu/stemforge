@@ -9,7 +9,8 @@ import pytest
 
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.models import OriginKind
+from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
+from stemforge.domain.workspace import Workspace
 from stemforge.errors import StemForgeError
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform.paths import AppPaths
@@ -255,3 +256,24 @@ def test_submit_youtube_refuses_a_playlist_before_any_job(tmp_path: Path) -> Non
 
     assert raised.value.code == "import.youtube_playlist"
     assert service.runner.jobs() == []
+
+
+@pytest.mark.unit
+def test_the_workspace_can_be_injected(tmp_path: Path) -> None:
+    workspace = Workspace()
+    track = Track(
+        track_id="track-injected",
+        source=Source(
+            source_id="src-injected",
+            origin="/music/song.wav",
+            origin_kind=OriginKind.FILE,
+            metadata=SourceMetadata(title="Song"),
+        ),
+        title="Song",
+    )
+    workspace.add_track(track)
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+
+    service = WorkspaceService(SettingsStore(paths), paths=paths, workspace=workspace)
+
+    assert service.snapshot().tracks == (track,)
