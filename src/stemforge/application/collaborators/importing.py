@@ -35,7 +35,6 @@ class ImportService:
         self._media = media
 
     def import_local(self, path: str | Path) -> str:
-        """Submit a local import Job and return its id (deduped while active)."""
         media = self._media
         if media is None:
             raise StemForgeError(

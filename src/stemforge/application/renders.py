@@ -101,7 +101,7 @@ def based_on_earlier_separation(
 ) -> bool:
     """Whether a stems set's recorded inputs no longer match the current Stems.
 
-    The manifest is the source of truth (ticket 05 §2). Comparison uses the
+    The manifest is the source of truth. Comparison uses the
     separation manifest's recorded stem hashes, never a fresh read of the audio:
     a detail refresh must not hash hundreds of megabytes. If the separation
     records no hashes, the set cannot be proven stale and stays unlabelled.

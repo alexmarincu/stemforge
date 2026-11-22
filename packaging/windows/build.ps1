@@ -1,11 +1,11 @@
 # Build the Windows frozen bundle: PyInstaller onedir plus the Bundle root.
 #
-# Ticket 10 sections 1-3 and ticket 21. Run on windows-2022 after `uv sync --frozen
+# Run on windows-2022 after `uv sync --frozen
 # --group build` and `scripts/vendor-fetch.ps1`. The script:
 #
 #   1. asserts the CPU torch wheel (a PyPI fallback silently pulls CUDA);
 #   2. requires the complete pinned vendor tree;
-#   3. requires the licence tree for a release build (ticket 22), unless the
+#   3. requires the licence tree for a release build, unless the
 #      explicit non-release `-AllowLicencePending` switch is given;
 #   4. generates the version resource from stemforge.__version__;
 #   5. runs PyInstaller with packaging/pyinstaller/stemforge_windows.spec;
@@ -195,7 +195,7 @@ if ($missingLicence.Count -gt 0) {
         throw @"
 The licence tree is incomplete: $($missingLicence -join ', ')
 A release build must include LICENSE, THIRD_PARTY_NOTICES.md, SOURCE_OFFER.md,
-LICENSES/, and packaging/licenses/native.toml (ticket 22). This build fails
+LICENSES/, and packaging/licenses/native.toml. This build fails
 closed. -AllowLicencePending exists only for non-release CI evidence and writes
 a marker that package.ps1 refuses to package.
 "@
@@ -246,7 +246,7 @@ if (Test-Path -LiteralPath $provenance -PathType Leaf) {
 
 if ($licencePending) {
     $marker = @"
-Licence tree pending ticket 22.
+Licence tree incomplete.
 This bundle was assembled with -AllowLicencePending for non-release CI evidence.
 It has no LICENSE, THIRD_PARTY_NOTICES.md, SOURCE_OFFER.md, LICENSES/, or
 packaging/licenses/native.toml. package.ps1 refuses to package it.

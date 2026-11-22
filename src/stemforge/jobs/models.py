@@ -1,7 +1,7 @@
 """Immutable Job values published to the UI and the headless CLI.
 
 ``JobKind`` and ``JobState`` are domain vocabulary; this module re-exports them
-so callers can import every Job value from one place (ticket 06 §3, ticket 07).
+so callers can import every Job value from one place.
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ Vendored binaries live at the Bundle root (``<bundle>/vendor/**``), never inside
 ``_internal`` (ADR 0010). Resolution order is ``vendor/`` first, then an optional
 per-binary environment override, then ``PATH`` in development. A frozen build
 has no fallback: a missing binary raises :class:`BundleDamagedError`, whose
-``code`` is the ticket 14 ``preflight.bundle_damaged`` exit-8 failure.
+``code`` is the ``preflight.bundle_damaged`` exit-8 failure.
 
 The environment overrides (``STEMFORGE_FFMPEG``, ``STEMFORGE_FFPROBE``,
 ``STEMFORGE_RUBBERBAND``, ``STEMFORGE_DENO``) point local diagnostics and tests
@@ -25,9 +25,9 @@ from typing import Final
 
 from . import resources
 
-# Ticket 06 §1 keeps `platform` stdlib-only, so the ticket 14 taxonomy member is
-# repeated here rather than imported from `stemforge.errors` (the import
-# contracts put `stemforge.errors` on the same foundation layer).
+# `platform` stays stdlib-only, so the taxonomy member is repeated here rather
+# than imported from `stemforge.errors` (the import contracts put
+# `stemforge.errors` on the same foundation layer).
 PREFLIGHT_BUNDLE_DAMAGED: Final = "preflight.bundle_damaged"
 
 FFMPEG_ENV: Final = "STEMFORGE_FFMPEG"
@@ -35,7 +35,7 @@ FFPROBE_ENV: Final = "STEMFORGE_FFPROBE"
 RUBBERBAND_ENV: Final = "STEMFORGE_RUBBERBAND"
 DENO_ENV: Final = "STEMFORGE_DENO"
 
-# The ticket 4 spelling stays as an alias so both names keep working.
+# The ``*_ENV_VAR`` spelling stays as an alias so both names keep working.
 FFMPEG_ENV_VAR: Final = FFMPEG_ENV
 FFPROBE_ENV_VAR: Final = FFPROBE_ENV
 RUBBERBAND_ENV_VAR: Final = RUBBERBAND_ENV
@@ -43,7 +43,7 @@ DENO_ENV_VAR: Final = DENO_ENV
 
 VENDOR_DIRNAME: Final = "vendor"
 
-# The ticket 10 §2 tree, without the platform executable suffix.
+# The vendor tree, without the platform executable suffix.
 VENDOR_PATHS: Final = {
     "ffmpeg": Path("ffmpeg") / "ffmpeg",
     "ffprobe": Path("ffmpeg") / "ffprobe",
@@ -52,7 +52,7 @@ VENDOR_PATHS: Final = {
 }
 
 # Rubber Band links libsndfile dynamically; the loader has to find it beside the
-# CLI (ADR 0010, ticket 13). FFmpeg and Deno are static builds.
+# CLI (ADR 0010). FFmpeg and Deno are static builds.
 SHARED_LIBRARIES: Final = {
     "rubberband": {"linux": "libsndfile.so.1", "win32": "sndfile.dll"},
 }
@@ -88,7 +88,7 @@ def _is_windows(system: str | None) -> bool:
 
 
 def vendor_path(tool: str, *, system: str | None = None) -> Path:
-    """The ``vendor/``-relative path ticket 10 §2 assigns to ``tool``.
+    """The ``vendor/``-relative path assigned to ``tool``.
 
     ``ffmpeg`` and ``ffprobe`` share ``ffmpeg/``; Rubber Band and Deno get their
     own directory. Windows adds ``.exe``; the vendor tree contains no suffix-less
@@ -104,7 +104,7 @@ def vendor_path(tool: str, *, system: str | None = None) -> Path:
 
 
 def shared_library_name(tool: str, *, system: str | None = None) -> str | None:
-    """The co-located shared library ``tool`` needs, if any (ticket 13)."""
+    """The co-located shared library ``tool`` needs, if any."""
     libraries = SHARED_LIBRARIES.get(tool)
     if libraries is None:
         return None
@@ -116,7 +116,7 @@ def shared_libraries(tool: str) -> tuple[Path, ...]:
 
     Development may have none (a system binary uses system libraries); a frozen
     Bundle must have every one, because a missing library makes the CLI fail at
-    exec time with no useful error (ticket 14's exit-8 contract).
+    exec time with no useful error (exit-8 contract).
     """
     name = shared_library_name(tool)
     if name is None:
@@ -224,7 +224,7 @@ def worker_command(argv: Sequence[str]) -> list[str]:
     """Build the Separation worker command from ``argv`` whose first item is the name.
 
     Frozen builds re-invoke the same executable with ``--worker <name>``; a
-    development checkout runs ``python -m stemforge.workers.<name>`` (ticket 06 §4).
+    development checkout runs ``python -m stemforge.workers.<name>``.
     """
     if not argv:
         raise ValueError("worker_command needs a worker name as argv[0]")

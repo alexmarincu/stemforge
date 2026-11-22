@@ -1,8 +1,8 @@
-"""The yt-dlp invocation contract and error classification (ticket 16, 09 §4/§8).
+"""The yt-dlp invocation contract and error classification.
 
 No test here constructs a ``YoutubeDL`` or opens a socket. The option table is
-checked against ticket 09 §4, and classification is checked against real yt-dlp
-exception classes and the message patterns the adapter must recognise.
+asserted key by key, and classification is checked against real yt-dlp exception
+classes and the message patterns the adapter must recognise.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def _options(tmp_path: Path, *, hooks: list[object] | None = None) -> dict[str, 
     )
 
 
-def test_the_option_table_matches_ticket_09(tmp_path: Path) -> None:
+def test_the_option_table_matches_the_adapter(tmp_path: Path) -> None:
     logger = logging.getLogger("test.youtube")
     cache = tmp_path / "cache"
     home = cache / "yt-dlp" / "job-1"

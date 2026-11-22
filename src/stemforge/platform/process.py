@@ -1,6 +1,6 @@
 """Subprocess spawning, line readers, tree termination, and captured runs.
 
-No shell and no string argv (ticket 06 §6). Every adapter goes through here so a
+No shell and no string argv. Every adapter goes through here so a
 Job cancel kills the whole process group on both platforms.
 
 The module is foundation code: it imports no ``stemforge`` module so

@@ -1,9 +1,9 @@
-"""``SeparationEngine`` protocol and ``WorkerSeparationEngine`` (ticket 06 §4, §10).
+"""``SeparationEngine`` protocol and ``WorkerSeparationEngine``.
 
 The engine runs the separation worker as a subprocess, parses its JSONL stdout,
 and maps every exit path to a coded :class:`~stemforge.errors.StemForgeError`.
 It never imports torch or Demucs: only ``workers/separation.py`` does, inside
-``run()`` (ticket 06 §11).
+``run()``.
 
 Cancellation closes the child's stdin (the worker treats EOF as a cancel
 request), waits briefly, then terminates the whole process group. A hard timeout
@@ -69,7 +69,7 @@ POLL_INTERVAL_S: Final = 0.05
 CANCEL_GRACE_S: Final = 2.0
 STDERR_TAIL_LINES: Final = 200
 STDERR_TAIL_CHARS: Final = 4_000
-# Ticket 06 §4: block mode uses shifts=0 so the random equivariant shift cannot
+# Block mode uses shifts=0 so the random equivariant shift cannot
 # change timbre across a block boundary (ADR 0008). One pass, not an average.
 DEFAULT_SHIFTS: Final = 0
 DEFAULT_DEVICE: Final = "cpu"
@@ -77,7 +77,7 @@ DEFAULT_MODEL: Final = "htdemucs"
 
 
 class SeparationEngine(Protocol):
-    """The Separation adapter seam (ticket 06 §10)."""
+    """The Separation adapter seam."""
 
     def separate(
         self,
@@ -496,7 +496,7 @@ def _title(stage: str | None) -> str:
 
 def _resolved_threads(threads: int | None) -> int:
     if threads is None:
-        # Ticket 12: set torch/OMP threads to physical cores. The usual 2-way
+        # Set torch/OMP threads to physical cores. The usual 2-way
         # SMT ratio is the portable estimate without a native dependency.
         return max(1, (os.cpu_count() or 2) // 2)
     if threads < 1:

@@ -1,8 +1,8 @@
-"""The one vocabulary for a Separation's outputs (GLOSSARY, ticket 05 §3).
+"""The one vocabulary for a Separation's outputs (GLOSSARY).
 
 Instrumental is a derived Artifact, not a Stem, so it is not in
 :data:`STEM_ROLES`. Consumers that need "everything a Separation emits" use
-:data:`OUTPUT_ROLES`. This module stays stdlib-only (ticket 06 §1); the worker
+:data:`OUTPUT_ROLES`. This module stays stdlib-only; the worker
 process has its own copy in :mod:`stemforge.worker_protocol`, and the contract
 test keeps the two tuples identical.
 """

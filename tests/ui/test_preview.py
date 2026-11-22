@@ -299,11 +299,11 @@ async def test_transport_and_output_rows_drive_the_same_single_player(harness: H
 
         seek = _only(user, "seek")
         assert float(seek.props["max"]) == DURATION_S
-        # Ticket 08 §4: the transport is a 5 px band, not a standard slider.
+        # The transport is a 5 px band, not a standard slider.
         assert seek.props["track-size"] == "5px"
         assert seek.props["thumb-size"] == "0px"
         assert _only(user, "ab-label").text == "A/B"
-        # Ticket 42: the A/B segments and the transport Export share one box,
+        # The A/B segments and the transport Export share one box,
         # while the status chips stay label-sized.
         assert "sf-control" in _only(user, "ab-original").classes
         assert "sf-control" in _only(user, "ab-preview").classes
@@ -311,7 +311,7 @@ async def test_transport_and_output_rows_drive_the_same_single_player(harness: H
         assert "sf-control" not in _only(user, "signal-separation").classes
         assert "sf-control" not in _only(user, "signal-pitch").classes
 
-        # Ticket 08 §4: the transport advances with the media element.
+        # The transport advances with the media element.
         user.find(marker="player").trigger("timeupdate", 42.0)
         await asyncio.sleep(0.05)
         assert _only(user, "elapsed").text == "0:42"
@@ -336,7 +336,7 @@ async def test_ab_swaps_original_and_newest_preview_in_one_player(harness: Harne
         user.find(marker=f"track-row-{track_id}").click()
         await asyncio.sleep(0.05)
 
-        # Without a render, B is disabled (ticket 08 §7).
+        # Without a render, B is disabled.
         assert _enabled(user, "ab-preview") is False
         assert _enabled(user, "ab-original") is True
 
@@ -366,7 +366,7 @@ async def test_ab_swaps_original_and_newest_preview_in_one_player(harness: Harne
 
 
 async def test_the_ab_shortcut_highlights_only_the_latest_render(harness: Harness) -> None:
-    """Ticket 08 §7: B is the latest render shortcut, not every shifted set."""
+    """B is the latest render shortcut, not every shifted set."""
     async for user, workspace_page in _open_page(harness):
         (track_id,) = await _import(harness, user, workspace_page, "Shifted.wav")
         await asyncio.sleep(0.05)
@@ -412,7 +412,7 @@ async def test_a_missing_preview_is_unavailable_instead_of_a_dead_url(harness: H
         await asyncio.sleep(0.05)
 
         await user.should_see(marker="preview-unavailable")
-        # Ticket 14 §4.4: the row enters the unavailable state with a repair.
+        # The row enters the unavailable state with a repair.
         assert _enabled(user, "output-play-original") is False
         assert _enabled(user, "output-export-original") is False
         await user.should_see(marker="output-repair-import")
@@ -423,7 +423,7 @@ async def test_a_missing_preview_is_unavailable_instead_of_a_dead_url(harness: H
 async def test_a_playback_failure_falls_back_to_the_original_version(
     harness: Harness,
 ) -> None:
-    """Ticket 14 §4.8: the tab falls back to Original or the next existing set."""
+    """The tab falls back to Original or the next existing set."""
     async for user, workspace_page in _open_page(harness):
         (track_id,) = await _import(harness, user, workspace_page, "Gone.wav")
         await asyncio.sleep(0.05)
@@ -489,7 +489,7 @@ async def test_degraded_preview_keeps_a_banner_and_disables_only_transport(
             assert _enabled(user, f"track-play-{track_id}") is False
             assert _enabled(user, "output-play-original") is False
 
-            # Other capabilities stay usable (ticket 14 §3). The Pitch card is
+            # Other capabilities stay usable. The Pitch card is
             # usable even though its Render action is disabled at 0 by design;
             # Separation shows its inline model gate because no weights are
             # installed in this harness.
@@ -510,7 +510,7 @@ async def test_degraded_preview_keeps_a_banner_and_disables_only_transport(
 async def test_playback_stays_enabled_while_second_job_actions_disable(
     harness: Harness,
 ) -> None:
-    """Ticket 08 §11: A/B and playback stay enabled while a Job runs."""
+    """A/B and playback stay enabled while a Job runs."""
     async for user, workspace_page in _open_page(harness):
         (track_id,) = await _import(harness, user, workspace_page, "Playing.wav")
         await asyncio.sleep(0.05)

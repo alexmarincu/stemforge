@@ -92,7 +92,7 @@ def _install(root: Path, *relative: str) -> list[Path]:
     return [_fake(root / "vendor" / item) for item in relative]
 
 
-def test_vendor_path_is_the_ticket_10_layout_for_both_platforms() -> None:
+def test_vendor_path_is_the_bundle_layout_for_both_platforms() -> None:
     assert binaries.vendor_path("ffmpeg", system="linux") == Path("ffmpeg/ffmpeg")
     assert binaries.vendor_path("ffprobe", system="linux") == Path("ffmpeg/ffprobe")
     assert binaries.vendor_path("rubberband", system="linux") == Path("rubberband/rubberband")

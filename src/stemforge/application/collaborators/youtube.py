@@ -47,45 +47,24 @@ class YouTubeService:
         self._delay = delay
 
     def youtube_enabled(self) -> bool:
-        """Whether the empty-state YouTube row is enabled (ticket 09 §7)."""
         return self._settings.youtube_enabled
 
     def youtube_tool_versions(self) -> Mapping[str, str]:
-        """The yt-dlp, yt-dlp-ejs, and Deno versions About must show (09 §9).
-
-        About renders from package metadata and the pinned Deno version. It
-        never instantiates or calls an engine adapter, so opening the modal
-        cannot start a subprocess or block the UI event loop (ADR 0003).
-        """
         return dict(shipped_tool_versions())
 
     def set_youtube_enabled(self, enabled: bool) -> None:
         self._settings.set_youtube_enabled(enabled)
 
     def youtube_notice_acknowledged(self) -> bool:
-        """Whether the one-time YouTube disclaimer was accepted."""
         return self._settings.youtube_notice_is_current()
 
     def accept_youtube_notice(self) -> None:
-        """Persist the one-time YouTube ToS acknowledgment."""
         self._settings.accept_youtube_notice()
 
     def validate_youtube(self, url: str) -> YouTubeVideo:
-        """Validate one YouTube URL for the field; no Job and no service state.
-
-        The UI calls this before the consent gate, so a rejected paste is only a
-        field error and never reaches ``submit_youtube``.
-        """
         return parse_youtube_url(url)
 
     def submit_youtube(self, url: str) -> str:
-        """Validate one YouTube URL synchronously, then submit its import Job.
-
-        The field-level parser runs first, so a playlist, channel, search, or
-        foreign host never creates a Job (ticket 09 §1). The runner dedupes the
-        Job identity, so a second submit while any ``import_youtube`` Job is
-        active returns that Job's id (ticket 09 §3).
-        """
         video = parse_youtube_url(url)
         youtube = self._youtube_tool()
         job = Job(

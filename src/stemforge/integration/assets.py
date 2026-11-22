@@ -1,4 +1,4 @@
-"""Bundled assets for the UI, behind the integration seam (ticket 06 §1, §7).
+"""Bundled assets for the UI, behind the integration seam.
 
 The UI may not import :mod:`stemforge.platform`; this module is the one place
 that resolves the read-only icon and image files for presentation.

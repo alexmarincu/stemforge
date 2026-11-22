@@ -1,16 +1,16 @@
 """The pure YouTube URL grammar and the pinned yt-dlp adapter.
 
-Ticket 09 §1 fixes validation at submit: trim, prepend a scheme when the paste
-has none, then parse host, path, and query. The parser here is deliberately
+Validation trims, prepends a scheme when the paste
+has none, then parses host, path, and query. The parser here is deliberately
 small and dependency-free: no network, no yt-dlp, no filesystem. The caller gets
 either a :class:`YouTubeVideo` with the canonical watch URL or a coded
 :class:`~stemforge.errors.StemForgeError` for the field-level message.
 
 The engine lives below the application layer, so the UI validates through
 ``WorkspaceService.validate_youtube`` and only a valid URL reaches the
-``submit_youtube`` Job seam. Ticket 16 adds the pinned yt-dlp adapter lazily to
-this module; the parser stays pure, and ``yt_dlp`` is imported only inside a
-function so startup and the frozen build never pay for it (ticket 09 §4).
+``submit_youtube`` Job seam. The pinned yt-dlp adapter is loaded lazily in this
+module; the parser stays pure, and ``yt_dlp`` is imported only inside a function
+so startup and the frozen build never pay for it.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ _WATCH_PATH: Final = "watch"
 _PATH_ONLY_SHAPES: Final = frozenset({"shorts", "embed", "live"})
 _PLAYLIST_FIRST_SEGMENTS: Final = frozenset({"playlist", "results", "channel", "c", "user"})
 
-# Ticket 09 §2: the 15-minute cap, and ticket 03 §5's Deno pin.
+# The 15-minute cap and the Deno pin.
 YOUTUBE_MAX_DURATION_S: Final = 900.0
 DENO_PINNED_VERSION: Final = "2.9.8"
 _TITLE_LIMIT: Final = 200
@@ -81,13 +81,13 @@ class YouTubeVideo:
 
     @property
     def source_id(self) -> str:
-        """The cache identity ticket 09 §5 assigns to this video."""
+        """The cache identity assigned to this video."""
         return f"yt-{self.video_id}"
 
 
 @dataclass(frozen=True, slots=True)
 class YouTubeMetadata:
-    """The resolved, metadata-only facts for one video (ticket 09 §3, §6)."""
+    """The resolved, metadata-only facts for one video."""
 
     video_id: str
     title: str
@@ -146,7 +146,7 @@ def parse_youtube_url(raw: str) -> YouTubeVideo:
 
     Accepted: watch, youtu.be, shorts, embed, live, the ``www.``/``m.``/``music.``
     host variants, scheme-less pastes, and a bare 11-character id. A watch URL
-    carrying both ``v`` and ``list`` is the single video (ticket 09 §1).
+    carrying both ``v`` and ``list`` is the single video.
     """
     text = raw.strip()
     if not text:
@@ -248,7 +248,7 @@ def _invalid(detail: str) -> StemForgeError:
 
 
 # ---------------------------------------------------------------------------
-# yt-dlp adapter (ticket 09 §4)
+# yt-dlp adapter
 # ---------------------------------------------------------------------------
 
 
@@ -261,7 +261,7 @@ def build_youtube_dl_options(
     log: logging.Logger,
     progress_hooks: Sequence[ProgressHook],
 ) -> dict[str, object]:
-    """The ticket 09 §4 option table; no cookies, accounts, or proxy.
+    """The yt-dlp option table; no cookies, accounts, or proxy.
 
     ``home`` is the yt-dlp output directory; the YouTube Job passes its
     per-Job scratch under ``<cache>/yt-dlp/``. ``postprocessors`` is empty: the
@@ -318,7 +318,7 @@ class YtDlpImporter:
         cancel: CancelToken,
         log: logging.Logger,
     ) -> YouTubeMetadata:
-        """Fetch metadata only; no media is written (ticket 09 §3)."""
+        """Fetch metadata only; no media is written."""
         cancel.check()
         self._ensure_cache_dir()
         options = self._options(
@@ -417,7 +417,7 @@ class YtDlpImporter:
         )
 
     def tool_versions(self) -> Mapping[str, str]:
-        """The pinned trio versions recorded in ``source.json`` (ticket 09 §5)."""
+        """The pinned trio versions recorded in ``source.json``."""
         return {
             "yt_dlp": _yt_dlp_version(),
             "yt_dlp_ejs": _distribution_version("yt-dlp-ejs"),
@@ -520,7 +520,7 @@ def _default_youtube_dl(options: dict[str, object]) -> _YoutubeDL:
 
 
 # ---------------------------------------------------------------------------
-# Resolve/download validation and metadata (ticket 09 §2, §5, §6)
+# Resolve/download validation and metadata
 # ---------------------------------------------------------------------------
 
 _UNAVAILABLE_AVAILABILITY: Final = frozenset(
@@ -753,7 +753,7 @@ def _distribution_version(name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Error classification (ticket 09 §8)
+# Error classification
 # ---------------------------------------------------------------------------
 
 _UNAVAILABLE_MESSAGES: Final = (
@@ -838,8 +838,8 @@ _NETWORK_MESSAGES: Final = (
 def classify_youtube_error(exc: BaseException) -> StemForgeError:
     """Map a yt-dlp exception to one stable code without leaking its text.
 
-    Order follows ticket 09 §8: unavailable, age, live, rate limit, extractor,
-    network, then ``import.download_failed``. The exception's message goes to
+    Order: unavailable, age, live, rate limit, extractor, network, then
+    ``import.download_failed``. The exception's message goes to
     the Job log only; the returned ``detail`` is a short stable reason.
     """
     from yt_dlp.networking.exceptions import HTTPError, RequestError, TransportError

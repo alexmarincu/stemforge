@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the frozen bundle's diagnostic flags and keep the JSON reports.
-# Ticket 11 §4: --self-test plus --smoke-test, no weights, exit nonzero on
-# failure. Ticket 20 adds --with-separation and the AppImage extraction check.
+# --self-test plus --smoke-test, no weights, exit nonzero on failure.
+# --with-separation and the AppImage extraction check are separate opt-ins.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"

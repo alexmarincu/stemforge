@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "description": "The pinned AppImage tools used by packaging/linux/build.sh (ticket 20, ADR 0011). The script downloads each URL into build/tools/, verifies the SHA-256 and size, and only then runs appimagetool with APPIMAGE_EXTRACT_AND_RUN=1. Update this file and both hashes together; never use the moving 'continuous' tags.",
+  "description": "The pinned AppImage tools used by packaging/linux/build.sh (ADR 0011). The script downloads each URL into build/tools/, verifies the SHA-256 and size, and only then runs appimagetool with APPIMAGE_EXTRACT_AND_RUN=1. Update this file and both hashes together; never use the moving 'continuous' tags.",
   "tool": "appimagetool",
   "version": "1.9.1",
   "asset": "appimagetool-x86_64.AppImage",

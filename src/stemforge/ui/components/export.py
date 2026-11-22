@@ -1,6 +1,6 @@
 """The Export sheet and the Export status bar.
 
-The sheet is the format authority (ticket 08 §9): WAV 24-bit by default, FLAC
+The sheet is the format authority: WAV 24-bit by default, FLAC
 24-bit, or MP3 320, with a computed size estimate. The source is fixed by the
 entry point — an Outputs row's export icon or the transport's Export for the
 current listening target — so the sheet never asks the user to re-pick an
@@ -10,7 +10,7 @@ batch, and no second player.
 
 A failed Export is never a modal error: the page's one Job bar shows progress
 while the Job runs, then the inline status bar shows the destination on success
-or the coded error with Retry (ticket 14 §2, §4.6, §8). Retry re-submits the
+or the coded error with Retry. Retry re-submits the
 same spec without reopening the sheet or the save dialog.
 """
 
@@ -47,7 +47,7 @@ FORMAT_LABELS: Final[Mapping[ExportFormat, str]] = {
     ExportFormat.MP3_320: "MP3 320",
 }
 FORMAT_ORDER: Final = (ExportFormat.WAV24, ExportFormat.FLAC24, ExportFormat.MP3_320)
-# Ticket 08 §9 / prototype 08 export sheet: a computed, deliberately rough
+# A computed, deliberately rough
 # per-minute size. The Job's own free-space check is the authoritative estimate.
 _MB_PER_MINUTE: Final[Mapping[ExportFormat, float]] = {
     ExportFormat.WAV24: 15.9,
@@ -288,7 +288,7 @@ class ExportSheet:
         fmt = self._formats.get(track.track_id, DEFAULT_FORMAT)
         if target is None:
             return
-        # Ticket 01 §8.3: the native dialog is modal but the webview keeps
+        # The native dialog is modal but the webview keeps
         # running, so the sheet's own actions stay disabled while it is open.
         self._saving = True
         self._render(busy=True)

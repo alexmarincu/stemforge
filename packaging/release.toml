@@ -6,8 +6,8 @@
 #
 # The placeholder gate (scripts/generate_notices.py --check-release) refuses a
 # tag while any value below is empty, contains "CHANGEME", "example.com", or
-# still looks like a `<REPO_URL>` token. Ticket 10 §8 and ticket 18 require
-# that gate before a release tag is created.
+# still looks like a `<REPO_URL>` token. That gate must pass before a release tag
+# is created.
 #
 # Schema:
 #   schema                     integer; bump when a required key changes.

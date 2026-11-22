@@ -1,4 +1,4 @@
-"""Headless tests for the About licence rows and Storage controls (ticket 22).
+"""Headless tests for the About licence rows and Storage controls.
 
 The OS file manager is an injected seam: every test here uses a scripted
 opener, so no test can launch ``xdg-open`` or Explorer. The licence paths are
@@ -46,7 +46,7 @@ def _enabled(user, marker: str) -> bool:
 
 @pytest.fixture(autouse=True)
 def _no_network(no_external_network: None) -> None:
-    """The About modal must work offline (ticket 13 §10)."""
+    """The About modal must work offline."""
 
 
 class FakeMedia:
@@ -371,7 +371,7 @@ async def test_storage_controls_clear_only_what_they_own(harness: Harness) -> No
 
 
 async def test_storage_clears_are_disabled_while_a_job_runs(harness: Harness) -> None:
-    """Ticket 14 §6: cache clears are disabled while any Job runs."""
+    """Cache clears are disabled while any Job runs."""
     source = harness.root / "Busy.wav"
     source.write_bytes(b"fake local audio")
     gate = harness.media.block_decoding()

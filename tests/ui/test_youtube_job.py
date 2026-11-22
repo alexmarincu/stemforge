@@ -1,4 +1,4 @@
-"""Headless UI tests for the YouTube import Job (ticket 16).
+"""Headless UI tests for the YouTube import Job.
 
 The YouTube adapter is a scripted fake: it never imports yt-dlp, never opens a
 socket, and blocks only when a test asks it to. Every write stays under
@@ -349,7 +349,7 @@ async def test_a_failed_import_shows_the_coded_copy(harness: Harness) -> None:
 
 
 async def test_a_retryable_failure_resubmits_the_same_url(harness: Harness) -> None:
-    """Ticket 14 §8: Retry re-submits the identical request, not a dialog."""
+    """Retry re-submits the identical request, not a dialog."""
     harness.service.accept_youtube_notice()
     harness.youtube.fail = StemForgeError(
         errors.IMPORT_NETWORK,

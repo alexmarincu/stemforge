@@ -40,11 +40,10 @@ class SeparationService:
         self._pending_track_id: str | None = None
 
     def has_separation(self, track: Track) -> bool:
-        """Whether the Track has committed Stems, so the stems scope can be offered."""
         return self._artifacts.find_separation(track.source_id) is not None
 
     def separation_sets(self, track: Track) -> tuple[SeparationSet, ...]:
-        """Every committed Separation set for the Track, oldest first (ticket 14).
+        """Every committed Separation set for the Track, oldest first.
 
         The store replaces the Stems directory on a re-separation, so there is
         at most one set. The newest set is the last item and is the card's
@@ -66,10 +65,10 @@ class SeparationService:
     def separate(self, track: Track) -> str:
         """Submit one Separation Job, or raise ``separation.model_missing``.
 
-        A missing model never reaches the runner: the card shows the gate and the
-        request is latched so a successful install can resubmit it exactly once
-        (ticket 06 §3, ticket 14 §4.3). A checksum failure is only discovered by
-        the Job's before-use verification; the page latches that outcome through
+        A missing model never reaches the runner: the card shows the gate and
+        the request is latched so a successful install can resubmit it exactly
+        once. A checksum failure is only discovered by the Job's before-use
+        verification; the page latches that outcome through
         :meth:`remember_pending_separation`.
         """
         try:
@@ -135,12 +134,10 @@ class SeparationService:
         return run
 
     def pending_separation_track_id(self) -> str | None:
-        """The Track whose Separation waits for the model install, if any."""
         with self._workspace.lock:
             return self._pending_track_id
 
     def remember_pending_separation(self, track_id: str) -> None:
-        """Latch one post-install resubmit; the first request wins."""
         if not track_id:
             raise ValueError("track id must not be empty")
         with self._workspace.lock:

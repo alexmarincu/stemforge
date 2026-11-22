@@ -1,6 +1,6 @@
 """Copy-only diagnostics and the shared Job/error Details disclosure.
 
-Ticket 14 §9/§10: every coded failure exposes ``Details`` with the code, the
+Every coded failure exposes ``Details`` with the code, the
 short Job id, the Job log path, ``Open log``, and ``Copy diagnostics``. The
 report is shown in a read-only textarea and copied with the browser clipboard,
 with a ``document.execCommand('copy')`` fallback. Nothing is uploaded, zipped,
@@ -121,7 +121,7 @@ def error_details(
     label: str = formatting.DETAILS_LABEL,
     marker: str = "error-details",
 ) -> None:
-    """Render the ticket 14 §9 Details disclosure for one coded failure."""
+    """Render the Details disclosure for one coded failure."""
     with ui.expansion(label).classes("sf-details").mark(marker):
         line = f"{code} · job {job_id[:8]}" if job_id else code
         ui.label(line).classes("sf-notice-detail").mark(f"{marker}-code")

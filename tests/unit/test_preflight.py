@@ -228,7 +228,7 @@ def test_already_running_message_uses_the_injected_backend() -> None:
 
 
 @pytest.mark.unit
-def test_fatal_copy_matches_ticket_14_exactly() -> None:
+def test_fatal_copy_matches_the_catalogue_exactly() -> None:
     window = formatting.fatal_copy(errors.PREFLIGHT_WINDOW_UNAVAILABLE)
     storage = formatting.fatal_copy(errors.PREFLIGHT_STORAGE_UNWRITABLE, path="/tmp/stemforge")
     bundle = formatting.fatal_copy(errors.PREFLIGHT_BUNDLE_DAMAGED)

@@ -1,8 +1,8 @@
 """Immutable domain models: Source, Track, and the Job vocabulary.
 
-Pure dataclasses only: no I/O, no logging, no configuration. Ticket 08 and later
-own behaviour that needs the filesystem; this module owns the shapes and the
-values that cross the application seam (ticket 06 §5).
+Pure dataclasses only: no I/O, no logging, no configuration. Modules that come
+later own behaviour that needs the filesystem; this module owns the shapes and
+the values that cross the application seam.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ class RenderScope(StrEnum):
 
 
 class JobKind(StrEnum):
-    """Every long-running Job kind (ticket 06 §3)."""
+    """Every long-running Job kind."""
 
     IMPORT_LOCAL = "import_local"
     IMPORT_YOUTUBE = "import_youtube"
@@ -57,7 +57,7 @@ class ModelConsent:
     """The user's explicit acceptance of the model-weights licence notice.
 
     Stored in settings under ``models.consent``. A consent older than the
-    bundled notice version is treated as absent (ticket 13 §7).
+    bundled notice version is treated as absent.
     """
 
     version: int
@@ -120,5 +120,5 @@ class Track:
 
     @property
     def gain_db(self) -> float:
-        """The Source set's one presentation gain (ticket 05 §5)."""
+        """The Source set's one presentation gain."""
         return self.source.gain_db

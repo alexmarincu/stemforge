@@ -1,4 +1,4 @@
-"""The visual root matches the ticket 08 prototype and ticket 17 marks."""
+"""The visual root: theme palette, shared CSS tokens, compact controls, and brand assets."""
 
 from __future__ import annotations
 

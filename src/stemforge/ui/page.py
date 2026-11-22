@@ -4,7 +4,7 @@ One window, a 292 px left rail (brand, Import audio, Tracks, Recent, cache foote
 and a main pane whose selected Track shows its source facts; with no selection
 the main pane carries the empty state. One Job bar sits at the bottom of the
 main pane. The page only reads immutable snapshots from ``WorkspaceService``;
-every mutation goes through the service (ticket 06 §5, ticket 08).
+every mutation goes through the service.
 
 The Outputs card is the version authority: its tabs switch the artifact set, and
 its rows are the only playable artifacts. Exactly one ``<audio>`` element serves
@@ -80,13 +80,13 @@ SHELL_CSS: Final = (
 .sf-primary-button { font-weight: 600; }
 .q-btn.bg-primary,
 .q-btn.bg-negative { color: var(--ink) !important; }
-/* Neutral flat controls inherit the muted ink of the prototype, not Quasar's
+/* Neutral flat controls inherit the muted ink, not Quasar's
    blue primary; active tabs and A/B overrides below still win. */
 .q-btn--flat { color: var(--muted); }
 .q-btn--flat:hover { color: var(--text); }
 /* Compact controls own their box through this class, not Quasar's size prop:
    size=sm writes an inline font-size that a stylesheet cannot override.
-   Applied to the controls named in ticket 42; other sm/dense buttons keep
+   Applied to controls marked ``sf-control``; other sm/dense buttons keep
    Quasar's sizing. */
 .q-btn.sf-control { height: var(--control-h); min-height: var(--control-h);
   min-width: var(--control-min-w); padding: 0 var(--control-pad-x);
@@ -384,7 +384,7 @@ class UiContext:
 
     @property
     def playback_available(self) -> bool:
-        """False only for the preflight's degraded preview stack (ticket 14 §3)."""
+        """False only for the preflight's degraded preview stack."""
         return self.preflight is None or not self.preflight.degraded
 
 
@@ -557,7 +557,7 @@ class WorkspacePage:
                         self._detail()
                 with ui.element("div"):
                     self._job_bar()
-                # One element per client for the whole app (ticket 08 §8).
+                # One element per client for the whole app.
                 with ui.element("div").classes("sf-player"):
                     self._player = ui.audio("", controls=False).props("preload=none").mark("player")
                     self._player.on("error", self._on_player_error)
@@ -759,7 +759,7 @@ class WorkspacePage:
 
     @ui.refreshable_method
     def _banner(self) -> None:
-        """At most two banners stack, degraded first (ticket 14 §2)."""
+        """At most two banners stack, degraded first."""
         banners: list[str] = []
         if not self.context.playback_available:
             banners.append("degraded")
@@ -934,7 +934,7 @@ class WorkspacePage:
                 self._youtube_row.build()
             else:
                 self._youtube_row = None
-            # Ticket 08 §2: informational only; the download gate stays in the
+            # Informational only; the download gate stays in the
             # Separation card where the action is invoked.
             if not self.service.model_status().installed:
                 ui.label(formatting.EMPTY_MODEL_CARD).classes("sf-model-card").mark(
@@ -1270,7 +1270,7 @@ class WorkspacePage:
                 )
 
     def _preview_unavailable(self, track_id: str, preview: PreviewTarget | None) -> bool:
-        """Whether the browser already failed to load this artifact (ticket 14)."""
+        """Whether the browser already failed to load this artifact."""
         return preview is not None and (track_id, preview.key) in self._unavailable_previews
 
     def _output_row(self, track: Track, row: OutputRow) -> None:
@@ -1328,7 +1328,7 @@ class WorkspacePage:
             export.tooltip(formatting.OUTPUTS_EXPORT_TOOLTIP)
 
     def _repair_action(self, track: Track, row: OutputRow) -> None:
-        """Ticket 14 §4.4: an unavailable row names the repair for its kind."""
+        """An unavailable row names the repair for its kind."""
         active_key = self._active_version(track, self.service.pitch_sets(track))
         with (
             ui.element("div")
@@ -1614,7 +1614,7 @@ class WorkspacePage:
         self._refresh_playback()
 
     def _fallback_version(self, track_id: str) -> tuple[str, PreviewTarget] | None:
-        """Original first, then the other sets, per ticket 14 §4.8."""
+        """Original first, then the other sets."""
         track = next(
             (item for item in self.service.snapshot().tracks if item.track_id == track_id),
             None,
@@ -1648,7 +1648,7 @@ class WorkspacePage:
             self._player.seek(self._position_s)
 
     def _playback_allowed(self) -> bool:
-        """Playback is independent of Jobs (ticket 08 §11); only a degraded host blocks it."""
+        """Playback is independent of Jobs; only a degraded host blocks it."""
         return self.context.playback_available
 
     def _apply_play_enabled(self, button: ui.button, *, available: bool = True) -> None:
@@ -1829,7 +1829,7 @@ class WorkspacePage:
             self._youtube_dialog.close()
 
     def _retry_import(self) -> None:
-        """Ticket 14 §8: re-submit the identical import request, no dialog."""
+        """Re-submit the identical import request, no dialog."""
         notice = self._notice
         if notice is None or notice.retry is None or self._busy():
             return
@@ -1850,7 +1850,7 @@ class WorkspacePage:
         self._refresh_all()
 
     def _clear_cache(self) -> None:
-        """Ticket 14 §4.7: offer the cache action beside a disk-full failure."""
+        """Offer the cache action beside a disk-full failure."""
         if self._busy():
             return
         try:
@@ -2354,7 +2354,7 @@ class WorkspacePage:
         return self._dialog_busy or self._active_job() is not None
 
     def _active_job(self) -> JobView | None:
-        """Prefer the running Job over one queued behind it (ticket 08 §11)."""
+        """Prefer the running Job over one queued behind it."""
         queued: JobView | None = None
         for snapshot in self.service.jobs():
             if snapshot.state.value == "running":
@@ -2370,7 +2370,7 @@ class WorkspacePage:
         return None
 
     def _track_owns_active_job(self, track_id: str) -> bool:
-        """Whether removing this Track cancels a Job it owns (ticket 14 §6)."""
+        """Whether removing this Track cancels a Job it owns."""
         if self._active_separation_job(track_id) is not None:
             return True
         for snapshot in self.service.jobs():
@@ -2405,7 +2405,7 @@ class WorkspacePage:
             self._position_s = 0.0
             # The player outlives the selection; clear its clock so returning
             # to the old Track cannot resume where it stopped while the UI
-            # shows 0:00 (ticket 08 §8).
+            # shows 0:00.
             if self._player is not None:
                 self._player.seek(0.0)
         self._selected_id = track_id

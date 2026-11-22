@@ -1,6 +1,6 @@
 """The single cache-rooted ``/media`` route over a real localhost socket.
 
-Ticket 09 acceptance: GET 200, partial ranges 206, suffix/multi 416, HEAD 405,
+GET 200, partial ranges 206, suffix/multi 416, HEAD 405,
 traversal/absolute/encoded/symlink escapes 404, and exact bytes. The server is a
 real uvicorn instance bound to an ephemeral 127.0.0.1 port; requests are sent
 with ``http.client`` so percent-encoded paths reach the app unnormalised.

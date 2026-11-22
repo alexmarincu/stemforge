@@ -1,7 +1,7 @@
 """Integration: the FFmpeg media adapter against fixtures generated at test time.
 
 Every audio file in this module is produced by the real ``ffmpeg`` in a session
-temporary directory; the repository commits no binary audio (ticket 11 §2).
+temporary directory; the repository commits no binary audio.
 Assertions are structural (codec, rate, channels, duration, peak, tags) rather
 than byte hashes, so FFmpeg build differences stay out of the contract.
 """
@@ -868,7 +868,7 @@ def test_export_wav24_carries_info_tags_and_no_cover(
     assert not _has_attached_picture(document)
     for key in ("title", "artist", "album", "track", "date", "genre", "copyright"):
         assert info.tags[key] == _export_metadata(fixtures).tags()[key]
-    # Ticket 05 §9: WAV comment tags are not written, so no ICMT INFO chunk.
+    # WAV comment tags are not written, so no ICMT INFO chunk.
     assert "comment" not in info.tags
     assert b"ICMT" not in target.read_bytes()
     assert not (out_dir / "export.partial.wav").exists()

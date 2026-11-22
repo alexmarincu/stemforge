@@ -1,7 +1,7 @@
 """User-facing labels and the ``(code, reason)`` error copy table.
 
 This is the only module with headlines, remediation actions, and user-facing
-prose; ``errors.py`` stays copy-free (ticket 14 §9). Every code has an entry so a
+prose; ``errors.py`` stays copy-free. Every code has an entry so a
 newer worker's unknown code falls back to ``internal.unexpected``.
 """
 
@@ -41,7 +41,7 @@ MODEL_LICENCE_ACCEPT_LABEL: Final = "Download model"
 MODEL_LICENCE_DETAILS_LABEL: Final = "Licence details"
 MODEL_LICENCE_DECLINE_LABEL: Final = "Cancel"
 
-# Ticket 09 §7: the shipped YouTube copy, exact and in one place.
+# The shipped YouTube copy, exact and in one place.
 YOUTUBE_DISCLAIMER: Final = (
     "Only import content you have the right to use. "
     "YouTube's Terms of Service prohibit downloading."
@@ -122,14 +122,14 @@ EMPTY_LEDE_YOUTUBE: Final = (
 )
 EMPTY_TITLE: Final = "Import a track"
 
-# Ticket 05 §1 and ticket 08 §2: the multichannel decode note and empty-state card.
+# The multichannel decode note and empty-state card.
 DOWNMIX_NOTE: Final = "Multichannel source downmixed to stereo."
 EMPTY_MODEL_CARD: Final = (
     "Separation model not installed yet · 84 MB — you can import and preview now; "
     "Separation asks for the download the first time you use it."
 )
 
-# Ticket 08 §7 and §4: the Outputs card, transport, and signal path.
+# The Outputs card, transport, and signal path.
 OUTPUTS_TITLE: Final = "Outputs"
 OUTPUTS_SOURCE_BADGE: Final = "source"
 OUTPUTS_STEM_BADGE: Final = "stem"
@@ -169,7 +169,7 @@ TRACK_STATUS_STEMS: Final = "4 stems"
 TRACK_STATUS_RENDERED: Final = "{label} rendered"
 TRACK_STATUS_STEMS_RENDERED: Final = "{stems} · {label} rendered"
 
-# Ticket 14 §9-§10: the shared Details disclosure and the copy-only report.
+# The shared Details disclosure and the copy-only report.
 DETAILS_LABEL: Final = "Details"
 OPEN_LOG_LABEL: Final = "Open log"
 COPY_DIAGNOSTICS_LABEL: Final = "Copy diagnostics"
@@ -189,7 +189,7 @@ RECOVERY_DISMISS: Final = "Dismiss"
 REMOVING: Final = "Removing…"
 RETRY: Final = "Retry"
 
-# Ticket 08 §5 and ticket 11: the Pitch card's exact working copy.
+# The Pitch card's exact working copy.
 PITCH_TITLE: Final = "Pitch"
 PITCH_ORIGINAL: Final = "Original"
 PITCH_SEMITONES_UNIT: Final = "semitones"
@@ -205,7 +205,7 @@ PITCH_TEMPO_NOTE: Final = (
 )
 PITCH_EARLIER_SEPARATION: Final = "based on an earlier separation"
 
-# Ticket 08 §6 and §10 plus ticket 14 §4.3-4.4: the Separation card's copy.
+# The Separation card's copy.
 SEPARATION_TITLE: Final = "Separation"
 SEPARATION_NOT_SEPARATED: Final = "Not separated · htdemucs · CPU"
 SEPARATION_NOT_SEPARATED_HINT: Final = "Separate this track into four stems and an Instrumental."
@@ -251,7 +251,7 @@ class ErrorCopy:
 
 @dataclass(frozen=True, slots=True)
 class ModelLicenceCopy:
-    """The model gate's user-facing prose (ticket 13 §7, ticket 08 §10)."""
+    """The model gate's user-facing prose."""
 
     title: str
     summary: str
@@ -492,7 +492,7 @@ REASON_COPY: Final[Mapping[tuple[str, str], ErrorCopy]] = MappingProxyType(
             "Open it from the logs folder.",
         ),
         # Export owns this reason so its disk-full action is "choose another
-        # location" rather than the cache's "clear cached audio" (14 §4.6).
+        # location" rather than the cache's "clear cached audio".
         (errors.STORAGE_DISK_FULL, "export"): ErrorCopy(
             "Not enough disk space.",
             "Choose another location.",
@@ -505,7 +505,7 @@ def model_licence_copy(spec: ModelSpec) -> ModelLicenceCopy:
     """Return the model-gate copy for one pinned model record.
 
     The licence prose lives here, not in the lock or the pipeline, so the UI is
-    the only module with user-facing sentences (ticket 14 §9).
+    the only module with user-facing sentences.
     """
     megabytes = f"{spec.size_bytes / 1_000_000:.0f} MB"
     return ModelLicenceCopy(
@@ -530,10 +530,10 @@ def copy_for(
 
     ``context`` carries the same machine values the raising code logged — a
     duration, a destination folder, or needed/free bytes — so the sentence can
-    name them without parsing log text (ticket 14 §4.1, §4.6-4.7, §9). ``origin``
-    selects the YouTube wording for a shared import code. Any interpolated
-    headline that would exceed the ticket 14 §9 limit falls back to the static
-    sentence rather than breaking the cap.
+    name them without parsing log text. ``origin`` selects the YouTube wording
+    for a shared import code. Any interpolated headline that would exceed the
+    details limit falls back to the static sentence rather than breaking the
+    cap.
     """
     base = _base_copy(code, reason)
     result = base
@@ -599,7 +599,7 @@ def _number(context: Mapping[str, object] | None, key: str) -> float | None:
 
 
 def _folder_name(context: Mapping[str, object] | None) -> str | None:
-    """The last path component for a sentence; never the full path (14 §4.6)."""
+    """The last path component for a sentence; never the full path."""
     raw = (context or {}).get("path")
     if not isinstance(raw, (str, Path)):
         return None
@@ -648,7 +648,7 @@ def fatal_copy(code: str, *, path: str | None = None) -> ErrorCopy:
     """Return the exact preflight fatal sentence and fix line.
 
     The storage sentence names the unwritable path; every other fatal code uses
-    its static ticket 14 §3 sentence.
+    its static sentence.
     """
     copy = copy_for(code)
     if path is not None and code in {
@@ -679,14 +679,14 @@ def format_semitones(semitones: int) -> str:
 
 
 def level_adjusted_label(gain_db: float) -> str | None:
-    """The quiet ticket 05 §5 badge, or ``None`` when no attenuation was applied."""
+    """The quiet level-adjusted badge, or ``None`` when no attenuation was applied."""
     if gain_db == 0:
         return None
     return f"level adjusted \u2212{abs(gain_db):.1f} dB"
 
 
 def format_sample_rate(rate: int | None) -> str | None:
-    """Format a sample rate the way the prototype does (44.1 kHz, 48 kHz)."""
+    """Format a sample rate (44.1 kHz, 48 kHz)."""
     if rate is None or rate <= 0:
         return None
     value = rate / 1000
@@ -712,7 +712,7 @@ def origin_label(kind: OriginKind) -> str:
 
 
 def track_icon(kind: OriginKind) -> str:
-    """The rail's music/video type icon for a Source origin (ticket 08 §3)."""
+    """The rail's music/video type icon for a Source origin."""
     return "movie" if kind is OriginKind.YOUTUBE else "music_note"
 
 
@@ -722,7 +722,7 @@ def source_reference(origin: str, kind: OriginKind) -> str:
 
 
 def detail_meta(track: Track) -> list[str]:
-    """Ticket 08 §4: origin · filename or URL · duration · 44.1 kHz stereo."""
+    """Origin · filename or URL · duration · 44.1 kHz stereo."""
     source = track.source
     meta = [origin_label(source.origin_kind)]
     reference = source_reference(source.origin, source.origin_kind)

@@ -1,4 +1,4 @@
-"""The error catalogue and the ``(code, reason)`` copy contract (ticket 14 §9)."""
+"""The error catalogue and the ``(code, reason)`` copy contract."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import pytest
 from stemforge import errors
 from stemforge.ui import formatting
 
-# An independent copy of ticket 06 §9 plus the ticket 09/14 amendments.
-TICKET_14_CODES = frozenset(
+# An independent copy of the error catalogue, compared against the implementation as a whole.
+EXPECTED_ERROR_CODES = frozenset(
     {
         "import.no_audio_stream",
         "import.unsupported_source",
@@ -58,8 +58,8 @@ TICKET_14_CODES = frozenset(
 
 
 @pytest.mark.unit
-def test_catalogue_contains_every_ticket_14_code() -> None:
-    assert errors.ALL_CODES == TICKET_14_CODES
+def test_catalogue_contains_every_expected_code() -> None:
+    assert errors.ALL_CODES == EXPECTED_ERROR_CODES
 
 
 @pytest.mark.unit
@@ -115,7 +115,7 @@ def test_reason_picks_the_specific_action() -> None:
 
 
 @pytest.mark.unit
-def test_reachable_copy_matches_the_ticket() -> None:
+def test_reachable_copy_matches_the_catalogue() -> None:
     assert (
         formatting.copy_for(errors.PREFLIGHT_PLATFORM_UNSUPPORTED).headline
         == "StemForge runs on 64-bit Linux and 64-bit Windows."

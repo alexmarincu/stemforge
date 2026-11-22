@@ -1,7 +1,7 @@
-"""Pure ``Range`` header parsing for the single ``/media`` route (ticket 09).
+"""Pure ``Range`` header parsing for the single ``/media`` route.
 
-The accepted set is deliberately the ticket-01 measurement: one open-ended or
-bounded byte range. Suffix, multi-range, malformed, and unsatisfiable requests
+The accepted set is deliberately one open-ended or bounded byte range. Suffix,
+multi-range, malformed, and unsatisfiable requests
 are all rejected with ``416`` by the route, so the parser raises one exception.
 """
 

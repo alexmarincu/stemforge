@@ -1,7 +1,7 @@
 """PyInstaller runtime hook: assert the pre-import environment is in place.
 
-Ticket 06 §11 requires ``NICEGUI_STORAGE_PATH`` and ``HF_HOME`` to be set before
-the first NiceGUI or Demucs import. ``main()`` calls
+``NICEGUI_STORAGE_PATH`` and ``HF_HOME`` must be set before the first NiceGUI or
+Demucs import. ``main()`` calls
 ``platform.environment.configure()`` for that, which necessarily happens *after*
 this hook runs, so the hook installs an import guard: the first ``nicegui`` or
 ``demucs`` import without both variables raises instead of letting either

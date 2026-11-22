@@ -1,4 +1,4 @@
-"""Bundled resources: the data root and the Bundle root (ticket 10 §3, ADR 0010).
+"""Bundled resources: the data root and the Bundle root (ADR 0010).
 
 Frozen builds have two roots:
 
@@ -28,7 +28,7 @@ LICENSES_DIRNAME: Final = "LICENSES"
 LICENSE_FILENAME: Final = "LICENSE"
 NOTICES_FILENAME: Final = "THIRD_PARTY_NOTICES.md"
 SOURCE_OFFER_FILENAME: Final = "SOURCE_OFFER.md"
-# Ticket 17's icon set: the scalable mark for the rail, the raster for the
+# The scalable mark for the rail, the raster for the
 # About modal and pywebview, and the multi-resolution ICO for Windows.
 APP_LOGO_SVG: Final = "stemforge.svg"
 APP_ICON_PNG: Final = "stemforge-512.png"

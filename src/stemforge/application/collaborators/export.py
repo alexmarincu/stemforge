@@ -38,14 +38,12 @@ class ExportService:
         self._media = media
 
     def preferred_export_dir(self) -> Path | None:
-        """The last directory the user exported to, when it still exists."""
         preferred = self._settings.preferred_export_dir
         if preferred is not None and preferred.is_dir():
             return preferred
         return None
 
     def remember_export_dir(self, directory: Path) -> None:
-        """Persist the destination the native save dialog returned (ticket 08 §9)."""
         self._settings.set_export_dir(directory)
 
     def export_targets(self, track: Track | str) -> tuple[ExportTarget, ...]:
@@ -53,7 +51,7 @@ class ExportService:
 
         The master, the unshifted Stems and Instrumental, and every member of
         each committed pitch render set. Missing artifacts and invalid manifests
-        are omitted rather than offered as a failing action (ticket 05 §7).
+        are omitted rather than offered as a failing action.
         """
         found = self._find_track(track)
         if found is None:
@@ -121,7 +119,6 @@ class ExportService:
         )
 
     def export_result(self, job_id: str) -> ExportedFile | None:
-        """Return the finished file's facts, or ``None`` before success."""
         try:
             snapshot = self._ledger.snapshot(job_id)
         except KeyError:
@@ -151,7 +148,7 @@ class ExportService:
         """The filename the Job would write, without creating anything.
 
         The format sheet uses this for its size/name summary; the Job uses the
-        same collision sequence when it commits (ticket 08 §9).
+        same collision sequence when it commits.
         """
         found = self._find_track(track)
         if found is None:

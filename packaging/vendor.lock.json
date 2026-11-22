@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "vendor_root": "vendor",
-  "description": "The pinned vendor set for StemForge (ticket 19). Read by scripts/vendor-fetch.sh, scripts/vendor-fetch.ps1, platform/binaries.py, platform/preflight.py, and the CI cache key. Binaries are never committed; only this lock and its provenance record are.",
+  "description": "The pinned vendor set for StemForge. Read by scripts/vendor-fetch.sh, scripts/vendor-fetch.ps1, platform/binaries.py, platform/preflight.py, and the CI cache key. Binaries are never committed; only this lock and its provenance record are.",
   "targets": {
     "linux-x86_64": {
       "system": "linux",
@@ -273,7 +273,7 @@
               "meson compile -C build",
               "copy build/rubberband.exe and the libsndfile sndfile.dll beside it"
             ],
-            "notes": "Ticket 10 §8 builds this with MSVC on windows-2022 after libsndfile 1.2.2. cmdline=auto lets Meson fall back from pkg-config to cpp.find_library('sndfile', dirs: extra_lib_dirs) when pkg-config-lite cannot parse a Windows path; the CLI is still built when the fallback finds sndfile.lib. No public prebuilt Rubber Band archive is named by the decision record; scripts/vendor-fetch.ps1 therefore accepts a prebuilt pinned directory with -RubberBandPrebuilt when Meson/MSVC are unavailable, and verifies rubberband.exe --version 4.0.0 plus the co-located sndfile.dll."
+            "notes": "Built with MSVC on windows-2022 after libsndfile 1.2.2. cmdline=auto lets Meson fall back from pkg-config to cpp.find_library('sndfile', dirs: extra_lib_dirs) when pkg-config-lite cannot parse a Windows path; the CLI is still built when the fallback finds sndfile.lib. No prebuilt Rubber Band archive is pinned; scripts/vendor-fetch.ps1 therefore accepts a prebuilt pinned directory with -RubberBandPrebuilt when Meson/MSVC are unavailable, and verifies rubberband.exe --version 4.0.0 plus the co-located sndfile.dll."
           },
           "install": [
             {
@@ -472,6 +472,6 @@
         "source": "The exact tarball is built with the configure line recorded in this lock; libsndfile remains a separately replaceable shared library"
       }
     ],
-    "notes": "packaging/vendor/SOURCES.md is the human-readable form for ticket 22. The release sources job also ships the corresponding source archives beside the binaries."
+    "notes": "packaging/vendor/SOURCES.md is the human-readable source-offer record. The release sources job also ships the corresponding source archives beside the binaries."
   }
 }

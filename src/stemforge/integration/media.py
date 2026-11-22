@@ -1,6 +1,6 @@
 """One ``/media`` route mounted over the artifact cache root.
 
-Ticket 09 (with the measurements in ticket 01) owns the supported HTTP surface:
+The supported HTTP surface:
 
 * ``GET`` full file -> ``200`` with ``Accept-Ranges: bytes``, ``Content-Length``
   and ``Content-Type: audio/mpeg``.
@@ -66,7 +66,7 @@ def parse_range_header(value: str | None, size: int) -> ByteRange | None:
 
     ``None`` means "serve the whole file". Anything other than a single
     ``bytes=N-`` or ``bytes=N-M`` range raises :class:`RangeNotSatisfiable`,
-    including suffix (``bytes=-N``) and multi-range forms, matching ticket 01.
+    including suffix (``bytes=-N``) and multi-range forms.
     """
     if value is None:
         return None
@@ -131,7 +131,7 @@ def register_media_route(app: FastAPI, root: Path) -> None:
     """Register the GET/HEAD pair on a FastAPI/NiceGUI app.
 
     The explicit HEAD route is registered first because Starlette adds HEAD to a
-    GET route automatically; ticket 09 requires 405 instead of a bodyless 200.
+    GET route automatically; HEAD must return 405 instead of a bodyless 200.
     """
     cache_root = Path(root)
 

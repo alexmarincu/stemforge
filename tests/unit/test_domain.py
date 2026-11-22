@@ -1,4 +1,4 @@
-"""The pure domain: immutable models and Workspace invariants (ticket 06 §5)."""
+"""The pure domain: immutable models and Workspace invariants."""
 
 from __future__ import annotations
 

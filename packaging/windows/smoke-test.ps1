@@ -1,6 +1,6 @@
 # Run the frozen Windows bundle's diagnostic flags.
 #
-# Ticket 11 section 4 and ticket 21. --self-test, --smoke-test, and --preflight always
+# --self-test, --smoke-test, and --preflight always
 # run. -WithSeparation installs the pinned htdemucs weights into a temporary
 # STEMFORGE_HOME (never the real profile and never the repository), then runs
 # --smoke-separation. The wall time and peak-RSS check are recorded in the JSON
@@ -114,7 +114,7 @@ function Invoke-FrozenCheck(
 try {
     Invoke-FrozenCheck -Name 'self-test' -Arguments @('--self-test') -Required
     Invoke-FrozenCheck -Name 'smoke-test' -Arguments @('--smoke-test') -Required
-    # Ticket 11 section 3: WebView2 presence is a runner property, not a gate.
+    # WebView2 presence is a runner property, not a gate.
     # Exit 5 records an absent runtime; exit 6/7/8 are still failures.
     Invoke-FrozenCheck -Name 'preflight' -Arguments @('--preflight') `
         -AllowedExitCodes @(0, 4, 5) -Required

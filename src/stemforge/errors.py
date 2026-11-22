@@ -1,6 +1,6 @@
 """The single error type the UI sees, and the stable code taxonomy.
 
-Codes are stable dotted strings (ticket 06 §9 plus the ticket 14 amendments).
+Codes are stable dotted strings.
 User-facing copy does not live here: ``ui/formatting.py`` maps ``(code, reason)``
 to every headline and hint, and an exception's ``message`` is log-only.
 """

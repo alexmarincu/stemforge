@@ -1,8 +1,7 @@
 """The ``Workspace`` aggregate and its invariants.
 
 One Track per Source, tracks in insertion order, and snapshots that cannot change
-under a reader. The Workspace is pure: the service owns locking and the filesystem
-(ticket 06 §5).
+under a reader. The Workspace is pure: the service owns locking and the filesystem.
 """
 
 from __future__ import annotations

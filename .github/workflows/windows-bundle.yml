@@ -1,18 +1,18 @@
 name: Windows bundle evidence
 
-# Ticket 21. This workflow is deliberately off pull requests: ticket 11's PR CI
-# is Linux-only and must stay under 15 minutes. Dispatch it manually to produce
-# Windows runner evidence (frozen self/smoke/separation, budgets, ZIP/setup).
-# Ticket 23 owns the tagged release workflow and its assets; this workflow only
-# uploads evidence artifacts (and the binaries only when explicitly requested).
+# This workflow is deliberately off pull requests: PR CI is Linux-only and must
+# stay under 15 minutes. Dispatch it manually to produce Windows runner evidence
+# (frozen self/smoke/separation, budgets, ZIP/setup). The tagged release
+# workflow and its assets live in release.yml; this workflow only uploads
+# evidence artifacts (and the binaries only when explicitly requested).
 
 on:
-  # Ticket 11 §5: the nightly calls this job; the dispatch inputs stay available
+  # The nightly calls this job; the dispatch inputs stay available
   # for manual evidence runs. The nightly passes upload_binaries: false.
   workflow_call:
     inputs:
       allow_licence_pending:
-        description: "Build without the ticket 22 licence tree (non-release evidence only)"
+        description: "Build without the licence tree (non-release evidence only)"
         type: boolean
         default: false
       with_separation:
@@ -30,7 +30,7 @@ on:
   workflow_dispatch:
     inputs:
       allow_licence_pending:
-        description: "Build without the ticket 22 licence tree (non-release evidence only)"
+        description: "Build without the licence tree (non-release evidence only)"
         type: boolean
         default: false
       with_separation:

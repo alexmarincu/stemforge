@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the PyInstaller Windows version resource from ``__version__``.
 
-Ticket 21: ``StemForge.exe`` carries real file properties, not PyInstaller's
+``StemForge.exe`` carries real file properties, not PyInstaller's
 defaults. ``packaging/windows/build.ps1`` calls this script with the value from
 ``stemforge.__version__`` and passes the result to the spec through
 ``STEMFORGE_VERSION_FILE``.

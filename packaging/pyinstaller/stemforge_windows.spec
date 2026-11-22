@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """Windows onedir spec: ``console=False``, the icon, and the WebView2 backend.
 
-Ticket 10 §1–§3 and §6, ticket 13. The launcher is ``StemForge.exe``; the frozen
+The launcher is ``StemForge.exe``; the frozen
 payload lives in ``_internal\\`` and ``packaging\\windows\\build.ps1`` adds
 ``vendor\\`` and the licence tree beside it. The Separation worker's torch/Demucs
 imports happen inside ``run()``, so they are listed as hidden imports;
@@ -37,7 +37,7 @@ if not _version_file.is_file():
 datas = [
     (str(SRC / "assets"), "assets"),
     (str(SRC / "models" / "models.lock.json"), "models"),
-    # The frozen preflight verifies vendor/ against this lock (ticket 19).
+    # The frozen preflight verifies vendor/ against this lock.
     (str(ROOT / "packaging" / "vendor.lock.json"), "."),
     *collect_data_files("nicegui"),
     # demucs/remote/files.txt is read by the legacy repo fallback; the HF path
@@ -52,8 +52,7 @@ hiddenimports = [
     "webview.platforms.winforms",
     "stemforge.ui.page",
     # The worker imports torch/Demucs inside run(); a call-time import is
-    # invisible to static analysis and research 04 measured a 150 MB bundle
-    # when these were omitted (ticket 13).
+    # invisible to static analysis, and omitting them measured a 150 MB bundle.
     "torch",
     "demucs.api",
     "demucs.apply",
@@ -84,7 +83,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[str(ROOT / "packaging" / "pyinstaller" / "runtime-hooks" / "rthook_stemforge_env.py")],
     # mypy is a pydantic hook side effect and is only needed at type-check time.
-    # webview.platforms.mshtml is the legacy engine; ticket 21 has no fallback.
+    # webview.platforms.mshtml is the legacy engine; the app has no fallback.
     excludes=[
         "tkinter",
         "mypy",
@@ -97,7 +96,7 @@ a = Analysis(
     optimize=0,
 )
 
-# Ticket 13 / ticket 12: an inference-only bundle does not need torch's test
+# An inference-only bundle does not need torch's test
 # suite or its command-line helpers (~162 MB measured). ``import torch`` refuses
 # to load unless torch_shm_manager exists, so that one file stays.
 _TORCH_KEEP_BIN = {"torch_shm_manager", "torch_shm_manager.exe"}

@@ -1,6 +1,6 @@
 name: Release
 
-# Ticket 23 / ticket 10 section 8. A tag builds the draft release; a maintainer
+# A tag builds the draft release; a maintainer
 # approves the protected `release` environment before `publish` un-drafts it.
 # Release assets go to the draft GitHub Release directly, never Actions
 # artifacts. 0.x tags are CI-only and are never published.

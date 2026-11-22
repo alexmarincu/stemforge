@@ -1,8 +1,8 @@
 """Pitch Job: render one immutable set from the master or from all four Stems.
 
-One function, :func:`run_pitch_job`, owns everything a Render action produces
-(ticket 05 §2, §4): the shifted original, or the four shifted Stems plus the
-summed shifted Instrumental. It composes the :class:`~stemforge.engines.pitch.PitchEngine`
+One function, :func:`run_pitch_job`, owns everything a Render action produces:
+the shifted original, or the four shifted Stems plus the summed shifted
+Instrumental. It composes the :class:`~stemforge.engines.pitch.PitchEngine`
 adapter and the :class:`~stemforge.artifacts.ArtifactStore`, writes into
 ``staging/<job_id>/``, records one shared presentation gain, encodes the previews
 from the unattenuated float32 masters, writes the manifest last, and promotes the
@@ -12,7 +12,7 @@ directory, so no partial render becomes visible.
 Identity: ``renders/<render_key>/`` with ``render_key`` over the source id, the
 scope (``original`` or ``stems``), the semitones, the sorted input hashes, and the
 engine version/preset. A master render therefore can never satisfy a stems
-request, even at the same semitone (ticket 05 §4, ticket 08 §5).
+request, even at the same semitone.
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ def run_pitch_job(
     ``original`` (the canonical master) or ``stems`` (the four Stems plus the
     summed shifted Instrumental). Rendering an already-cached key returns the
     existing set without staging another. A cancel or failure discards
-    ``staging/<job_id>/`` before the exception leaves (ticket 14 §5).
+    ``staging/<job_id>/`` before the exception leaves.
     """
     shift = validate_semitones(semitones)
     resolved_scope = RenderScope(scope)
@@ -139,7 +139,7 @@ def run_pitch_job(
         emit(1.0, STAGE_DONE, "this render set already exists")
         return _render_set(existing, resolved_scope, shift, existing.gain_db)
 
-    # Ticket 07 §8: one master or five stem outputs (WAV + preview each); the
+    # One master or five stem outputs (WAV + preview each); the
     # cache reserves the same estimate before staging the set.
     expected_outputs = 1 if resolved_scope is RenderScope.ORIGINAL else len(STEM_ROLES) + 1
     duration_s = media.probe(canonical).duration_s
@@ -248,7 +248,7 @@ def find_pitch_render(
     """Find the newest committed set for a (source, semitone, scope) request.
 
     Scope is part of the query, so a master render never answers a stems
-    request (ticket 08 §5).
+    request.
     """
     resolved_scope = RenderScope(scope)
     matches = [

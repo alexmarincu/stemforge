@@ -1,11 +1,11 @@
-"""``PitchEngine`` protocol and the Rubber Band CLI adapter (ticket 10).
+"""``PitchEngine`` protocol and the Rubber Band CLI adapter.
 
-The only Rubber Band adapter in the application (ticket 06 §10). It runs the
+The only Rubber Band adapter in the application. It runs the
 vendored ``rubberband`` 4.0.0 CLI in R3/offline/formant mode with tempo
 unchanged, writes ``<name>.partial.wav`` inside the caller's directory, validates
 the result with ffprobe, and only then renames it into place. Cancellation kills
 the whole process group; every failure leaves no partial behind and surfaces as a
-coded :class:`~stemforge.errors.StemForgeError` (ticket 05 §4):
+coded :class:`~stemforge.errors.StemForgeError`:
 
 ``pitch.engine_missing``
     the CLI is absent or not executable.
@@ -16,8 +16,8 @@ coded :class:`~stemforge.errors.StemForgeError` (ticket 05 §4):
     the produced WAV is unreadable or is not 44.1 kHz stereo float32 with the
     input's duration (±50 ms).
 
-Zero semitones is not a render: ticket 08 §5 disables ``Render`` at ``0`` and
-shows the Original instead, so the adapter rejects ``0`` as a caller error
+Zero semitones is not a render: ``Render`` is disabled at ``0`` and the
+Original is shown instead, so the adapter rejects ``0`` as a caller error
 (``ValueError``) rather than producing a redundant ``+0`` set.
 """
 
@@ -46,7 +46,7 @@ MIN_SEMITONES: Final = -12
 MAX_SEMITONES: Final = 12
 
 ENGINE_NAME: Final = "rubberband"
-# The one render quality (ticket 05 §4): R3 engine, offline, formant on,
+# The one render quality: R3 engine, offline, formant on,
 # ignore clipping, default window. No draft mode and no formant toggle.
 ENGINE_PRESET: Final = "r3-formant-offline-ignore-clipping"
 FORMANT_PRESERVED: Final = True
@@ -64,7 +64,7 @@ PROGRESS_DONE: Final = 1.0
 ERROR_TAIL_CHARS: Final = 2_000
 VERSION_TIMEOUT_S: Final = 30.0
 
-# ``ProgressSink`` is ticket 06 §10's ``(fraction, stage, detail) -> None``.
+# ``ProgressSink`` is ``(fraction, stage, detail) -> None``.
 ProgressSink = Callable[[float, str, str], None]
 
 
@@ -76,7 +76,7 @@ ProgressSink = Callable[[float, str, str], None]
 def validate_semitones(semitones: int) -> int:
     """Return ``semitones`` or raise ``ValueError`` for an unusable shift.
 
-    The UI offers ``-12...+12`` and disables the action at ``0`` (ticket 08 §5);
+    The UI offers ``-12...+12`` and disables the action at ``0``;
     the application never asks for a ``0`` render because the Original already
     is that view.
     """
@@ -122,7 +122,7 @@ def render_key_for(
     engine: str = ENGINE_NAME,
     preset: str = ENGINE_PRESET,
 ) -> str:
-    """The content-addressed identity of one render set (ticket 05 §4, §8).
+    """The content-addressed identity of one render set.
 
     The key covers the source identity, the scope, the semitones, the sorted
     input hashes, and the engine version/preset. Scope is part of the identity,
@@ -159,7 +159,7 @@ def render_key_for(
 
 
 class PitchEngine(Protocol):
-    """The pitch adapter the render Job composes (ticket 06 §10)."""
+    """The pitch adapter the render Job composes."""
 
     @property
     def version(self) -> str: ...
@@ -252,7 +252,7 @@ def _output_invalid(path: Path, detail: str) -> StemForgeError:
 
 
 class _ProgressReader:
-    """Parse the CLI's carriage-return progress stream into one fraction (ticket 05 §4)."""
+    """Parse the CLI's carriage-return progress stream into one fraction."""
 
     def __init__(self, sink: ProgressSink | None) -> None:
         self._sink = sink
@@ -320,8 +320,8 @@ class RubberBandEngine:
             try:
                 resolved = binaries.rubberband()
             except binaries.BundleDamagedError:
-                # A frozen Bundle with a missing vendor binary is the ticket 14
-                # preflight failure, not a render-time engine absence.
+                # A frozen Bundle with a missing vendor binary is a preflight
+                # failure, not a render-time engine absence.
                 raise
             except FileNotFoundError as error:
                 raise _engine_missing(str(error), None) from error
@@ -334,7 +334,7 @@ class RubberBandEngine:
 
     @property
     def version(self) -> str:
-        """The CLI version, used in render keys and manifests (ticket 05 §4)."""
+        """The CLI version, used in render keys and manifests."""
         if self._version is None:
             self._version = self._detect_version()
         return self._version

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Write and verify ``SHA256SUMS`` for the Windows release artifacts.
 
-Ticket 21 ships the portable ZIP and the Inno installer unsigned, so the hash
-list is the integrity check. ``packaging/windows/package.ps1`` calls this script;
+The portable ZIP and the Inno installer ship unsigned, so the hash list is the
+integrity check. ``packaging/windows/package.ps1`` calls this script;
 ``verify-release.sh`` and the manual release matrix use ``--check``.
 
 Format: the GNU coreutils form, ``<lowercase hex>  <basename>``, sorted by name.

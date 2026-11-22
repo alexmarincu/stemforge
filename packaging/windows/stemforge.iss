@@ -1,9 +1,9 @@
-; StemForge per-user installer (ticket 21). Inno Setup 6.x.
+; StemForge per-user installer. Inno Setup 6.x.
 ;
 ; package.ps1 compiles this with:
 ;   ISCC.exe /DVersion=<semver> /DWebView2Installer=<verified bootstrapper> stemforge.iss
 ;
-; Design rules from ticket 10 §6:
+; Design rules:
 ;   * per-user install under %LOCALAPPDATA%\Programs\StemForge, no UAC;
 ;   * Windows 10 22H2 (build 19045) or newer, x64 only;
 ;   * WebView2 Evergreen Bootstrapper embedded as dontcopy and run only when

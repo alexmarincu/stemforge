@@ -425,7 +425,7 @@ async def test_the_sheet_is_format_only_and_keeps_the_entry_point_source(
         assert "is-active" in _only(user, "export-format-mp3_320").classes
         assert _only(user, "export-default-name").text.endswith(".mp3")
         assert len(user.find(marker="export-confirm").elements) == 1
-        # Ticket 08 §9: the entry point chooses the source; the sheet does not.
+        # The entry point chooses the source; the sheet does not.
         assert _count(user, "export-target-master") == 0
         assert _count(user, "export-target-stem:vocals") == 0
         await user.should_not_see("Save original")
@@ -771,7 +771,7 @@ async def test_a_full_destination_is_coded_with_the_export_action(
         assert list(destination.iterdir()) == []
 
         # Choosing another folder must keep the coded failure and its Retry
-        # until a new Export actually starts (ticket 14 §2/§9).
+        # until a new Export actually starts.
         user.find(marker="export-choose-folder").click()
         await user.should_see(marker="export-sheet")
         user.find(marker="export-cancel").click()
@@ -784,7 +784,7 @@ async def test_an_enospc_write_names_the_folder_and_needed_size(
     harness: Harness,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ticket 14 §4.6: the write-time ENOSPC path interpolates too."""
+    """The write-time ENOSPC path interpolates too."""
     from stemforge.pipeline import export_job
 
     async for user, workspace_page in _open_page(harness):

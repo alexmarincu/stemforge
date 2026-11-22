@@ -11,8 +11,8 @@ different gain from the one the source set committed.
 The encoder writes inside ``staging/<job_id>/`` first. The destination sees only
 ``<final-name>.partial``; after a successful copy, ``fsync``, and collision-safe
 rename, that partial becomes the final file. Every handled failure, cancel, or
-validation error removes the partial and leaves no final file (ticket 14 §4.6,
-§5). A hard crash is the one documented exception.
+validation error removes the partial and leaves no final file. A hard crash is
+the one documented exception.
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ class ExportTarget:
 
     @property
     def base_name(self) -> str:
-        """The ticket 05 §7 filename suggestion, without an extension."""
+        """The suggested filename, without an extension."""
         return suggest_base_name(self.title, role=self.role, semitones=self.semitones)
 
 
@@ -215,11 +215,11 @@ def run_export_job(
     """Encode one selection and atomically write it to ``destination_dir``.
 
     ``target`` accepts the value from :func:`export_targets` or its stable key.
-    ``destination_name`` is the save dialog's chosen filename (ticket 18); when
+    ``destination_name`` is the save dialog's chosen filename; when
     omitted the target's suggested base name is used. The destination directory
     must already exist and be writable; the Job never creates a directory on the
-    user's behalf. Free space is checked against the ticket 07 WAV-24 worst case
-    before any destination file is touched.
+    user's behalf. Free space is checked against the WAV-24 worst case before
+    any destination file is touched.
     """
     export_format = ExportFormat(fmt)
     target_key = target.key if isinstance(target, ExportTarget) else str(target)
@@ -287,8 +287,8 @@ def run_export_job(
                 log=log,
             )
         except StemForgeError as exc:
-            # Ticket 14 §4.6 makes both Export encoder failures retryable even
-            # though the shared adapter leaves the flag unset elsewhere.
+            # Both Export encoder failures are retryable even though the shared
+            # adapter leaves the flag unset elsewhere.
             if exc.code in {errors.MEDIA_ENCODE_FAILED, errors.MEDIA_VALIDATION_FAILED}:
                 raise StemForgeError(
                     exc.code,

@@ -17,13 +17,13 @@ self_test_home="$(mktemp -d "${TMPDIR:-/tmp}/stemforge-selftest.XXXXXX")"
 trap 'rm -rf "$self_test_home"' EXIT
 STEMFORGE_HOME="$self_test_home" uv run stemforge --self-test
 
-# The pinned vendor set (ticket 19) is optional locally, but if present it must
+# The pinned vendor set is optional locally, but if present it must
 # match vendor.lock.json before the integration layer uses it.
 if [[ -x vendor/ffmpeg/ffmpeg || -x vendor/deno/deno ]]; then
   scripts/vendor-fetch.sh --verify-only
 fi
 
-# Integration tests need the real tools. Until ticket 13 vendors them, use PATH.
+# Integration tests need the real tools: use PATH, or the vendored set when present.
 if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
   uv run pytest -m integration
 elif [[ -d vendor ]]; then

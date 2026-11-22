@@ -12,9 +12,9 @@ StemForge needs: the open dialog and the save dialog for Export.
   error;
 * a save name is Windows-safe and always carries the chosen format's extension.
   A known audio extension the user typed is replaced, never used to switch the
-  chosen format (ticket 08 §9, ticket 18).
+  chosen format.
 
-Threading follows ticket 01: ``Window.create_file_dialog`` already hops through
+Threading: ``Window.create_file_dialog`` already hops through
 NiceGUI's ``run.io_bound`` and the native window executor, so the wrapper only
 awaits it. It must not call ``run_io`` itself, or the dialog would be queued to
 a worker twice.
@@ -35,7 +35,7 @@ AUDIO_EXTENSIONS: Final = (".wav", ".mp3", ".flac", ".m4a")
 AUDIO_FILTER: Final = "Audio (*.wav;*.mp3;*.flac;*.m4a)"
 AUDIO_FILE_TYPES: Final = (AUDIO_FILTER,)
 
-# The three export formats (ticket 05 §7). Descriptions stay within
+# The three export formats. Descriptions stay within
 # pywebview's ``[\w ]+`` grammar: no hyphen, comma, or slash.
 SAVE_AUDIO_EXTENSIONS: Final = (".wav", ".flac", ".mp3")
 SAVE_FILTERS: Final[dict[str, str]] = {
@@ -282,7 +282,7 @@ def normalize_save_name(name: str, suffix: str) -> SaveName:
 
     A known audio extension is removed first; when it differs from ``suffix`` the
     result is flagged ``corrected`` so the sheet can tell the user. The chosen
-    format is never changed to match what was typed (ticket 08 §9).
+    format is never changed to match what was typed.
     """
     normalized_suffix = _normalize_save_suffix(suffix)
     text = str(name).strip()

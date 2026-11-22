@@ -1,4 +1,4 @@
-"""Windows packaging contracts (ticket 21).
+"""Windows packaging contracts.
 
 The Windows runner is the only place the build, Inno compiler, and real install
 can run. These unit tests keep the Linux job honest about the parts that are
@@ -6,8 +6,8 @@ text and pure-Python: the Inno directives, the PyInstaller spec facts, the
 PowerShell entry points, the bundle budgets, the vendor and licence rules, and
 the SHA-256 manifest.
 
-Expected values come from ticket 10 §6, ticket 21's done-when, and the pinned
-values in CONTEXT.md; they are not read back from the scripts under test.
+Expected values are pinned in this file, not read back from the scripts under
+test.
 """
 
 from __future__ import annotations
@@ -284,8 +284,8 @@ def test_windows_workflow_is_manual_35_minutes_and_off_pull_requests() -> None:
     assert "workflow_dispatch:" in text
     assert "pull_request" not in text
     assert "runs-on: windows-2022" in text
-    # A manual dispatch keeps the ticket 21 ceiling; the nightly calls the same
-    # job through workflow_call with its 50-minute ceiling (ticket 11 §5).
+    # A manual dispatch keeps its 35-minute ceiling; the nightly calls the same
+    # job through workflow_call with its 50-minute ceiling.
     assert "timeout-minutes: ${{ inputs.timeout-minutes || 35 }}" in text
     assert "default: 35" in text
     assert "workflow_call:" in text

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the Linux release Bundle: PyInstaller onedir, the Bundle root, the two
-# tarballs, and the thin zstd AppImage (tickets 10 §1–§5, 20, ADR 0010/0011).
+# tarballs, and the thin zstd AppImage (ADR 0010, ADR 0011).
 #
 # Run it from any checkout:  bash packaging/linux/build.sh
 #
@@ -8,9 +8,9 @@
 # _internal/; packaging/linux/verify_bundle.py gates the layout, the licence
 # tree, the torch trim, the vendor lock, and the size budgets.
 #
-# --allow-missing-licences is a local-layout debug switch for the interval before
-# ticket 22 lands the licence tree. It must never be used by a release or CI
-# build; without it a missing LICENSE, notice, source offer, or LICENSES/ fails.
+# --allow-missing-licences is a local-layout debug switch for a checkout with no
+# licence tree yet. It must never be used by a release or CI build; without it a
+# missing LICENSE, notice, source offer, or LICENSES/ fails.
 # --bundle-only stops after the onedir payload verifies: the PR smoke gate uses
 # it, while the release archives and AppImage stay with linux-bundle.yml.
 set -Eeuo pipefail
@@ -33,8 +33,8 @@ Usage: packaging/linux/build.sh [--bundle-only] [--allow-missing-licences] [--sk
 
   --bundle-only             stop after the verified onedir payload; skip the
                             tar.gz, tar.zst, and AppImage (PR smoke gate).
-  --allow-missing-licences  debug only: assemble a local bundle before ticket 22
-                            supplies LICENSE/THIRD_PARTY_NOTICES.md/SOURCE_OFFER.md/
+  --allow-missing-licences  debug only: assemble a local bundle without
+                            LICENSE/THIRD_PARTY_NOTICES.md/SOURCE_OFFER.md/
                             LICENSES. Never use for a release or CI build.
   --skip-host-abi           next-image builds only: skip the release host-ABI
                             floor. The 22.04 release job still enforces it.
@@ -70,7 +70,7 @@ note() {
 
 export SOURCE_DATE_EPOCH="$source_date_epoch"
 if ((allow_missing_licences)); then
-    echo "build.sh: WARNING: debug bundle without the licence tree (ticket 22 pending);" \
+    echo "build.sh: WARNING: debug bundle without the licence tree;" \
         "never publish it" >&2
 fi
 if ((skip_host_abi)); then
@@ -88,7 +88,7 @@ tarball="$dist_root/$bundle_name.tar.gz"
 zstdball="$dist_root/$bundle_name.tar.zst"
 appimage="$dist_root/$bundle_name.AppImage"
 
-# Ticket 10 §1: a PyPI torch fallback silently pulls CUDA wheels.
+# A PyPI torch fallback silently pulls CUDA wheels.
 .venv/bin/python - <<'PY'
 import importlib.util
 import sys
@@ -144,8 +144,8 @@ tar -C "$repo_root/vendor" --exclude=.cache -cf - . | tar -C "$bundle/vendor" -x
 
 install -m 0755 packaging/linux/run.sh "$bundle/run.sh"
 install -m 0644 packaging/linux/README.md "$bundle/README.md"
-# Ticket 10's layout spells the file README.txt; ship both names so the file
-# manager and the ticket's checks agree.
+# The release layout spells the file README.txt; ship both names so the file
+# manager and the release checks agree.
 install -m 0644 packaging/linux/README.md "$bundle/README.txt"
 for readme in "$bundle/README.md" "$bundle/README.txt"; do
     sed -i "s/{{version}}/${version}/g" "$readme"
@@ -166,10 +166,10 @@ else
 fi
 if ((missing_licences)); then
     if ((allow_missing_licences)); then
-        echo "build.sh: WARNING: licence tree incomplete (ticket 22); debug build only" >&2
+        echo "build.sh: WARNING: licence tree incomplete; debug build only" >&2
     else
         die "licence tree is incomplete; add LICENSE, THIRD_PARTY_NOTICES.md," \
-            "SOURCE_OFFER.md, LICENSES/ (ticket 22) or use --allow-missing-licences" \
+            "SOURCE_OFFER.md, LICENSES/ or use --allow-missing-licences" \
             "for a local layout check only"
     fi
 fi

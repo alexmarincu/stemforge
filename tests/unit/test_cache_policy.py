@@ -1,4 +1,4 @@
-"""Pure LRU/cap policy for the audio cache (ticket 07 §2)."""
+"""Pure LRU/cap policy for the audio cache."""
 
 from __future__ import annotations
 
@@ -152,7 +152,7 @@ def test_reserved_room_with_everything_live_reports_over_cap() -> None:
 
 
 @pytest.mark.unit
-def test_disk_estimate_math_matches_ticket_07_section_8() -> None:
+def test_disk_estimate_math_is_pinned() -> None:
     from math import ceil
 
     from stemforge.artifacts import (

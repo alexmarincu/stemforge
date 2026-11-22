@@ -33,11 +33,9 @@ class ModelService:
         self._transport = transport
 
     def model_spec(self) -> ModelSpec:
-        """The pinned model identity and licence-notice version."""
         return self._models.spec
 
     def model_status(self) -> ModelStatus:
-        """A cheap installed-or-not check; the Job/verify seam re-hashes before use."""
         return self._models.status()
 
     def model_consent(self) -> ModelConsent | None:
@@ -50,7 +48,6 @@ class ModelService:
         )
 
     def accept_model_licence(self) -> ModelConsent:
-        """Persist the explicit acknowledgement required before downloading."""
         return self._settings.accept_model_licence(version=self._models.spec.licence_notice_version)
 
     def install_model(
@@ -59,11 +56,6 @@ class ModelService:
         accept_licence: bool = False,
         transport: Transport | None = None,
     ) -> str:
-        """Submit a model-install Job and return its id.
-
-        Without a current consent record this raises before submitting, so the
-        UI can show the model gate without a failed Job in the history.
-        """
         if accept_licence:
             self.accept_model_licence()
         if not self._models.is_installed():

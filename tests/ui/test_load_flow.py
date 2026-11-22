@@ -1,4 +1,4 @@
-"""Headless NiceGUI tests for the load workflow (ticket 08).
+"""Headless NiceGUI tests for the load workflow.
 
 The page is built through NiceGUI's own user simulation. Media work is injected:
 the fake never spawns a process, never touches a real audio codec, and completes
@@ -324,7 +324,7 @@ async def test_a_selected_file_becomes_a_track_with_audio_facts(harness: Harness
 async def test_outputs_placeholder_is_visible_before_the_model_is_installed(
     harness: Harness,
 ) -> None:
-    """Ticket 08 §7: the dashed row and Separate action exist with no stems."""
+    """The dashed row and Separate action exist with no stems."""
     source = harness.source_file()
     harness.dialog._selections = [(str(source),)]
 
@@ -358,7 +358,7 @@ async def test_window_title_follows_the_selected_track_and_clears_on_remove(
         await asyncio.sleep(0.05)
         assert workspace_page._client.resolve_title() == "StemForge — My Song"
 
-        # Ticket 08 §4: the header carries Settings and Remove.
+        # The header carries Settings and Remove.
         user.find(marker="detail-settings").click()
         await user.should_see(marker="settings-dialog")
         user.find(marker="settings-close").click()
@@ -422,7 +422,7 @@ async def test_the_job_bar_reports_stage_progress_and_cancel(harness: Harness) -
 async def test_the_job_bar_and_cancel_follow_the_running_job_not_a_queued_one(
     harness: Harness,
 ) -> None:
-    """Ticket 08 §11: a batch selection is a queue the bar must not misreport."""
+    """A batch selection is a queue the bar must not misreport."""
     first = harness.source_file("First.wav")
     second = harness.source_file("Second.wav")
     harness.dialog._selections = [(str(first),)]
@@ -487,7 +487,7 @@ async def test_import_failure_shows_the_coded_headline_and_keeps_the_app_usable(
 async def test_a_disk_full_import_reports_sizes_and_offers_the_cache_action(
     harness: Harness,
 ) -> None:
-    """Ticket 14 §4.1/§4.7: name needed and free space, and offer the cache clear."""
+    """Name needed and free space, and offer the cache clear."""
     source = harness.source_file("full.wav")
     harness.dialog._selections = [(str(source),)]
     harness.media.fail_decode = StemForgeError(
@@ -518,7 +518,7 @@ async def test_a_disk_full_import_reports_sizes_and_offers_the_cache_action(
 async def test_a_retryable_local_import_failure_resubmits_the_same_file(
     harness: Harness,
 ) -> None:
-    """Ticket 14 §8: Retry repeats the identical local import without a dialog."""
+    """Retry repeats the identical local import without a dialog."""
     source = harness.source_file("retry.wav")
     harness.dialog._selections = [(str(source),)]
     harness.media.fail_decode = StemForgeError(
@@ -552,7 +552,7 @@ async def test_a_retryable_synchronous_import_error_offers_retry(
     harness: Harness,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ticket 14 §8: Retry is not limited to a Job that already started."""
+    """Retry is not limited to a Job that already started."""
     source = harness.source_file("sync.wav")
     harness.dialog._selections = [(str(source),)]
     real_import = harness.service.import_local

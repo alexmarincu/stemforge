@@ -1,4 +1,4 @@
-"""The copy-only diagnostics report (ticket 14 §10).
+"""The copy-only diagnostics report.
 
 ``render_diagnostics`` is a pure text builder over an immutable fact record.
 ``collect_diagnostics`` gathers those facts from the app's normal seams and the
@@ -62,7 +62,7 @@ class ModelFact:
 
 @dataclass(frozen=True, slots=True)
 class DiagnosticsFacts:
-    """Everything ticket 14 §10 asks the report to contain."""
+    """Everything the report must contain."""
 
     version: str
     bundle_kind: str
@@ -101,7 +101,7 @@ class DiagnosticsFacts:
 
 
 def render_diagnostics(facts: DiagnosticsFacts) -> str:
-    """Render the exact ticket 14 §10 text; no I/O and no hidden state."""
+    """Render the report text; no I/O and no hidden state."""
     lines = [
         f"StemForge {facts.version} · {facts.bundle_kind} · "
         f"{facts.os_name} {facts.os_version} {facts.arch} · {facts.session_type}",

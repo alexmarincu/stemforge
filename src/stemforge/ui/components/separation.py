@@ -2,15 +2,14 @@
 
 The card owns view state only (the inline failure and the stall acknowledgement).
 Every read and every action goes through ``WorkspaceService``; the Outputs card
-owns every playable artifact and the page owns the single ``<audio>`` player
-(ticket 08 §7-§8). Playback stays enabled while a Job runs; only actions that
-would submit a second Job disable (ticket 08 §11).
+owns every playable artifact and the page owns the single ``<audio>`` player.
+Playback stays enabled while a Job runs; only actions that would submit a second
+Job disable.
 
 The model gate is inline and never a modal: size, revision, licence details, and
-the explicit Download consent (ticket 08 §10, ticket 13 §7). A missing model
-renders the gate and ``separation.model_missing`` instead of crashing, and a
-successful install resubmits a previously requested Separation exactly once
-(ticket 06 §3, ticket 14 §4.3).
+the explicit Download consent. A missing model renders the gate and
+``separation.model_missing`` instead of crashing, and a successful install
+resubmits a previously requested Separation exactly once.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""The ticket 06 §1 dependency rule, enforced against the source tree.
+"""The package dependency rule, enforced against the source tree.
 
 `lint-imports` is the CI gate; these tests keep the two edges that drifted
 (workers on the top layer, UI reaching into platform) from silently returning.

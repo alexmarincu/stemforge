@@ -38,7 +38,6 @@ class PitchService:
         self._media = media
 
     def pitch_sets(self, track: Track) -> tuple[PitchSet, ...]:
-        """Every committed render set for the Track, oldest first (ticket 08 §7)."""
         return tuple(
             PitchSet(
                 render_key=view.artifact.render_key,
@@ -60,7 +59,7 @@ class PitchService:
         """The set that satisfies a Render request for ``(semitones, scope)``.
 
         Scope is part of the query: a master render never answers a stems
-        request (ticket 08 §5). A stems set built from an earlier separation is
+        request. A stems set built from an earlier separation is
         not a cache hit for the current Stems, so Render is offered instead of
         Open while the old set stays in the tabs.
         """
@@ -98,7 +97,7 @@ class PitchService:
         semitones: int,
         scope: RenderScope | str,
     ) -> str:
-        """Submit one Pitch Render Job and return its id (ticket 03, ticket 08 §5).
+        """Submit one Pitch Render Job and return its id.
 
         The request is explicit: the UI's stepper never calls this by itself.
         ``scope`` is ``original`` for the default flow, or ``stems`` when the

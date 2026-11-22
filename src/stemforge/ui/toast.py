@@ -1,8 +1,8 @@
-"""The one toast surface: eight seconds and dismissible (ticket 14 §2).
+"""The one toast surface: eight seconds and dismissible.
 
 NiceGUI's ``ui.notify`` defaults to Quasar's five-second toast with no close
-control. Ticket 14 fixes the lifetime at eight seconds and requires every toast
-to be dismissible, so components call this wrapper instead of ``ui.notify``.
+control. This wrapper fixes the lifetime at eight seconds and makes every toast
+dismissible, so components call it instead of ``ui.notify``.
 """
 
 from __future__ import annotations

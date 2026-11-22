@@ -1,4 +1,4 @@
-"""Pure export naming, collision, and destination-space helpers (ticket 05 §7)."""
+"""Pure export naming, collision, and destination-space helpers."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def test_reserved_names_with_an_extension_are_still_reserved() -> None:
     assert sanitize_base_name("CONSOLE") == "CONSOLE"
 
 
-def test_the_suggested_base_name_is_capped_at_the_ticket_length() -> None:
+def test_the_suggested_base_name_is_capped() -> None:
     assert len(sanitize_base_name("a" * 300)) == MAX_BASE_CHARS
 
 
@@ -75,7 +75,7 @@ def test_a_multibyte_name_never_exceeds_the_byte_cap() -> None:
     assert name.endswith(".mp3")
 
 
-def test_suggested_names_follow_the_ticket_05_pattern() -> None:
+def test_suggested_names_follow_the_pinned_pattern() -> None:
     assert suggest_base_name("Song") == "Song"
     assert suggest_base_name("Song", role="vocals") == "Song - Vocals"
     assert suggest_base_name("Song", role="instrumental") == "Song - Instrumental"
@@ -130,7 +130,7 @@ def test_unique_path_uses_the_first_free_name_when_nothing_exists(tmp_path: Path
     assert unique_export_path(tmp_path, "Song", ".mp3") == tmp_path / "Song.mp3"
 
 
-def test_space_estimate_is_the_ticket_07_wav_24_worst_case() -> None:
+def test_space_estimate_is_the_wav_24_worst_case() -> None:
     minutes = 10
     expected = ceil(15_900_000 * minutes * 1.2 + 64 * 1024 * 1024)
 

@@ -1,4 +1,4 @@
-"""One source-manifest writer for local and YouTube imports (ticket 05 §8)."""
+"""One source-manifest writer for local and YouTube imports."""
 
 from __future__ import annotations
 

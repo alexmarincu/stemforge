@@ -1,6 +1,6 @@
 # Package the Windows bundle: portable ZIP plus per-user Inno Setup installer.
 #
-# Ticket 10 section 6 and ticket 21. Both artifacts are built from the same
+# Both artifacts are built from the same
 # dist/StemForge tree:
 #
 #   StemForge-<ver>-win64-portable.zip   the tree plus the WebView2 bootstrapper
@@ -11,7 +11,7 @@
 # The Inno compiler receives /DVersion=<ver> and /DWebView2Installer=<verified
 # path>; stemforge.iss embeds the bootstrapper as a dontcopy file. The build
 # refuses a bundle carrying LICENCE-GATE-PENDING.txt: a release artifact must
-# contain the ticket 22 licence tree.
+# contain the full licence tree.
 [CmdletBinding()]
 param(
     [string]$Version,
@@ -46,7 +46,7 @@ if (-not (Test-Path -LiteralPath $Bundle -PathType Container)) {
     throw "missing bundle directory $Bundle; run packaging/windows/build.ps1 first"
 }
 if (Test-Path -LiteralPath (Join-Path $Bundle 'LICENCE-GATE-PENDING.txt') -PathType Leaf) {
-    throw "refusing to package ${Bundle}: the licence tree is pending ticket 22. Rebuild without -AllowLicencePending."
+    throw "refusing to package ${Bundle}: the licence tree is incomplete. Rebuild without -AllowLicencePending."
 }
 foreach ($name in @('LICENSE', 'THIRD_PARTY_NOTICES.md', 'SOURCE_OFFER.md')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Bundle $name) -PathType Leaf)) {

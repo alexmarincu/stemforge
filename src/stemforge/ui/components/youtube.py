@@ -1,8 +1,8 @@
-"""The empty-state YouTube row and its one-time consent modal (ticket 15).
+"""The empty-state YouTube row and its one-time consent modal.
 
 The row validates synchronously with the pure parser before the application seam
 is called, so a playlist, channel, search, or foreign host is only a field error.
-Ticket 16 wires the seam to the ``import_youtube`` Job: a valid submit reports in
+A valid submit reports in
 the one Job bar, and the page refreshes the row when the Job ends.
 
 All prose lives in ``ui/formatting.py``. The only state this component owns is
@@ -95,7 +95,7 @@ class YouTubeRow:
             self.set_busy(True)
 
     def set_busy(self, busy: bool) -> None:
-        """Disable the controls while any Job runs (ticket 08)."""
+        """Disable the controls while any Job runs."""
         self._busy = busy
         if self._declined:
             return
