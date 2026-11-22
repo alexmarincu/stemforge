@@ -503,6 +503,10 @@ def test_the_build_script_wires_the_release_gates() -> None:
     assert "--mksquashfs-opt=-Xcompression-level" in script
     assert "--allow-missing-licences" in script
     assert "--skip-host-abi" in script
+    assert "--bundle-only" in script
+    assert script.index("if ((bundle_only)); then") < script.index(
+        'note "building the release archives"'
+    )
     assert "StemForge-${version}-linux-x86_64" in script
 
 
