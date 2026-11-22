@@ -218,6 +218,7 @@ for [Linux](packaging/linux/README.md) and [Windows](packaging/windows/README.tx
 
 | Path | What it covers |
 |---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | How the system is put together: packages, Jobs, the worker boundary, deployment, and crosscutting rules. |
 | [`GLOSSARY.md`](GLOSSARY.md) | The shared vocabulary: Track, Stem, Instrumental, Separation, Render, Artifact, Export. |
 | [`docs/adr/`](docs/adr/) | Accepted architecture decisions and their consequences. |
 | [`scripts/check.sh`](scripts/check.sh) | The local CI gate. |
