@@ -252,9 +252,7 @@ class WorkerSeparationEngine:
         declared_roles = tuple(expected_outputs)
         if not declared_roles or len(set(declared_roles)) != len(declared_roles):
             raise ValueError("expected_outputs must be a non-empty unique sequence")
-        if descriptor.requires_model and (
-            model_path is None or not Path(model_path).is_file()
-        ):
+        if descriptor.requires_model and (model_path is None or not Path(model_path).is_file()):
             raise StemForgeError(
                 errors.SEPARATION_MODEL_MISSING,
                 "the separation weights are missing",

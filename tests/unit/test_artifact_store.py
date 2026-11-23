@@ -670,8 +670,8 @@ def test_sweep_keeps_committed_sets_with_an_invalid_manifest(store: ArtifactStor
 @pytest.mark.unit
 def test_sweep_keeps_an_invalid_separation_and_its_source(store: ArtifactStore) -> None:
     source = _commit_source(store, "abc123")
-    stems = source.directory / "stems"
-    stems.mkdir()
+    stems = source.directory / "separations" / "demucs"
+    stems.mkdir(parents=True)
     (stems / "manifest.json").write_text('{"schema_version": 1}', encoding="utf-8")
 
     report = store.sweep_stale()
@@ -1144,8 +1144,8 @@ def test_re_separation_replaces_the_existing_stem_set(store: ArtifactStore) -> N
 @pytest.mark.unit
 def test_sweep_removes_replacement_residue_inside_a_source(store: ArtifactStore) -> None:
     source = _commit_source(store, "abc123")
-    residue = source.directory / ".stems.old-deadbeef"
-    residue.mkdir()
+    residue = source.directory / "separations" / ".demucs.old-deadbeef"
+    residue.mkdir(parents=True)
     (residue / "vocals.wav").write_bytes(b"old")
 
     report = store.sweep_stale()

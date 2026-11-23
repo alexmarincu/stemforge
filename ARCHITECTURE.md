@@ -386,10 +386,12 @@ and a surviving native file repairs the canonical and preview locally without th
 
 ### 6.4 Separation
 
-Separation crosses a process boundary. The parent pipeline verifies the model, plans the
-blocks, spawns the worker, validates every output, measures one gain, encodes previews,
-writes the manifest, and promotes the set. The worker imports torch and Demucs and
-writes five WAVs.
+Separation crosses a process boundary. The parent resolves the method, verifies the
+model only when the method needs weights, plans blocks only for Demucs, spawns the
+worker, validates exactly the method's declared outputs, measures one gain, encodes
+their previews, writes the manifest, and promotes the set. The worker imports torch and
+Demucs only on the Demucs path; Karaoke extracts the centre channel with numpy and
+writes Vocals and Instrumental.
 
 ```mermaid
 sequenceDiagram
@@ -401,47 +403,61 @@ sequenceDiagram
     participant Media as FfmpegTool
     participant Store as ArtifactStore
 
-    Job->>Models: require_verified()
-    Models->>Models: re-hash 84 MB weights
-    Models-->>Job: verified status or separation.model_missing
+    alt Demucs
+        Job->>Models: require_verified()
+        Models->>Models: re-hash 84 MB weights
+        Models-->>Job: verified status or separation.model_missing
+        Job->>Job: block_plan(duration, block, crossfade, model, source hash)
+    else Karaoke
+        Job->>Job: declared outputs are vocals + instrumental
+    end
     Job->>Media: probe(canonical.wav)
     Job->>Job: check free space and cache cap
-    Job->>Job: block_plan(duration, block, crossfade, model, source hash)
     Job->>Store: stage(job_id)
-    Job->>Engine: separate(canonical, staging, model_path, ...)
-    Engine->>Worker: spawn sys.executable --worker separation
-    Worker-->>Engine: hello
-    Worker-->>Engine: stage model_load start/end
-    loop each 8-minute block with 1-second crossfade
-        Worker->>Worker: separate block with htdemucs, shifts=0
-        Worker-->>Engine: progress (fraction, segment, eta)
+    Job->>Engine: separate(method, expected outputs, model_path or none, ...)
+    Engine->>Worker: spawn sys.executable --worker separation --method ...
+    Worker-->>Engine: hello (method, output roles)
+    alt Demucs
+        Worker-->>Engine: stage model_load start/end
+        loop each 8-minute block with 1-second crossfade
+            Worker->>Worker: separate block with htdemucs, shifts=0
+            Worker-->>Engine: progress (fraction, segment, eta)
+        end
+        Worker->>Worker: sum drums + bass + other -> instrumental.wav
+    else Karaoke
+        loop bounded chunks
+            Worker->>Worker: vocals = (L+R)/2, instrumental = (L-R)/2
+            Worker-->>Engine: progress (fraction)
+        end
     end
-    Worker->>Worker: sum drums + bass + other -> instrumental.wav
     Worker->>Worker: rename every .partial.wav
-    Worker-->>Engine: output x5
+    Worker-->>Engine: output per declared role
     Worker-->>Engine: done
-    Engine-->>Job: five output paths
+    Engine-->>Job: declared output paths
     Job->>Media: probe and validate each output
     Job->>Media: peak_dbfs each master
     Job->>Job: presentation_gain(peaks)
-    Job->>Media: encode five previews with gain
+    Job->>Media: encode a preview per declared role with gain
     Job->>Store: commit_separation(manifest written last)
-    Store->>Store: atomic rename staging -> sources/<id>/stems
+    Store->>Store: atomic rename staging -> sources/<id>/separations/<method>
 ```
 
-The stdout protocol is JSONL, one object per line, each carrying `"v": 1`; stderr is
+The stdout protocol is JSONL, one object per line, each carrying `"v": 2`; stderr is
 human log only. The event types are `hello`, `stage`, `progress`, `output`, `done`, and
 `error`; unknown event names are ignored so a newer worker can add events without
-breaking an older parent. Separate reader threads pump stdout and stderr so a large
-Demucs log cannot block progress parsing.
+breaking an older parent. The `hello` declares the method and its output roles, an
+`output` must name a declared role, and `done.outputs` must equal the declared set.
+Separate reader threads pump stdout and stderr so a large Demucs log cannot block
+progress parsing.
 
-The worker's argv carries the model name, path, revision, device (`cpu`), canonical
-input, output directory, threads, expected duration, and the block plan. Block mode uses
-`shifts=0` and Demucs' own `overlap=0.25`; `htdemucs` still sees its internal 7.8-second
-segments, and the only new edge is the one-second linear crossfade at each boundary.
-Exit codes are part of the contract: `0` success, `2` handled failure with an `error`
-event, `3` model unavailable, `4` invalid input. A hard timeout reports
-`separation.engine_error` with `reason=timeout`.
+The Demucs worker's argv carries the model name, path, revision, device (`cpu`),
+canonical input, output directory, threads, expected duration, and the block plan. Block
+mode uses `shifts=0` and Demucs' own `overlap=0.25`; `htdemucs` still sees its internal
+7.8-second segments, and the only new edge is the one-second linear crossfade at each
+boundary. The Karaoke argv carries no model or block-plan flags. Exit codes are part of
+the contract: `0` success, `2` handled failure with an `error` event, `3` model
+unavailable, `4` invalid input. A hard timeout reports `separation.engine_error` with
+`reason=timeout`.
 
 Progress is monotonic: the worker owns 2%–88%, and validation, gain, and previews share
 the rest. The UI shows the stage label and, for a YouTube import, the byte detail.
@@ -747,10 +763,11 @@ project library: the user can clear it, and the OS may evict it. Its layout is:
 │   ├── original.mp3            192 kbit/s preview
 │   ├── cover.<ext>             optional attached picture
 │   ├── source.json             source manifest
-│   └── stems/
-│       ├── {vocals,drums,bass,other,instrumental}.wav
+│   └── separations/<method>/
+│       ├── {declared roles}.wav
 │       ├── {role}_preview.mp3
 │       └── manifest.json
+│       # v0.1.0 Demucs sets lived in stems/ and are read until replaced
 ├── renders/<render_key>/
 │   ├── {original | vocals,drums,bass,other,instrumental}.wav
 │   ├── {role}_preview.mp3

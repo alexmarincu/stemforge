@@ -219,7 +219,7 @@ def run(argv: Sequence[str] | None = None) -> int:
 
 
 def _resolve_method(args: argparse.Namespace) -> str:
-    method = args.method
+    method = str(args.method)
     if method not in METHOD_OUTPUT_ROLES:
         raise _InvalidInput(f"unknown separation method: {method}")
     if method == DEMUCS_METHOD and args.model_path is None:

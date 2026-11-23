@@ -650,6 +650,8 @@ async def test_without_the_model_karaoke_runs_and_shows_two_outputs(tmp_path: Pa
             await user.should_not_see("Show 3 more stems")
             await user.should_see("primary")
             await user.should_not_see("sum")
+            assert _enabled(user, "output-export-vocals") is False
+            assert _enabled(user, "output-export-instrumental") is False
 
             track = harness.service.snapshot().tracks[0]
             (item,) = harness.service.separation_sets(track)

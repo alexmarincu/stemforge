@@ -285,7 +285,13 @@ def _resolve_inputs(
         path = separation.path_for(role)
         if path is None:
             raise ValueError(f"the separation is missing the {role} stem: {source_id}")
-        inputs.append(PitchInput(role, path, f"stems/{role}.wav"))
+        inputs.append(
+            PitchInput(
+                role,
+                path,
+                f"separations/{separation.method}/{role}.wav",
+            )
+        )
     return inputs
 
 
