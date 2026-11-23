@@ -30,6 +30,7 @@ from stemforge.worker_protocol import (
     EVENT_STAGE,
     EXIT_INVALID_INPUT,
     EXIT_OK,
+    METHOD_OUTPUT_ROLES,
     PROTOCOL_VERSION,
     ProtocolError,
     format_event,
@@ -42,8 +43,12 @@ pytestmark = pytest.mark.unit
 STUB_WORKER = Path(__file__).resolve().parents[1] / "fixtures" / "stub_worker.py"
 LOG = logging.getLogger("test.worker-protocol")
 
+DEMUCS_OUTPUTS = METHOD_OUTPUT_ROLES["demucs"]
+KARAOKE_OUTPUTS = METHOD_OUTPUT_ROLES["karaoke"]
+
 HELLO = (
-    '{"v":1,"event":"hello","engine":"demucs","engine_version":"4.1.0",'
+    '{"v":2,"event":"hello","engine":"demucs","engine_version":"4.1.0",'
+    '"method":"demucs","outputs":["vocals","instrumental","drums","bass","other"],'
     '"model":"htdemucs","model_revision":"cbc8a9b","device":"cpu",'
     '"sample_rate":44100,"threads":8}'
 )
@@ -69,7 +74,7 @@ def test_format_event_adds_the_protocol_version_and_round_trips() -> None:
     )
 
     assert line.endswith("\n")
-    assert '"v":1' in line
+    assert '"v":2' in line
     event = parse_event(line)
     assert event is not None
     assert event.event == EVENT_PROGRESS
@@ -86,28 +91,28 @@ def test_format_event_adds_the_protocol_version_and_round_trips() -> None:
     ("line", "expected"),
     [
         (HELLO, EVENT_HELLO),
-        ('{"v":1,"event":"stage","stage":"model_load","state":"start"}', EVENT_STAGE),
+        ('{"v":2,"event":"stage","stage":"model_load","state":"start"}', EVENT_STAGE),
         (
-            '{"v":1,"event":"stage","stage":"model_load","state":"end","seconds":1.98}',
+            '{"v":2,"event":"stage","stage":"model_load","state":"end","seconds":1.98}',
             EVENT_STAGE,
         ),
         (
-            '{"v":1,"event":"progress","stage":"separate","fraction":0.5,'
+            '{"v":2,"event":"progress","stage":"separate","fraction":0.5,'
             '"segment":1,"segments":2,"audio_seconds_done":1.0,'
             '"audio_seconds_total":2.0,"eta_seconds":1.0}',
             EVENT_PROGRESS,
         ),
         (
-            '{"v":1,"event":"output","stem":"vocals","path":"vocals.wav",'
+            '{"v":2,"event":"output","stem":"vocals","path":"vocals.wav",'
             '"format":"wav","sample_rate":44100,"channels":2}',
             EVENT_OUTPUT,
         ),
         (
-            '{"v":1,"event":"done","elapsed_seconds":1.5,"outputs":'
-            '["vocals","drums","bass","other","instrumental"]}',
+            '{"v":2,"event":"done","elapsed_seconds":1.5,"outputs":'
+            '["vocals","instrumental","drums","bass","other"]}',
             EVENT_DONE,
         ),
-        ('{"v":1,"event":"error","code":"separation.engine_error"}', EVENT_ERROR),
+        ('{"v":2,"event":"error","code":"separation.engine_error"}', EVENT_ERROR),
     ],
 )
 def test_known_events_parse(line: str, expected: str) -> None:
@@ -116,8 +121,27 @@ def test_known_events_parse(line: str, expected: str) -> None:
     assert event.event == expected
 
 
+def test_the_hello_declares_the_method_and_its_output_roles() -> None:
+    event = parse_event(HELLO)
+
+    assert event is not None
+    assert event.method == "demucs"
+    assert event.declared_outputs == DEMUCS_OUTPUTS
+    assert event.outputs == ()
+
+
+def test_output_roles_are_validated_against_the_hello_by_the_parent() -> None:
+    event = parse_event(
+        '{"v":2,"event":"output","stem":"guitar","path":"guitar.wav",'
+        '"format":"wav","sample_rate":44100,"channels":2}'
+    )
+
+    assert event is not None
+    assert event.stem == "guitar"
+
+
 def test_unknown_events_are_ignored_for_forward_compatibility() -> None:
-    assert parse_event('{"v":1,"event":"future","payload":{}}') is None
+    assert parse_event('{"v":2,"event":"future","payload":{}}') is None
 
 
 @pytest.mark.parametrize(
@@ -127,46 +151,64 @@ def test_unknown_events_are_ignored_for_forward_compatibility() -> None:
         ("not json", "non-JSON"),
         ("[]", "not a JSON object"),
         ('{"event":"hello"}', "integer v"),
-        ('{"v":2,"event":"hello"}', "unsupported protocol version"),
-        ('{"v":1}', "no event name"),
-        ('{"v":1,"event":"hello","engine":"demucs"}', "hello"),
-        ('{"v":1,"event":"stage","stage":"model_load","state":"middle"}', "state"),
-        ('{"v":1,"event":"stage","state":"start"}', "stage"),
-        ('{"v":1,"event":"progress","stage":"separate"}', "fraction"),
-        ('{"v":1,"event":"progress","stage":"separate","fraction":1.5}', "0..1"),
+        ('{"v":1,"event":"hello"}', "unsupported protocol version"),
+        ('{"v":2}', "no event name"),
         (
-            '{"v":1,"event":"progress","stage":"separate","fraction":0.5,"segment":2,"segments":1}',
+            '{"v":2,"event":"hello","engine":"demucs","method":"demucs",'
+            '"outputs":["vocals"],"sample_rate":44100,"threads":2}',
+            "engine_version",
+        ),
+        (
+            '{"v":2,"event":"hello","engine":"demucs","engine_version":"1",'
+            '"outputs":["vocals"],"sample_rate":44100,"threads":2}',
+            "method",
+        ),
+        (
+            '{"v":2,"event":"hello","engine":"demucs","engine_version":"1",'
+            '"method":"demucs","outputs":"vocals","sample_rate":44100,"threads":2}',
+            "outputs",
+        ),
+        (
+            '{"v":2,"event":"hello","engine":"demucs","engine_version":"1",'
+            '"method":"demucs","outputs":["vocals","vocals"],"sample_rate":44100,"threads":2}',
+            "duplicate",
+        ),
+        ('{"v":2,"event":"stage","stage":"model_load","state":"middle"}', "state"),
+        ('{"v":2,"event":"stage","state":"start"}', "stage"),
+        ('{"v":2,"event":"progress","stage":"separate"}', "fraction"),
+        ('{"v":2,"event":"progress","stage":"separate","fraction":1.5}', "0..1"),
+        (
+            '{"v":2,"event":"progress","stage":"separate","fraction":0.5,"segment":2,"segments":1}',
             "exceeds",
         ),
         (
-            '{"v":1,"event":"output","stem":"vocals","path":"/tmp/vocals.wav",'
+            '{"v":2,"event":"output","stem":"","path":"vocals.wav",'
+            '"format":"wav","sample_rate":44100,"channels":2}',
+            "stem",
+        ),
+        (
+            '{"v":2,"event":"output","stem":"vocals","path":"/tmp/vocals.wav",'
             '"format":"wav","sample_rate":44100,"channels":2}',
             "unsafe",
         ),
         (
-            '{"v":1,"event":"output","stem":"vocals","path":"../vocals.wav",'
+            '{"v":2,"event":"output","stem":"vocals","path":"../vocals.wav",'
             '"format":"wav","sample_rate":44100,"channels":2}',
             "unsafe",
         ),
         (
-            '{"v":1,"event":"output","stem":"guitar","path":"guitar.wav",'
-            '"format":"wav","sample_rate":44100,"channels":2}',
-            "unknown output",
-        ),
-        (
-            '{"v":1,"event":"output","stem":"vocals","path":"vocals.wav",'
+            '{"v":2,"event":"output","stem":"vocals","path":"vocals.wav",'
             '"format":"mp3","sample_rate":44100,"channels":2}',
             "format",
         ),
-        ('{"v":1,"event":"done","elapsed_seconds":1.0}', "outputs"),
-        ('{"v":1,"event":"done","outputs":["vocals"]}', "elapsed"),
+        ('{"v":2,"event":"done","elapsed_seconds":1.0}', "outputs"),
+        ('{"v":2,"event":"done","outputs":["vocals"]}', "elapsed"),
         (
-            '{"v":1,"event":"done","elapsed_seconds":1.0,"outputs":'
-            '["vocals","drums","bass","other"]}',
-            "all five",
+            '{"v":2,"event":"done","elapsed_seconds":1.0,"outputs":["vocals","vocals"]}',
+            "duplicate",
         ),
-        ('{"v":1,"event":"error"}', "no code"),
-        ('{"v":1,"event":"error","code":"x","retryable":"yes"}', "boolean"),
+        ('{"v":2,"event":"error"}', "no code"),
+        ('{"v":2,"event":"error","code":"x","retryable":"yes"}', "boolean"),
     ],
 )
 def test_malformed_events_raise_protocol_error(line: str, match: str) -> None:
@@ -174,8 +216,8 @@ def test_malformed_events_raise_protocol_error(line: str, match: str) -> None:
         parse_event(line)
 
 
-def test_protocol_version_is_one() -> None:
-    assert PROTOCOL_VERSION == 1
+def test_protocol_version_is_two() -> None:
+    assert PROTOCOL_VERSION == 2
 
 
 def test_block_count_is_the_one_plan_shared_by_parent_and_worker() -> None:
@@ -257,8 +299,10 @@ def run_engine(
     engine: WorkerSeparationEngine,
     canonical: Path,
     out: Path,
-    weights: Path,
+    weights: Path | None,
     *,
+    method: str = "demucs",
+    expected_outputs: tuple[str, ...] = DEMUCS_OUTPUTS,
     cancel: CancelToken | None = None,
     timeout_s: float | None = None,
     progress: list[tuple[float, str, str]] | None = None,
@@ -267,6 +311,8 @@ def run_engine(
     return engine.separate(
         canonical,
         out,
+        method=method,
+        expected_outputs=expected_outputs,
         model_path=weights,
         expected_duration_s=0.1,
         progress=lambda fraction, stage, detail: sink.append((fraction, stage, detail)),
@@ -276,7 +322,7 @@ def run_engine(
     )
 
 
-def test_ok_returns_all_five_outputs_and_monotonic_progress(
+def test_ok_returns_exactly_the_declared_outputs_and_monotonic_progress(
     harness: tuple[WorkerSeparationEngine, Path, Path, Path],
 ) -> None:
     engine, canonical, out, weights = harness
@@ -284,13 +330,110 @@ def test_ok_returns_all_five_outputs_and_monotonic_progress(
 
     outputs = run_engine(engine, canonical, out, weights, progress=events)
 
-    assert sorted(outputs.outputs) == ["bass", "drums", "instrumental", "other", "vocals"]
+    assert tuple(outputs.outputs) == DEMUCS_OUTPUTS
     assert all(path.is_file() for path in outputs.outputs.values())
     fractions = [fraction for fraction, _stage, _detail in events]
     assert fractions == sorted(fractions)
     assert fractions[-1] == 1.0
     assert all(0.0 <= fraction <= 1.0 for fraction in fractions)
     assert "Separate" in {stage for _fraction, stage, _detail in events}
+
+
+def test_a_two_output_method_returns_only_its_declared_outputs(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, _weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "ok", "--method", "karaoke"],
+        poll_interval_s=0.01,
+    )
+
+    outputs = run_engine(
+        engine,
+        canonical,
+        out,
+        None,
+        method="karaoke",
+        expected_outputs=KARAOKE_OUTPUTS,
+    )
+
+    assert tuple(outputs.outputs) == KARAOKE_OUTPUTS
+    assert outputs.path_for("drums") is None
+
+
+def test_an_undeclared_output_is_a_protocol_mismatch(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "undeclared-output"],
+    )
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights)
+
+    assert raised.value.code == errors.SEPARATION_PROTOCOL_MISMATCH
+    assert "undeclared" in (raised.value.detail or "")
+
+
+def test_a_done_set_that_differs_from_the_declaration_is_a_protocol_mismatch(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "done-mismatch"],
+    )
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights)
+
+    assert raised.value.code == errors.SEPARATION_PROTOCOL_MISMATCH
+    assert "done.outputs" in (raised.value.detail or "")
+
+
+def test_a_hello_method_that_differs_from_the_request_is_a_protocol_mismatch(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "method-mismatch"],
+    )
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights)
+
+    assert raised.value.code == errors.SEPARATION_PROTOCOL_MISMATCH
+    assert "method" in (raised.value.detail or "")
+
+
+def test_a_hello_that_declares_other_roles_than_the_request_is_a_protocol_mismatch(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "roles-mismatch"],
+    )
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights, method="demucs")
+
+    assert raised.value.code == errors.SEPARATION_PROTOCOL_MISMATCH
+    assert "roles" in (raised.value.detail or "")
+
+
+def test_an_output_before_hello_is_a_protocol_mismatch(
+    harness: tuple[WorkerSeparationEngine, Path, Path, Path],
+) -> None:
+    engine, canonical, out, weights = harness
+    engine = WorkerSeparationEngine(
+        argv=[sys.executable, str(STUB_WORKER), "--mode", "output-before-hello"],
+    )
+
+    with pytest.raises(StemForgeError) as raised:
+        run_engine(engine, canonical, out, weights)
+
+    assert raised.value.code == errors.SEPARATION_PROTOCOL_MISMATCH
+    assert "hello" in (raised.value.detail or "")
 
 
 def test_unknown_events_are_skipped_without_failing(
@@ -467,6 +610,7 @@ def test_the_default_development_command_is_the_worker_module() -> None:
     argv = engine.command(
         Path("in.wav"),
         Path("out"),
+        method="demucs",
         model_path=Path("weights.safetensors"),
         expected_duration_s=1.0,
         threads=2,
@@ -474,9 +618,26 @@ def test_the_default_development_command_is_the_worker_module() -> None:
 
     assert "stemforge.workers.separation" in argv
     assert "--input" in argv
+    assert argv[argv.index("--method") + 1] == "demucs"
     assert "--model-path" in argv
+    assert "--block-seconds" in argv
     assert argv[argv.index("--threads") + 1] == "2"
     assert EXIT_OK == 0
+
+
+def test_a_karaoke_command_passes_no_model_or_demucs_block_flags() -> None:
+    engine = WorkerSeparationEngine()
+    argv = engine.command(
+        Path("in.wav"),
+        Path("out"),
+        method="karaoke",
+        expected_duration_s=1.0,
+        threads=2,
+    )
+
+    assert argv[argv.index("--method") + 1] == "karaoke"
+    for flag in ("--model", "--model-path", "--model-revision", "--device", "--block-seconds"):
+        assert flag not in argv
 
 
 @pytest.mark.unit

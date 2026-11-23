@@ -1,23 +1,19 @@
-"""Separation Job: verify the model, run the worker, validate, sum, and commit.
+"""Separation Job: run one method's worker, validate, gain, preview, and commit.
 
-One function, :func:`run_separation_job`, owns everything a Separation produces
-: it re-verifies the pinned weights before
-spawning anything, runs the worker into ``staging/<job_id>/``, validates all five
-outputs (the worker writes Instrumental in-process), measures one presentation gain, encodes the
-previews, writes the manifest last, and promotes the directory with one atomic
-rename. A cancel or failure removes the whole staging directory, so no partial
-separation becomes visible and an earlier successful Stems set stays playable.
+:func:`run_separation_job` resolves the requested Separation method and owns
+everything it produces. A method that requires Model weights re-verifies the
+pinned weights before spawning anything and records its block plan; a method that
+does not (Karaoke) never touches the model store. The worker runs into
+``staging/<job_id>/``, the parent validates exactly the method's declared output
+roles, measures one presentation gain across them, encodes their previews, writes
+the manifest last, and promotes the directory with one atomic rename. A cancel or
+failure removes the whole staging directory, so no partial separation becomes
+visible and an earlier successful set stays playable.
 
-The worker writes all five outputs, including Instrumental as the float32 sum of
-the non-vocal stems while they are still in memory. The parent validates every
-WAV, measures one presentation gain, encodes the previews, writes the manifest,
-and promotes the directory with one atomic rename. A cancel or failure removes
-the whole staging directory, so no partial separation becomes visible and an
-earlier successful Stems set stays playable.
-
-The manifest records a block-plan fingerprint. A future engine, model, or block
-change produces a different fingerprint, so a cache lookup can tell that an old
-set was made by a different plan.
+The manifest records ``method`` and ``method_version`` at schema version 1. A
+method's engine identity, validation, files, gain, and peak are always present;
+the Demucs model identity, Instrumental description, and block-plan fingerprint
+are recorded only for a method that used them.
 """
 
 from __future__ import annotations
@@ -38,7 +34,8 @@ from stemforge.artifacts import (
     free_space_requirement,
     require_free_space,
 )
-from stemforge.domain.roles import INSTRUMENTAL_ROLE, OUTPUT_ROLES, STEM_ROLES
+from stemforge.domain.methods import DEFAULT_METHOD_ID, SeparationMethod, method_by_id
+from stemforge.domain.roles import INSTRUMENTAL_ROLE
 from stemforge.engines.media import (
     CANONICAL_CHANNELS,
     CANONICAL_CODEC,
@@ -71,15 +68,11 @@ __all__ = [
     "STAGE_SEPARATE",
     "STAGE_VALIDATE",
     "STAGE_VERIFY",
-    "STEM_ROLES",
     "SeparationSet",
     "block_plan",
     "run_separation_job",
 ]
 
-# The four Stems are re-exported here for callers that predate domain.roles;
-# a Separation's full output set lives in ``OUTPUT_ROLES`` (Instrumental is an
-# output, never a Stem).
 STAGE_VERIFY: Final = "Verify"
 STAGE_SEPARATE: Final = "Separate"
 STAGE_VALIDATE: Final = "Validate"
@@ -88,7 +81,6 @@ STAGE_PREVIEWS: Final = "Previews"
 STAGE_SAVING: Final = "Saving"
 STAGE_DONE: Final = "Done"
 
-ENGINE_NAME: Final = "demucs"
 DEVICE: Final = "cpu"
 
 # The worker owns 2%..88%; the rest is validation, gain, and previews.
@@ -101,22 +93,36 @@ PREVIEWS_END: Final = 0.99
 
 @dataclass(frozen=True, slots=True)
 class SeparationSet:
-    """What one Separation produced, resolved for the UI and exporters."""
+    """What one Separation produced, resolved for the UI and exporters.
+
+    ``outputs`` carries every declared role, so a method with fewer than five
+    outputs needs no special case. ``stems`` excludes Instrumental (GLOSSARY).
+    """
 
     artifact: SeparationArtifact
-    stems: Mapping[str, Path]
-    instrumental: Path
+    outputs: Mapping[str, Path]
     previews: Mapping[str, Path]
     gain_db: float
-    block_plan: Mapping[str, object]
+    method: str
+    method_version: int
+    block_plan: Mapping[str, object] | None = None
 
     def master(self, role: str) -> Path | None:
-        if role == INSTRUMENTAL_ROLE:
-            return self.instrumental
-        return self.stems.get(role)
+        return self.outputs.get(role)
 
     def preview(self, role: str) -> Path | None:
         return self.previews.get(role)
+
+    @property
+    def stems(self) -> Mapping[str, Path]:
+        descriptor = method_by_id(self.method)
+        if descriptor is None:
+            return {}
+        return {role: path for role, path in self.outputs.items() if role in descriptor.stems}
+
+    @property
+    def instrumental(self) -> Path | None:
+        return self.outputs.get(INSTRUMENTAL_ROLE)
 
 
 def run_separation_job(
@@ -127,22 +133,24 @@ def run_separation_job(
     media: MediaTool,
     models: ModelStore,
     source_id: str,
+    method: str = DEFAULT_METHOD_ID,
     threads: int | None = None,
     title: str | None = None,
     artist: str | None = None,
 ) -> SeparationSet:
-    """Separate one committed Source and return the promoted stem set.
+    """Separate one committed Source with one method and return its set.
 
-    ``models.require_verified()`` re-hashes the weights before the worker is
-    spawned; a missing or tampered cache raises ``separation.model_missing`` and
-    no staging directory is created. A cancel or any failure discards
-    ``staging/<job_id>/``.
+    A model-requiring method re-hashes the weights before the worker is spawned;
+    a missing or tampered cache raises ``separation.model_missing`` and no
+    staging directory is created. A method without weights never reads the model
+    store. A cancel or any failure discards ``staging/<job_id>/``.
     """
+    descriptor = _method_descriptor(method)
     cancel = ctx.cancel
     log = ctx.log
     emit = _context_progress(ctx)
     cancel.check()
-    emit(0.0, STAGE_VERIFY, "checking the model weights")
+    emit(0.0, STAGE_VERIFY, "checking the separation method")
 
     source = artifacts.find_source(source_id, verify_hashes=True)
     if source is None:
@@ -151,15 +159,19 @@ def run_separation_job(
     if canonical is None:
         raise ValueError(f"source has no canonical audio: {source_id}")
 
-    status = models.require_verified()
-    spec = models.spec
-    if not status.verified:
-        # require_verified raises; this is the defensive branch for a custom store.
-        raise StemForgeError(
-            errors.SEPARATION_MODEL_MISSING,
-            "the separation model is not installed",
-            detail=f"reason={status.reason or 'absent'}",
-        )
+    status = None
+    spec = None
+    plan: dict[str, object] | None = None
+    if descriptor.requires_model:
+        status = models.require_verified()
+        spec = models.spec
+        if not status.verified:
+            # require_verified raises; this is the defensive branch for a custom store.
+            raise StemForgeError(
+                errors.SEPARATION_MODEL_MISSING,
+                "the separation model is not installed",
+                detail=f"reason={status.reason or 'absent'}",
+            )
 
     info = media.probe(canonical)
     expected_duration = info.duration_s
@@ -170,21 +182,23 @@ def run_separation_job(
             detail="reason=duration",
             context={"path": str(canonical)},
         )
-    estimate = estimate_separation_bytes(expected_duration)
+    estimate = estimate_separation_bytes(expected_duration, outputs=descriptor.output_count)
     require_free_space(artifacts.root, free_space_requirement(estimate))
     # Reserve the set's cache footprint before it is written.
     artifacts.enforce_cap(estimate)
-    plan = block_plan(
-        duration_s=expected_duration,
-        block_seconds=engine_block_seconds(engine),
-        crossfade_seconds=engine_crossfade_seconds(engine),
-        overlap=engine_overlap(engine),
-        shifts=engine_shifts(engine),
-        model=spec.name,
-        model_revision=spec.revision,
-        weights_sha256=spec.sha256,
-        source_sha256=sha256_file(canonical),
-    )
+    if descriptor.requires_model:
+        assert spec is not None
+        plan = block_plan(
+            duration_s=expected_duration,
+            block_seconds=engine_block_seconds(engine),
+            crossfade_seconds=engine_crossfade_seconds(engine),
+            overlap=engine_overlap(engine),
+            shifts=engine_shifts(engine),
+            model=spec.name,
+            model_revision=spec.revision,
+            weights_sha256=spec.sha256,
+            source_sha256=sha256_file(canonical),
+        )
     cancel.check()
 
     staging = artifacts.stage(ctx.job_id)
@@ -194,11 +208,13 @@ def run_separation_job(
         outputs = engine.separate(
             canonical,
             staging,
-            model_path=status.path,
+            method=descriptor.id,
+            expected_outputs=descriptor.output_roles,
+            model_path=status.path if status is not None else None,
             expected_duration_s=expected_duration,
             threads=threads,
-            model_revision=spec.revision,
-            env=_worker_environment(models, threads=threads),
+            model_revision=spec.revision if spec is not None else "",
+            env=_worker_environment(models if descriptor.requires_model else None, threads=threads),
             progress=_scaled(
                 emit,
                 start=SEPARATE_START,
@@ -210,16 +226,21 @@ def run_separation_job(
         )
         cancel.check()
 
+        produced = set(outputs.outputs)
+        expected = set(descriptor.output_roles)
+        if produced != expected:
+            missing = sorted(expected - produced)
+            extra = sorted(produced - expected)
+            raise StemForgeError(
+                errors.SEPARATION_OUTPUT_INVALID,
+                "the separation did not match the method's declared outputs",
+                detail=f"missing={','.join(missing)} extra={','.join(extra)}",
+                context={"missing": missing, "extra": extra, "source_id": source_id},
+            )
         masters: dict[str, Path] = {}
-        for role in OUTPUT_ROLES:
+        for role in descriptor.output_roles:
             path = outputs.path_for(role)
-            if path is None:
-                raise StemForgeError(
-                    errors.SEPARATION_OUTPUT_INVALID,
-                    "the separation is missing an output",
-                    detail=f"missing={role}",
-                    context={"role": role, "source_id": source_id},
-                )
+            assert path is not None
             _validate_wav(
                 media,
                 path,
@@ -228,7 +249,11 @@ def run_separation_job(
                 code=errors.SEPARATION_OUTPUT_INVALID,
             )
             masters[role] = path
-        emit(VALIDATE_END, STAGE_VALIDATE, "five outputs validated")
+        emit(
+            VALIDATE_END,
+            STAGE_VALIDATE,
+            f"{len(descriptor.output_roles)} outputs validated",
+        )
         cancel.check()
 
         emit(VALIDATE_END, STAGE_GAIN, "measuring the set peak")
@@ -244,8 +269,7 @@ def run_separation_job(
         preview_title, preview_artist = _source_tags(source.manifest, title, artist)
         files: list[Mapping[str, object]] = []
         previews: dict[str, Path] = {}
-        preview_roles = [*STEM_ROLES, INSTRUMENTAL_ROLE]
-        for index, role in enumerate(preview_roles):
+        for index, role in enumerate(descriptor.output_roles):
             cancel.check()
             preview = staging / f"{role}.mp3"
             media.encode_preview(
@@ -261,37 +285,39 @@ def run_separation_job(
             files.append(_file_entry(masters[role], role))
             files.append(_file_entry(preview, f"{role}_preview"))
             emit(
-                GAIN_END + (PREVIEWS_END - GAIN_END) * (index + 1) / len(preview_roles),
+                GAIN_END + (PREVIEWS_END - GAIN_END) * (index + 1) / len(descriptor.output_roles),
                 STAGE_PREVIEWS,
                 role,
             )
 
         manifest = _manifest(
+            descriptor=descriptor,
             source_id=source_id,
-            spec_name=spec.name,
-            spec_revision=spec.revision,
-            weights_sha256=spec.sha256,
+            spec_name=spec.name if spec is not None else "",
+            spec_revision=spec.revision if spec is not None else "",
+            weights_sha256=spec.sha256 if spec is not None else "",
             plan=plan,
             gain_db=gain_db,
             peaks=peaks,
             files=files,
         )
         emit(PREVIEWS_END, STAGE_SAVING, "writing the manifest")
-        artifact = artifacts.commit_separation(staging, source_id, manifest)
+        artifact = artifacts.commit_separation(staging, source_id, manifest, method=descriptor.id)
         committed = True
         emit(1.0, STAGE_DONE, "")
-        committed_stems = {role: _committed_file(artifact, role) for role in STEM_ROLES}
-        committed_instrumental = _committed_file(artifact, INSTRUMENTAL_ROLE)
+        committed_outputs = {
+            role: _committed_file(artifact, role) for role in descriptor.output_roles
+        }
         committed_previews = {
-            role: _committed_file(artifact, f"{role}_preview")
-            for role in (*STEM_ROLES, INSTRUMENTAL_ROLE)
+            role: _committed_file(artifact, f"{role}_preview") for role in descriptor.output_roles
         }
         return SeparationSet(
             artifact=artifact,
-            stems=committed_stems,
-            instrumental=committed_instrumental,
+            outputs=committed_outputs,
             previews=committed_previews,
             gain_db=gain_db,
+            method=descriptor.id,
+            method_version=descriptor.version,
             block_plan=plan,
         )
     except BaseException:
@@ -330,7 +356,7 @@ def block_plan(
     total = round(duration_s * CANONICAL_SAMPLE_RATE)
     blocks = block_count(total_frames=total, block_frames=block, fade_frames=fade)
     payload: dict[str, object] = {
-        "engine": ENGINE_NAME,
+        "engine": DEFAULT_METHOD_ID,
         "engine_version": DEMUCS_VERSION,
         "model": model,
         "model_revision": model_revision,
@@ -348,6 +374,13 @@ def block_plan(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return payload
+
+
+def _method_descriptor(method: str) -> SeparationMethod:
+    descriptor = method_by_id(method)
+    if descriptor is None:
+        raise ValueError(f"unknown Separation method: {method!r}")
+    return descriptor
 
 
 def engine_block_seconds(engine: object) -> float:
@@ -368,29 +401,26 @@ def engine_shifts(engine: object) -> int:
 
 def _manifest(
     *,
+    descriptor: SeparationMethod,
     source_id: str,
     spec_name: str,
     spec_revision: str,
     weights_sha256: str,
-    plan: Mapping[str, object],
+    plan: Mapping[str, object] | None,
     gain_db: float,
     peaks: Mapping[str, float],
     files: Sequence[Mapping[str, object]],
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
+        "schema_version": 1,
         "kind": "separation",
         "source_id": source_id,
-        "engine": ENGINE_NAME,
-        "engine_version": DEMUCS_VERSION,
-        "model": spec_name,
-        "model_revision": spec_revision,
-        "weights_sha256": weights_sha256,
-        "device": DEVICE,
+        "method": descriptor.id,
+        "method_version": descriptor.version,
+        "engine": descriptor.id,
+        "engine_version": DEMUCS_VERSION if descriptor.requires_model else str(descriptor.version),
         "sample_rate": CANONICAL_SAMPLE_RATE,
         "channels": CANONICAL_CHANNELS,
-        "block_plan": dict(plan),
-        "block_plan_fingerprint": plan["fingerprint"],
-        "instrumental": "float32 sum of drums + bass + other, written by the worker",
         "gain_db": gain_db,
         "peak_dbfs": max_peak_dbfs(peaks.values()),
         "validation": {
@@ -402,6 +432,20 @@ def _manifest(
         },
         "files": list(files),
     }
+    if descriptor.requires_model:
+        assert plan is not None
+        payload.update(
+            {
+                "model": spec_name,
+                "model_revision": spec_revision,
+                "weights_sha256": weights_sha256,
+                "device": DEVICE,
+                "block_plan": dict(plan),
+                "block_plan_fingerprint": plan["fingerprint"],
+                "instrumental": ("float32 sum of drums + bass + other, written by the worker"),
+            }
+        )
+    return payload
 
 
 def _validate_wav(
@@ -441,13 +485,12 @@ def _validate_wav(
         )
 
 
-def _worker_environment(models: ModelStore, *, threads: int | None) -> dict[str, str]:
+def _worker_environment(models: ModelStore | None, *, threads: int | None) -> dict[str, str]:
+    """The worker environment; Hugging Face variables exist only for a model method."""
     resolved = max(1, (os.cpu_count() or 2) // 2) if threads is None else max(1, int(threads))
     environment = dict(os.environ)
     environment.update(
         {
-            "HF_HOME": str(models.root),
-            "HF_HUB_OFFLINE": "1",
             "OMP_NUM_THREADS": str(resolved),
             "MKL_NUM_THREADS": str(resolved),
             "PYTHONUNBUFFERED": "1",
@@ -455,6 +498,9 @@ def _worker_environment(models: ModelStore, *, threads: int | None) -> dict[str,
             "STEMFORGE_WORKER_STDIN_WATCH": "1",
         }
     )
+    if models is not None:
+        environment["HF_HOME"] = str(models.root)
+        environment["HF_HUB_OFFLINE"] = "1"
     return environment
 
 

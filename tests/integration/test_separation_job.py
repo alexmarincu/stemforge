@@ -170,6 +170,7 @@ def separate(
     models: ModelStore,
     source_id: str,
     *,
+    method: str = "demucs",
     job_id: str = "job-separation",
     events: list[tuple[float, str | None, str | None]] | None = None,
     cancel: CancelToken | None = None,
@@ -181,10 +182,33 @@ def separate(
         media=media,
         models=models,
         source_id=source_id,
+        method=method,
         threads=1,
         title="Separation Fixture",
         artist="StemForge Tests",
     )
+
+
+def karaoke_engine() -> WorkerSeparationEngine:
+    return WorkerSeparationEngine(
+        argv=[sys.executable, "-m", "stemforge.workers.separation"],
+        poll_interval_s=0.01,
+        cancel_grace_s=2.0,
+    )
+
+
+class _UnusedModelStore(ModelStore):
+    """A model store that fails the test if the Karaoke Job reads it."""
+
+    def require_verified(self) -> object:
+        raise AssertionError("Karaoke read the model store")
+
+    def status(self) -> object:
+        raise AssertionError("Karaoke read the model store")
+
+    @property
+    def spec(self) -> object:
+        raise AssertionError("Karaoke read the model store")
 
 
 def read_float_wav(path: Path) -> tuple[int, int, tuple[float, ...]]:
@@ -255,7 +279,9 @@ def test_four_stems_and_instrumental_commit_atomically(
     assert marker.is_file()
     assert result.artifact.source_id == source_id
     assert not (store.staging_dir / "job-separation").exists()
-    assert result.artifact.directory == store.sources_dir / source_id / "stems"
+    assert result.artifact.directory == store.sources_dir / source_id / "separations" / "demucs"
+    assert result.artifact.method == "demucs"
+    assert result.artifact.method_version == 1
     assert result.artifact.manifest_path.is_file()
 
     for role in (*STEMS, "instrumental"):
@@ -280,7 +306,10 @@ def test_four_stems_and_instrumental_commit_atomically(
     assert_instrumental_is_the_non_vocal_sum(result.artifact.directory)
 
     manifest = result.artifact.manifest
+    assert manifest["schema_version"] == 1
     assert manifest["kind"] == "separation"
+    assert manifest["method"] == "demucs"
+    assert manifest["method_version"] == 1
     assert manifest["engine"] == "demucs"
     assert manifest["engine_version"] == "4.1.0"
     assert manifest["model"] == "htdemucs"
@@ -316,6 +345,112 @@ def test_four_stems_and_instrumental_commit_atomically(
         "Saving",
         "Done",
     } <= stages
+
+
+def test_karaoke_commits_two_outputs_without_reading_the_model_store(
+    tmp_path: Path,
+    tone: Path,
+    media: FfmpegTool,
+) -> None:
+    store = make_store(tmp_path)
+    source_id = commit_source(store, tone)
+    models = _UnusedModelStore(store.paths)
+    events: list[tuple[float, str | None, str | None]] = []
+
+    result = separate(
+        store,
+        karaoke_engine(),
+        media,
+        models,
+        source_id,
+        method="karaoke",
+        events=events,
+    )
+
+    assert result.artifact.directory == store.sources_dir / source_id / "separations" / "karaoke"
+    assert result.artifact.method == "karaoke"
+    assert result.artifact.method_version == 1
+    assert tuple(result.outputs) == ("vocals", "instrumental")
+    assert tuple(result.stems) == ("vocals",)
+    assert not (store.paths.models / "htdemucs").exists()
+    assert not (store.staging_dir / "job-separation").exists()
+
+    for role in ("vocals", "instrumental"):
+        master = result.master(role)
+        assert master is not None
+        assert master.is_file()
+        info = media.probe(master)
+        assert info.codec == "pcm_f32le"
+        assert info.sample_rate == 44_100
+        assert info.channels == 2
+        assert abs(info.duration_s - 1.0) <= 0.050
+
+        preview = result.preview(role)
+        assert preview is not None
+        assert preview.is_file()
+        assert media.probe(preview).codec == "mp3"
+
+    manifest = result.artifact.manifest
+    assert manifest["schema_version"] == 1
+    assert manifest["kind"] == "separation"
+    assert manifest["method"] == "karaoke"
+    assert manifest["method_version"] == 1
+    assert manifest["engine"] == "karaoke"
+    assert manifest["engine_version"] == "1"
+    assert manifest["validation"]["ok"] is True
+    assert isinstance(manifest["gain_db"], float)
+    assert isinstance(manifest["peak_dbfs"], float)
+    for demucs_field in (
+        "model",
+        "model_revision",
+        "weights_sha256",
+        "device",
+        "block_plan",
+        "block_plan_fingerprint",
+        "instrumental",
+    ):
+        assert demucs_field not in manifest
+    assert len(manifest["files"]) == 4
+
+    fractions = [fraction for fraction, _stage, _detail in events]
+    assert fractions == sorted(fractions)
+    assert fractions[-1] == 1.0
+    stages = {stage for _fraction, stage, _detail in events}
+    assert {"Verify", "Separate", "Validate", "Gain", "Previews", "Saving", "Done"} <= stages
+
+
+def test_demucs_and_karaoke_sets_survive_side_by_side(
+    tmp_path: Path,
+    tone: Path,
+    media: FfmpegTool,
+) -> None:
+    store = make_store(tmp_path)
+    source_id = commit_source(store, tone)
+    models = make_models(store)
+    models.install_bytes(WEIGHTS)
+
+    demucs = separate(store, fake_engine("ok"), media, models, source_id, job_id="job-demucs")
+    karaoke = separate(
+        store,
+        karaoke_engine(),
+        media,
+        models,
+        source_id,
+        method="karaoke",
+        job_id="job-karaoke",
+    )
+
+    assert demucs.artifact.directory != karaoke.artifact.directory
+    assert demucs.artifact.directory.is_dir()
+    assert karaoke.artifact.directory.is_dir()
+    assert [artifact.method for artifact in store.separation_sets(source_id)] == [
+        "demucs",
+        "karaoke",
+    ]
+    assert store.find_separation(source_id, method="demucs") is not None
+    assert store.find_separation(source_id, method="karaoke") is not None
+    assert not (store.staging_dir / "job-demucs").exists()
+    assert not (store.staging_dir / "job-karaoke").exists()
 
 
 def test_re_separation_replaces_the_previous_set(

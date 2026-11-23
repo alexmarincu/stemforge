@@ -481,7 +481,7 @@ def _run_smoke_separation() -> Report:
     from stemforge.domain.cancellation import CancelToken
     from stemforge.engines.separation import WorkerSeparationEngine
     from stemforge.models import ModelStore
-    from stemforge.worker_protocol import WORKER_OUTPUT_NAMES
+    from stemforge.worker_protocol import METHOD_OUTPUT_ROLES
 
     checks: list[Check] = []
     paths = _check_paths(checks)
@@ -532,11 +532,14 @@ def _run_smoke_separation() -> Report:
     started = time.monotonic()
     import shutil
 
+    output_roles = METHOD_OUTPUT_ROLES["demucs"]
     try:
         try:
             outputs = engine.separate(
                 source,
                 out_dir,
+                method="demucs",
+                expected_outputs=output_roles,
                 model_path=status.path,
                 expected_duration_s=SMOKE_SEPARATION_SECONDS,
                 threads=threads,
@@ -582,7 +585,7 @@ def _run_smoke_separation() -> Report:
             f"five outputs in {wall_seconds:.2f} s",
         )
         problems: list[str] = []
-        for stem in WORKER_OUTPUT_NAMES:
+        for stem in output_roles:
             path = outputs.path_for(stem)
             if path is None or not path.is_file():
                 problems.append(f"{stem}=missing")
@@ -635,7 +638,7 @@ def _run_smoke_separation() -> Report:
                 "wall_seconds": round(wall_seconds, 3),
                 "peak_rss_bytes": rss,
                 "threads": threads,
-                "outputs": list(WORKER_OUTPUT_NAMES),
+                "outputs": list(output_roles),
                 "checks": checks,
             }
         )

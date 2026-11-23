@@ -1,19 +1,27 @@
-"""The Separation worker: reads one canonical WAV, writes five outputs as JSONL.
+"""The Separation worker: reads one canonical WAV and writes its method's outputs.
 
 Invoked by the frozen binary as ``stemforge --worker separation`` or in
 development as ``python -m stemforge.workers.separation``. Stdout
 is protocol only; stderr is the human log. The worker imports torch and Demucs
-**inside** :func:`run`, never at module scope: the app must start
-without the heavyweight stack.
+**inside** the Demucs branch of :func:`run`, never at module scope and never on
+the Karaoke path: the app must start without the heavyweight stack, and Karaoke
+must not need it.
 
-The 30-minute source is processed in 8-minute blocks with a 1-second linear
-crossfade (ADR 0008), so peak memory stays bounded independent of
+The Demucs 30-minute source is processed in 8-minute blocks with a 1-second
+linear crossfade (ADR 0008), so peak memory stays bounded independent of
 track length. Blocks use ``shifts=0``: the random equivariant shift is disabled
 in block mode so it cannot change timbre at a block boundary. Instrumental is the
 float32 sum of drums + bass + other, written in the same pass while the stems are
-in memory. Each output is written to ``<role>.partial.wav`` inside
-``--out`` and renamed into place only after every block succeeded; a cancel, an
-error, or a closed stdin removes the partials and leaves no output behind.
+in memory.
+
+Karaoke performs centre-channel extraction with numpy only: ``mid = (L+R)/2``
+is Vocals and ``side = (L-R)/2`` is Instrumental. It streams the canonical source
+in bounded chunks, so its memory does not grow with track length and it never
+reads Model weights.
+
+Every output is written to ``<role>.partial.wav`` inside ``--out`` and renamed
+into place only after the whole method succeeded; a cancel, an error, or a
+closed stdin removes the partials and leaves no output behind.
 """
 
 from __future__ import annotations
@@ -48,6 +56,7 @@ from stemforge.worker_protocol import (
     EXIT_MODEL_UNAVAILABLE,
     EXIT_OK,
     INSTRUMENTAL_NAME,
+    METHOD_OUTPUT_ROLES,
     STAGE_END,
     STAGE_START,
     STEM_NAMES,
@@ -63,6 +72,11 @@ DEFAULT_SHIFTS: Final = 0
 SAMPLE_RATE: Final = 44_100
 CHANNELS: Final = 2
 NON_VOCAL_STEMS: Final = ("drums", "bass", "other")
+DEMUCS_METHOD: Final = "demucs"
+KARAOKE_METHOD: Final = "karaoke"
+DEMUCS_OUTPUT_NAMES: Final = METHOD_OUTPUT_ROLES[DEMUCS_METHOD]
+KARAOKE_OUTPUT_NAMES: Final = METHOD_OUTPUT_ROLES[KARAOKE_METHOD]
+KARAOKE_CHUNK_FRAMES: Final = 1 << 16
 MAX_DURATION_S: Final = 1800.0
 DURATION_TOLERANCE_S: Final = 0.050
 STDIN_WATCH_ENV: Final = "STEMFORGE_WORKER_STDIN_WATCH"
@@ -140,8 +154,86 @@ def run(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:  # ``--help`` only; argparse already printed it
         return int(exc.code or 0)
 
-    # Heavy imports stay inside run() and after argument validation, so a
-    # malformed invocation fails fast and the app never imports them at all.
+    try:
+        method = _resolve_method(args)
+    except _InvalidInput as exc:
+        _emit(protocol, EVENT_ERROR, code=CODE_ENGINE_ERROR, detail=str(exc))
+        return EXIT_INVALID_INPUT
+
+    out_dir = Path(args.out)
+    stop = _Stop(threading.Event())
+    original_stdout = sys.stdout
+    # Demucs, torch, and their dependencies may write human text to stdout.
+    # Keep the protocol stream private and send everything else to stderr.
+    sys.stdout = sys.stderr
+    installed_handlers = _install_signal_handlers(stop)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        _remove_partials(out_dir, METHOD_OUTPUT_ROLES[method])
+        started = time.monotonic()
+
+        try:
+            if method == DEMUCS_METHOD:
+                _run_demucs(args, protocol, stop, started)
+            else:
+                _run_karaoke(args, protocol, stop, started)
+        except _StopRequested:
+            _remove_partials(out_dir, METHOD_OUTPUT_ROLES[method])
+            _emit(protocol, EVENT_ERROR, code=CODE_CANCELLED, detail="cancelled")
+            return EXIT_HANDLED
+        except KeyboardInterrupt:
+            _remove_partials(out_dir, METHOD_OUTPUT_ROLES[method])
+            _emit(protocol, EVENT_ERROR, code=CODE_CANCELLED, detail="cancelled")
+            return EXIT_HANDLED
+        except _InvalidInput as exc:
+            _remove_partials(out_dir, METHOD_OUTPUT_ROLES[method])
+            _emit(protocol, EVENT_ERROR, code=CODE_ENGINE_ERROR, detail=str(exc))
+            return EXIT_INVALID_INPUT
+        except _ModelUnavailable as exc:
+            _remove_partials(out_dir, METHOD_OUTPUT_ROLES[method])
+            _emit(protocol, EVENT_ERROR, code=CODE_MODEL_MISSING, detail=str(exc))
+            return EXIT_MODEL_UNAVAILABLE
+        except Exception as exc:
+            _remove_partials(out_dir, METHOD_OUTPUT_ROLES[method])
+            traceback.print_exc(file=sys.stderr)
+            _emit(
+                protocol,
+                EVENT_ERROR,
+                code=CODE_ENGINE_ERROR,
+                detail=_tail(f"{type(exc).__name__}: {exc}"),
+                retryable=True,
+            )
+            return EXIT_HANDLED
+
+        elapsed = time.monotonic() - started
+        _emit(
+            protocol,
+            EVENT_DONE,
+            elapsed_seconds=round(elapsed, 3),
+            outputs=list(METHOD_OUTPUT_ROLES[method]),
+        )
+        return EXIT_OK
+    finally:
+        sys.stdout = original_stdout
+        _restore_signal_handlers(installed_handlers)
+
+
+def _resolve_method(args: argparse.Namespace) -> str:
+    method = str(args.method)
+    if method not in METHOD_OUTPUT_ROLES:
+        raise _InvalidInput(f"unknown separation method: {method}")
+    if method == DEMUCS_METHOD and args.model_path is None:
+        raise _InvalidInput("--model-path is required for demucs")
+    return method
+
+
+def _run_demucs(
+    args: argparse.Namespace,
+    protocol: TextIO,
+    stop: _Stop,
+    started: float,
+) -> None:
+    """Run the block-plan Demucs path; imports the heavyweight stack here."""
     import demucs
     import demucs.api as demucs_api
     import numpy as np
@@ -163,121 +255,184 @@ def run(argv: Sequence[str] | None = None) -> int:
             self._audio_channels = model.audio_channels
             self._samplerate = model.samplerate
 
-    out_dir = Path(args.out)
-    stop = _Stop(threading.Event())
-    original_stdout = sys.stdout
-    # Demucs, torch, and their dependencies may write human text to stdout.
-    # Keep the protocol stream private and send everything else to stderr.
-    sys.stdout = sys.stderr
-    installed_handlers = _install_signal_handlers(stop)
+    _emit(
+        protocol,
+        EVENT_HELLO,
+        engine=DEMUCS_METHOD,
+        engine_version=str(getattr(demucs, "__version__", "")),
+        method=DEMUCS_METHOD,
+        outputs=list(DEMUCS_OUTPUT_NAMES),
+        model=args.model,
+        model_revision=args.model_revision,
+        device=args.device,
+        sample_rate=SAMPLE_RATE,
+        threads=args.threads,
+    )
+    info = _read_wav_info(Path(args.input))
+    _validate_input(info, expected_duration_s=args.expected_duration)
+    threads = max(1, int(args.threads))
+    _configure_torch(torch, threads)
+    _emit(protocol, EVENT_STAGE, stage="model_load", state=STAGE_START)
+    load_started = time.monotonic()
     try:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        _remove_partials(out_dir)
-        _emit(
-            protocol,
-            EVENT_HELLO,
-            engine="demucs",
-            engine_version=str(getattr(demucs, "__version__", "")),
-            model=args.model,
-            model_revision=args.model_revision,
+        separator = LocalSeparator(
+            model="htdemucs",
+            repo=None,
             device=args.device,
-            sample_rate=SAMPLE_RATE,
-            threads=args.threads,
+            shifts=args.shifts,
+            overlap=args.overlap,
+            split=True,
+            segment=args.segment,
+            jobs=0,
+            progress=False,
+            callback=None,
         )
-        started = time.monotonic()
-
-        try:
-            info = _read_wav_info(Path(args.input))
-            _validate_input(info, expected_duration_s=args.expected_duration)
-            threads = max(1, int(args.threads))
-            _configure_torch(torch, threads)
-            _emit(protocol, EVENT_STAGE, stage="model_load", state=STAGE_START)
-            load_started = time.monotonic()
-            try:
-                separator = LocalSeparator(
-                    model="htdemucs",
-                    repo=None,
-                    device=args.device,
-                    shifts=args.shifts,
-                    overlap=args.overlap,
-                    split=True,
-                    segment=args.segment,
-                    jobs=0,
-                    progress=False,
-                    callback=None,
-                )
-            except Exception as exc:
-                raise _ModelUnavailable(f"{type(exc).__name__}: {exc}") from exc
-            if separator.samplerate != SAMPLE_RATE or separator.audio_channels != CHANNELS:
-                raise _ModelUnavailable(
-                    f"model expects {separator.samplerate} Hz / {separator.audio_channels} channels"
-                )
-            _emit(
-                protocol,
-                EVENT_STAGE,
-                stage="model_load",
-                state=STAGE_END,
-                seconds=round(time.monotonic() - load_started, 3),
-            )
-            _start_stdin_watch(stop)
-            separate_started = time.monotonic()
-            _emit(protocol, EVENT_STAGE, stage="separate", state=STAGE_START)
-            _separate(
-                args=args,
-                info=info,
-                separator=separator,
-                protocol=protocol,
-                stop=stop,
-                numpy=np,
-                torch=torch,
-                started=started,
-            )
-            _emit(
-                protocol,
-                EVENT_STAGE,
-                stage="separate",
-                state=STAGE_END,
-                seconds=round(time.monotonic() - separate_started, 3),
-            )
-        except _StopRequested:
-            _remove_partials(out_dir)
-            _emit(protocol, EVENT_ERROR, code=CODE_CANCELLED, detail="cancelled")
-            return EXIT_HANDLED
-        except KeyboardInterrupt:
-            _remove_partials(out_dir)
-            _emit(protocol, EVENT_ERROR, code=CODE_CANCELLED, detail="cancelled")
-            return EXIT_HANDLED
-        except _InvalidInput as exc:
-            _remove_partials(out_dir)
-            _emit(protocol, EVENT_ERROR, code=CODE_ENGINE_ERROR, detail=str(exc))
-            return EXIT_INVALID_INPUT
-        except _ModelUnavailable as exc:
-            _remove_partials(out_dir)
-            _emit(protocol, EVENT_ERROR, code=CODE_MODEL_MISSING, detail=str(exc))
-            return EXIT_MODEL_UNAVAILABLE
-        except Exception as exc:
-            _remove_partials(out_dir)
-            traceback.print_exc(file=sys.stderr)
-            _emit(
-                protocol,
-                EVENT_ERROR,
-                code=CODE_ENGINE_ERROR,
-                detail=_tail(f"{type(exc).__name__}: {exc}"),
-                retryable=True,
-            )
-            return EXIT_HANDLED
-
-        elapsed = time.monotonic() - started
-        _emit(
-            protocol,
-            EVENT_DONE,
-            elapsed_seconds=round(elapsed, 3),
-            outputs=list(WORKER_OUTPUT_NAMES),
+    except Exception as exc:
+        raise _ModelUnavailable(f"{type(exc).__name__}: {exc}") from exc
+    if separator.samplerate != SAMPLE_RATE or separator.audio_channels != CHANNELS:
+        raise _ModelUnavailable(
+            f"model expects {separator.samplerate} Hz / {separator.audio_channels} channels"
         )
-        return EXIT_OK
-    finally:
-        sys.stdout = original_stdout
-        _restore_signal_handlers(installed_handlers)
+    _emit(
+        protocol,
+        EVENT_STAGE,
+        stage="model_load",
+        state=STAGE_END,
+        seconds=round(time.monotonic() - load_started, 3),
+    )
+    _start_stdin_watch(stop)
+    separate_started = time.monotonic()
+    _emit(protocol, EVENT_STAGE, stage="separate", state=STAGE_START)
+    _separate(
+        args=args,
+        info=info,
+        separator=separator,
+        protocol=protocol,
+        stop=stop,
+        numpy=np,
+        torch=torch,
+        started=started,
+    )
+    _emit(
+        protocol,
+        EVENT_STAGE,
+        stage="separate",
+        state=STAGE_END,
+        seconds=round(time.monotonic() - separate_started, 3),
+    )
+
+
+def _run_karaoke(
+    args: argparse.Namespace,
+    protocol: TextIO,
+    stop: _Stop,
+    started: float,
+) -> None:
+    """Run centre-channel extraction with numpy only; no model and no network."""
+    import numpy as np
+
+    _emit(
+        protocol,
+        EVENT_HELLO,
+        engine=KARAOKE_METHOD,
+        engine_version="1",
+        method=KARAOKE_METHOD,
+        outputs=list(KARAOKE_OUTPUT_NAMES),
+        sample_rate=SAMPLE_RATE,
+        threads=args.threads,
+    )
+    info = _read_wav_info(Path(args.input))
+    _validate_input(info, expected_duration_s=args.expected_duration)
+    _start_stdin_watch(stop)
+    separate_started = time.monotonic()
+    _emit(protocol, EVENT_STAGE, stage="separate", state=STAGE_START)
+    _karaoke(
+        args=args,
+        info=info,
+        protocol=protocol,
+        stop=stop,
+        numpy=np,
+        started=started,
+    )
+    _emit(
+        protocol,
+        EVENT_STAGE,
+        stage="separate",
+        state=STAGE_END,
+        seconds=round(time.monotonic() - separate_started, 3),
+    )
+
+
+def _karaoke(
+    *,
+    args: argparse.Namespace,
+    info: _WavInfo,
+    protocol: TextIO,
+    stop: _Stop,
+    numpy: Any,
+    started: float,
+) -> None:
+    """Write Vocals as the mid and Instrumental as the side, chunk by chunk."""
+    out_dir = Path(args.out)
+    writers = {
+        role: _FloatWavWriter(out_dir / f"{role}.partial.wav", sample_rate=info.sample_rate)
+        for role in KARAOKE_OUTPUT_NAMES
+    }
+    total_segments = max(1, math.ceil(info.frames / KARAOKE_CHUNK_FRAMES))
+    total_audio_seconds = info.frames / info.sample_rate
+    frame_bytes = info.channels * 4
+    try:
+        with open(args.input, "rb") as handle:
+            position = 0
+            while position < info.frames:
+                if stop.requested:
+                    raise _StopRequested()
+                count = min(KARAOKE_CHUNK_FRAMES, info.frames - position)
+                handle.seek(info.data_offset + position * frame_bytes)
+                raw = handle.read(count * frame_bytes)
+                if len(raw) != count * frame_bytes:
+                    raise _InvalidInput("the input ended before its declared duration")
+                frames = numpy.frombuffer(raw, dtype="<f4").reshape(count, info.channels)
+                left = frames[:, 0]
+                right = frames[:, 1]
+                mid = numpy.ascontiguousarray((left + right) * 0.5, dtype="float32")
+                side = numpy.ascontiguousarray((left - right) * 0.5, dtype="float32")
+                writers["vocals"].write(numpy.stack((mid, mid), axis=1))
+                writers["instrumental"].write(numpy.stack((side, side), axis=1))
+                position += count
+                if stop.requested:
+                    raise _StopRequested()
+                fraction = min(1.0, position / info.frames)
+                _emit(
+                    protocol,
+                    EVENT_PROGRESS,
+                    stage="separate",
+                    fraction=round(fraction, 6),
+                    segment=min(total_segments, math.ceil(position / KARAOKE_CHUNK_FRAMES)),
+                    segments=total_segments,
+                    audio_seconds_done=round(position / info.sample_rate, 3),
+                    audio_seconds_total=round(total_audio_seconds, 3),
+                    eta_seconds=_eta_seconds(started, fraction),
+                )
+        for writer in writers.values():
+            writer.close()
+        for role in KARAOKE_OUTPUT_NAMES:
+            partial = out_dir / f"{role}.partial.wav"
+            os.replace(partial, out_dir / f"{role}.wav")
+            _emit(
+                protocol,
+                EVENT_OUTPUT,
+                stem=role,
+                path=f"{role}.wav",
+                format="wav",
+                sample_rate=info.sample_rate,
+                channels=info.channels,
+            )
+    except BaseException:
+        for writer in writers.values():
+            writer.abort()
+        _remove_partials(out_dir, KARAOKE_OUTPUT_NAMES)
+        raise
 
 
 def _separate(
@@ -386,7 +541,7 @@ def _separate(
     except BaseException:
         for writer in writers.values():
             writer.abort()
-        _remove_partials(Path(args.out))
+        _remove_partials(Path(args.out), WORKER_OUTPUT_NAMES)
         raise
 
 
@@ -683,9 +838,10 @@ def _configure_torch(torch: Any, threads: int) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = _Parser(prog="stemforge --worker separation", add_help=True)
+    parser.add_argument("--method", default=DEMUCS_METHOD)
     parser.add_argument("--model", default="htdemucs")
     parser.add_argument("--model-revision", default="")
-    parser.add_argument("--model-path", required=True, type=Path)
+    parser.add_argument("--model-path", default=None, type=Path)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
@@ -761,8 +917,8 @@ def _pipe_stream(fd: int) -> TextIO | None:
         return None
 
 
-def _remove_partials(out_dir: Path) -> None:
-    for role in WORKER_OUTPUT_NAMES:
+def _remove_partials(out_dir: Path, roles: Sequence[str]) -> None:
+    for role in roles:
         with contextlib.suppress(FileNotFoundError, OSError):
             (out_dir / f"{role}.partial.wav").unlink()
 

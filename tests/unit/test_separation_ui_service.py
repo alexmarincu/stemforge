@@ -8,6 +8,7 @@ headless: the artifact store is real under ``tmp_path`` and no engine runs.
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -81,11 +82,20 @@ def _commit_source(store: ArtifactStore, source_id: str = SOURCE_ID) -> None:
 
 
 def _commit_separation(
-    store: ArtifactStore, source_id: str = SOURCE_ID, *, version: str = "v1"
+    store: ArtifactStore,
+    source_id: str = SOURCE_ID,
+    *,
+    version: str = "v1",
+    method: str = "demucs",
 ) -> None:
-    staging = store.stage(f"job-stems-{source_id}-{version}")
+    roles = (
+        ("vocals", "instrumental")
+        if method == "karaoke"
+        else ("vocals", "instrumental", "drums", "bass", "other")
+    )
+    staging = store.stage(f"job-stems-{source_id}-{method}-{version}")
     files: list[Mapping[str, object]] = []
-    for role in ("vocals", "drums", "bass", "other", "instrumental"):
+    for role in roles:
         data = f"{version}-{role}-audio".encode()
         (staging / f"{role}.wav").write_bytes(data)
         files.append(_file_entry(f"{role}.wav", role, data))
@@ -98,7 +108,7 @@ def _commit_separation(
         "source_id": source_id,
         "files": files,
     }
-    store.commit_separation(staging, source_id, manifest)
+    store.commit_separation(staging, source_id, manifest, method=method)
 
 
 def _track(track_id: str = TRACK_ID, source_id: str = SOURCE_ID) -> Track:
@@ -122,6 +132,23 @@ class _FakeSeparation:
 
 class _FakeMedia:
     """Only used as an injected placeholder; no Job runs in these tests."""
+
+
+class _UnusedModelStore(ModelStore):
+    """A model store that fails the test if a Karaoke request reads it."""
+
+    def require_verified(self) -> object:
+        raise AssertionError("Karaoke read the model store")
+
+    def status(self) -> object:
+        raise AssertionError("Karaoke read the model store")
+
+    def is_installed(self) -> bool:
+        raise AssertionError("Karaoke read the model store")
+
+    @property
+    def spec(self) -> object:
+        raise AssertionError("Karaoke read the model store")
 
 
 def _service(
@@ -162,6 +189,10 @@ def test_separation_sets_list_the_committed_set_with_ordered_stem_roles(tmp_path
 
     assert item.set_key
     assert item.created_at.tzinfo is not None
+    assert item.label == "Demucs"
+    assert item.method == "demucs"
+    assert item.method_version == 1
+    assert item.output_roles == ("vocals", "instrumental", "drums", "bass", "other")
     assert item.stem_roles == ("vocals", "drums", "bass", "other")
     assert item.based_on_earlier_separation is False
 
@@ -188,7 +219,7 @@ def test_each_stem_and_the_instrumental_have_their_own_preview_target(tmp_path: 
     drums = service.separation_preview_target(track, item.set_key, "drums")
 
     assert vocals is not None
-    assert vocals.url == f"/media/sources/{SOURCE_ID}/stems/vocals_preview.mp3"
+    assert vocals.url == f"/media/sources/{SOURCE_ID}/separations/demucs/vocals_preview.mp3"
     assert vocals.key != instrumental.key
     assert instrumental is not None
     assert instrumental.url.endswith("/instrumental_preview.mp3")
@@ -209,6 +240,91 @@ def test_re_separation_replaces_the_set_and_its_key(tmp_path: Path) -> None:
     assert second.set_key != first.set_key
     assert service.separation_preview_target(_track(), first.set_key, "vocals") is None
     assert service.separation_preview_target(_track(), second.set_key, "vocals") is not None
+
+
+@pytest.mark.unit
+def test_a_legacy_stems_set_is_listed_as_the_demucs_set(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    legacy = store.sources_dir / SOURCE_ID / "stems"
+    legacy.mkdir()
+    vocals = b"legacy-vocals"
+    preview = b"legacy-preview"
+    (legacy / "vocals.wav").write_bytes(vocals)
+    (legacy / "vocals_preview.mp3").write_bytes(preview)
+    (legacy / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "kind": "separation",
+                "source_id": SOURCE_ID,
+                "created_at": "2026-11-16T12:00:00+00:00",
+                "files": [
+                    _file_entry("vocals.wav", "vocals", vocals),
+                    _file_entry("vocals_preview.mp3", "vocals_preview", preview),
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    (item,) = service.separation_sets(_track())
+
+    assert item.method == "demucs"
+    assert item.output_roles == ("vocals", "instrumental", "drums", "bass", "other")
+    target = service.separation_preview_target(_track(), item.set_key, "vocals")
+    assert target is not None
+    assert target.url.endswith("/stems/vocals_preview.mp3")
+
+
+@pytest.mark.unit
+def test_both_method_sets_are_listed_oldest_first_with_their_roles(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, version="demucs-v1")
+    _commit_separation(store, version="karaoke-v1", method="karaoke")
+    track = _track()
+
+    demucs, karaoke = service.separation_sets(track)
+
+    assert demucs.method == "demucs"
+    assert demucs.output_roles == ("vocals", "instrumental", "drums", "bass", "other")
+    assert karaoke.method == "karaoke"
+    assert karaoke.method_version == 1
+    assert karaoke.label == "Karaoke"
+    assert karaoke.output_roles == ("vocals", "instrumental")
+    assert karaoke.stem_roles == ("vocals",)
+    assert demucs.set_key != karaoke.set_key
+    assert service.has_separation(track) is True
+
+    vocals = service.separation_preview_target(track, karaoke.set_key, "vocals")
+    instrumental = service.separation_preview_target(track, karaoke.set_key, "instrumental")
+    assert vocals is not None
+    assert vocals.url.endswith("/separations/karaoke/vocals_preview.mp3")
+    assert instrumental is not None
+    assert service.separation_preview_target(track, karaoke.set_key, "drums") is None
+
+    # A Demucs set key still resolves its own previews across the other method.
+    assert service.separation_preview_target(track, demucs.set_key, "drums") is not None
+    assert service.separation_preview_target(track, demucs.set_key, "vocals") is not None
+
+
+@pytest.mark.unit
+def test_re_running_one_method_leaves_the_other_set_and_key_intact(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, version="demucs-v1")
+    _commit_separation(store, version="karaoke-v1", method="karaoke")
+    demucs_before, karaoke_before = service.separation_sets(_track())
+
+    _commit_separation(store, version="karaoke-v2", method="karaoke")
+    demucs_after, karaoke_after = service.separation_sets(_track())
+
+    assert demucs_after == demucs_before
+    assert karaoke_after.method == "karaoke"
+    assert karaoke_after.set_key != karaoke_before.set_key
+    assert service.separation_preview_target(_track(), karaoke_before.set_key, "vocals") is None
+    assert service.separation_preview_target(_track(), demucs_before.set_key, "vocals") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +377,7 @@ def test_separate_requires_the_model_before_submitting_and_latches_once(tmp_path
     track = _track()
 
     with pytest.raises(StemForgeError) as raised:
-        service.separate(track)
+        service.separate(track, method="demucs")
 
     assert raised.value.code == errors.SEPARATION_MODEL_MISSING
     assert raised.value.detail == "reason=absent"
@@ -287,7 +403,7 @@ def test_resubmit_only_consumes_the_track_that_is_pending(tmp_path: Path) -> Non
     other = _track(track_id=OTHER_TRACK_ID, source_id="other-source")
 
     with pytest.raises(StemForgeError):
-        service.separate(pending)
+        service.separate(pending, method="demucs")
 
     assert service.resubmit_pending_separation(other) is None
     assert service.pending_separation_track_id() == pending.track_id
@@ -304,13 +420,47 @@ def test_separate_with_the_model_installed_submits_one_job_and_never_latches(
     _commit_source(store)
     track = _track()
 
-    job_id = service.separate(track)
+    job_id = service.separate(track, method="demucs")
 
     jobs = service.runner.jobs()
     assert [job.job_id for job in jobs] == [job_id]
     assert jobs[0].kind.value == "separate"
     assert service.pending_separation_track_id() is None
-    assert service.separate(track) == job_id
+    assert service.separate(track, method="demucs") == job_id
+
+
+@pytest.mark.unit
+def test_auto_without_the_model_chooses_karaoke_and_never_latches(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+
+    job_id = service.separate(_track())
+
+    assert [job.job_id for job in service.runner.jobs()] == [job_id]
+    assert service.pending_separation_track_id() is None
+
+
+@pytest.mark.unit
+def test_karaoke_never_reads_the_model_store_or_latches(tmp_path: Path) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    models = _UnusedModelStore(paths, spec=_tiny_spec())
+    service, store = _service(tmp_path, models=models)
+    _commit_source(store)
+
+    job_id = service.separate(_track(), method="karaoke")
+
+    assert [job.job_id for job in service.runner.jobs()] == [job_id]
+    assert service.pending_separation_track_id() is None
+
+
+@pytest.mark.unit
+def test_unknown_methods_fall_back_to_auto_without_raising(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+
+    job_id = service.separate(_track(), method="repet-sim")
+
+    assert [job.job_id for job in service.runner.jobs()] == [job_id]
 
 
 @pytest.mark.unit

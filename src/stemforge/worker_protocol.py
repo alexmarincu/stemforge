@@ -1,29 +1,34 @@
 """The separation worker's JSONL protocol (stdlib only).
 
-Stdout is protocol only: one UTF-8 JSON object per line, each carrying ``"v": 1``.
+Stdout is protocol only: one UTF-8 JSON object per line, each carrying ``"v": 2``.
 Stderr is human log only. This module owns the event names, the exit codes, and
 the parser used by :class:`~stemforge.engines.separation.WorkerSeparationEngine`.
 It imports nothing outside the standard library because ``platform``,
 ``domain``, and ``workers`` depend on it.
 
-Event types::
+Version 2 makes the method part of the protocol. ``hello`` declares the method
+and the output roles it will emit; the parent rejects an ``output`` whose role
+was not declared and a ``done.outputs`` set that differs from the declaration.
+A method without Model weights omits the model fields. Event types::
 
-    {"v":1,"event":"hello","engine":"demucs","engine_version":"4.1.0",
+    {"v":2,"event":"hello","engine":"demucs","engine_version":"4.1.0",
+     "method":"demucs","outputs":["vocals","instrumental","drums","bass","other"],
      "model":"htdemucs","model_revision":"cbc8a9b","device":"cpu",
      "sample_rate":44100,"threads":8}
-    {"v":1,"event":"stage","stage":"model_load","state":"start"}
-    {"v":1,"event":"stage","stage":"model_load","state":"end","seconds":1.98}
-    {"v":1,"event":"progress","stage":"separate","fraction":0.334,
+    {"v":2,"event":"stage","stage":"model_load","state":"start"}
+    {"v":2,"event":"stage","stage":"model_load","state":"end","seconds":1.98}
+    {"v":2,"event":"progress","stage":"separate","fraction":0.334,
      "segment":2,"segments":41,"audio_seconds_done":80.2,
      "audio_seconds_total":240.0,"eta_seconds":247.0}
-    {"v":1,"event":"output","stem":"vocals","path":"vocals.wav","format":"wav",
+    {"v":2,"event":"output","stem":"vocals","path":"vocals.wav","format":"wav",
      "sample_rate":44100,"channels":2}
-    {"v":1,"event":"done","elapsed_seconds":374.2,
-     "outputs":["vocals","drums","bass","other","instrumental"]}
-    {"v":1,"event":"error","code":"separation.engine_error","message":"…",
+    {"v":2,"event":"done","elapsed_seconds":374.2,
+     "outputs":["vocals","instrumental","drums","bass","other"]}
+    {"v":2,"event":"error","code":"separation.engine_error","message":"…",
      "retryable":false,"detail":"…"}
 
-Unknown event names are ignored so a newer worker can add events without
+The Karaoke worker declares ``["vocals","instrumental"]`` and omits the model
+fields. Unknown event names are ignored so a newer worker can add events without
 breaking an older parent. A ``v`` other than :data:`PROTOCOL_VERSION` is a
 protocol mismatch.
 """
@@ -34,9 +39,10 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from types import MappingProxyType
 from typing import Final, cast
 
-PROTOCOL_VERSION: Final = 1
+PROTOCOL_VERSION: Final = 2
 
 EVENT_HELLO: Final = "hello"
 EVENT_STAGE: Final = "stage"
@@ -60,6 +66,16 @@ STEM_NAMES: Final[tuple[str, ...]] = ("vocals", "drums", "bass", "other")
 INSTRUMENTAL_NAME: Final = "instrumental"
 WORKER_OUTPUT_NAMES: Final[tuple[str, ...]] = (*STEM_NAMES, INSTRUMENTAL_NAME)
 WORKER_OUTPUTS: Final[frozenset[str]] = frozenset(WORKER_OUTPUT_NAMES)
+
+# The worker cannot import ``stemforge.domain``; this mapping is its copy of
+# the method registry's output roles, kept identical by a contract test. The
+# order is presentation order.
+METHOD_OUTPUT_ROLES: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType(
+    {
+        "demucs": ("vocals", "instrumental", "drums", "bass", "other"),
+        "karaoke": ("vocals", "instrumental"),
+    }
+)
 
 # 0 success, 2 handled failure, 3 model unavailable, 4 invalid input.
 EXIT_OK: Final = 0
@@ -110,8 +126,10 @@ class WorkerEvent:
     retryable: bool = False
     elapsed_seconds: float | None = None
     outputs: tuple[str, ...] = ()
+    declared_outputs: tuple[str, ...] = ()
     engine: str | None = None
     engine_version: str | None = None
+    method: str | None = None
     model: str | None = None
     model_revision: str | None = None
     device: str | None = None
@@ -192,18 +210,19 @@ def block_count(*, total_frames: int, block_frames: int, fade_frames: int) -> in
 def _parse_hello(payload: dict[str, object], line: str) -> WorkerEvent:
     engine = _required_text(payload, "engine", line)
     engine_version = _required_text(payload, "engine_version", line)
-    model = _required_text(payload, "model", line)
-    model_revision = _required_text(payload, "model_revision", line, allow_empty=True)
-    device = _required_text(payload, "device", line)
+    method = _required_text(payload, "method", line)
+    declared_outputs = _required_names(payload, "outputs", line)
     sample_rate = _required_int(payload, "sample_rate", line)
     threads = _required_int(payload, "threads", line)
     return WorkerEvent(
         event=EVENT_HELLO,
         engine=engine,
         engine_version=engine_version,
-        model=model,
-        model_revision=model_revision,
-        device=device,
+        method=method,
+        declared_outputs=declared_outputs,
+        model=_optional_text(payload, "model", line),
+        model_revision=_optional_text(payload, "model_revision", line),
+        device=_optional_text(payload, "device", line),
         sample_rate=sample_rate,
         threads=threads,
     )
@@ -244,8 +263,8 @@ def _parse_progress(payload: dict[str, object], line: str) -> WorkerEvent:
 
 def _parse_output(payload: dict[str, object], line: str) -> WorkerEvent:
     stem = payload.get("stem")
-    if not isinstance(stem, str) or stem not in WORKER_OUTPUTS:
-        raise ProtocolError(f"unknown output name: {stem!r}", line=line)
+    if not isinstance(stem, str) or not stem:
+        raise ProtocolError(f"invalid output stem: {stem!r}", line=line)
     path = payload.get("path")
     if not isinstance(path, str) or not is_safe_relative_output(path):
         raise ProtocolError(f"unsafe output path: {path!r}", line=line)
@@ -268,15 +287,7 @@ def _parse_done(payload: dict[str, object], line: str) -> WorkerEvent:
     elapsed = _optional_number(payload, "elapsed_seconds", line)
     if elapsed is None:
         raise ProtocolError("done.elapsed_seconds is required", line=line)
-    raw = payload.get("outputs")
-    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
-        raise ProtocolError("done.outputs must be a list of names", line=line)
-    outputs = tuple(cast("list[str]", raw))
-    unknown = set(outputs) - WORKER_OUTPUTS
-    if unknown:
-        raise ProtocolError(f"done.outputs has unknown names: {sorted(unknown)}", line=line)
-    if set(outputs) != WORKER_OUTPUTS:
-        raise ProtocolError("done.outputs must name all five outputs", line=line)
+    outputs = _required_names(payload, "outputs", line)
     return WorkerEvent(event=EVENT_DONE, elapsed_seconds=elapsed, outputs=outputs)
 
 
@@ -294,6 +305,20 @@ def _parse_error(payload: dict[str, object], line: str) -> WorkerEvent:
         message=_optional_text(payload, "message", line),
         retryable=retryable,
     )
+
+
+def _required_names(payload: dict[str, object], key: str, line: str) -> tuple[str, ...]:
+    raw = payload.get(key)
+    if (
+        not isinstance(raw, list)
+        or not raw
+        or not all(isinstance(item, str) and item for item in raw)
+    ):
+        raise ProtocolError(f"{key} must be a non-empty list of names", line=line)
+    names = tuple(cast("list[str]", raw))
+    if len(set(names)) != len(names):
+        raise ProtocolError(f"{key} must not duplicate a name", line=line)
+    return names
 
 
 def _optional_text(payload: dict[str, object], key: str, line: str) -> str | None:

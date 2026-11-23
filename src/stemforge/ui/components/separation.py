@@ -82,7 +82,8 @@ class SeparationCard:
     @ui.refreshable_method
     def build(self, track: Track, *, busy: bool) -> None:
         self._current_track_id = track.track_id
-        has_stems = self._service.has_separation(track)
+        sets = self._service.separation_sets(track)
+        selected = sets[-1] if sets else None
         status = self._service.model_status()
         failure = self._failures.get(track.track_id)
         model_missing = failure is not None and failure.code == errors.SEPARATION_MODEL_MISSING
@@ -102,29 +103,58 @@ class SeparationCard:
                 self._gate(busy=busy, checksum_failure=checksum_failure)
             if self._running():
                 self._running_block()
-                if has_stems:
-                    ui.label(formatting.SEPARATION_LAST_SUCCESS).classes("sf-fineprint").mark(
+                if selected is not None:
+                    ui.label(self._last_success_copy(selected.method)).classes("sf-fineprint").mark(
                         "separation-last-success"
                     )
-            elif has_stems:
-                ui.label(formatting.SEPARATION_DONE).classes("sf-separation-status").mark(
+            elif selected is not None:
+                ui.label(self._done_copy(selected.method)).classes("sf-separation-status").mark(
                     "separation-status"
                 )
                 if gate_visible or failure is not None:
-                    ui.label(formatting.SEPARATION_LAST_SUCCESS).classes("sf-fineprint").mark(
+                    ui.label(self._last_success_copy(selected.method)).classes("sf-fineprint").mark(
                         "separation-last-success"
                     )
-                if not gate_visible:
-                    self._primary(track, busy, again=True)
+                if gate_visible:
+                    self._karaoke_primary(track, busy)
+                else:
+                    self._primary(
+                        track,
+                        busy,
+                        method=selected.method,
+                        label=formatting.SEPARATION_AGAIN,
+                    )
             elif not gate_visible:
                 ui.label(formatting.SEPARATION_NOT_SEPARATED).classes("sf-separation-status").mark(
                     "separation-status"
                 )
                 ui.label(formatting.SEPARATION_NOT_SEPARATED_HINT).classes("sf-fineprint")
-                self._primary(track, busy, again=False)
+                self._primary(
+                    track,
+                    busy,
+                    method="demucs",
+                    label=formatting.SEPARATION_ACTION,
+                )
+            else:
+                ui.label(formatting.SEPARATION_NOT_SEPARATED_KARAOKE).classes(
+                    "sf-separation-status"
+                ).mark("separation-status")
+                self._karaoke_primary(track, busy)
             self._error(track, busy)
-            if not gate_visible and has_stems:
+            if not gate_visible and selected is not None and selected.method == "demucs":
                 ui.label(formatting.SEPARATION_PRIMARY_NOTE).classes("sf-fineprint")
+
+    @staticmethod
+    def _done_copy(method: str) -> str:
+        if method == "karaoke":
+            return formatting.SEPARATION_DONE_KARAOKE
+        return formatting.SEPARATION_DONE
+
+    @staticmethod
+    def _last_success_copy(method: str) -> str:
+        if method == "karaoke":
+            return formatting.SEPARATION_LAST_SUCCESS_KARAOKE
+        return formatting.SEPARATION_LAST_SUCCESS
 
     # -- model gate ---------------------------------------------------------
 
@@ -347,21 +377,38 @@ class SeparationCard:
 
     # -- actions ------------------------------------------------------------
 
-    def _primary(self, track: Track, busy: bool, *, again: bool) -> None:
+    def _primary(
+        self,
+        track: Track,
+        busy: bool,
+        *,
+        method: str,
+        label: str,
+        marker: str = "separation-action",
+    ) -> None:
         button = (
             ui.button(
-                formatting.SEPARATION_AGAIN if again else formatting.SEPARATION_ACTION,
+                label,
                 icon="call_split",
-                on_click=lambda _=None: self._submit(track),
+                on_click=lambda _=None, item=method: self._submit(track, item),
             )
             .props("unelevated no-caps")
             .classes("sf-control sf-control--primary")
-            .mark("separation-action")
+            .mark(marker)
         )
         button.set_enabled(not busy)
 
+    def _karaoke_primary(self, track: Track, busy: bool) -> None:
+        self._primary(
+            track,
+            busy,
+            method="karaoke",
+            label=formatting.SEPARATION_KARAOKE_ACTION,
+            marker="separation-karaoke-action",
+        )
+
     def request_separation(self, track: Track) -> None:
-        """The Outputs placeholder's Separate button uses the same request path."""
+        """The Outputs placeholder's Separate button uses the automatic method."""
         self._submit(track)
 
     def _download(self) -> None:
@@ -375,9 +422,9 @@ class SeparationCard:
         self._on_job_started(job_id, "model_install", None)
         self.build.refresh()
 
-    def _submit(self, track: Track) -> None:
+    def _submit(self, track: Track, method: str | None = None) -> None:
         try:
-            job_id = self._service.separate(track)
+            job_id = self._service.separate(track, method)
         except StemForgeError as error:
             self._failures[track.track_id] = JobFailure.from_error(error)
             self.build.refresh()

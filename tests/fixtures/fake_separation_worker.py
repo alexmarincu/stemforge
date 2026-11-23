@@ -3,7 +3,8 @@
 It speaks the worker JSONL protocol and writes five real float32 WAVs — the
 four stems plus their in-memory sum as Instrumental — with distinct tones, so the
 Job's ffmpeg probing, gain, previews, manifest, and commit are exercised through
-a real subprocess without torch, Demucs, or the 84 MB weights.
+a real subprocess without torch, Demucs, or the 84 MB weights. Karaoke's real
+worker is exercised separately; this fixture stays the Demucs stand-in.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ FREQUENCIES = {"vocals": 440.0, "drums": 330.0, "bass": 110.0, "other": 220.0}
 
 
 def emit(payload: dict[str, object]) -> None:
-    print(json.dumps({"v": 1, **payload}, sort_keys=True), flush=True)
+    print(json.dumps({"v": 2, **payload}, sort_keys=True), flush=True)
 
 
 def hello() -> None:
@@ -35,6 +36,8 @@ def hello() -> None:
             "event": "hello",
             "engine": "fake",
             "engine_version": "1.0",
+            "method": "demucs",
+            "outputs": list(OUTPUTS),
             "model": "htdemucs",
             "model_revision": "fake-revision",
             "device": "cpu",

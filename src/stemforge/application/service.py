@@ -347,9 +347,9 @@ class WorkspaceService:
         """The playable preview of one stem in one Separation set."""
         return self._preview.separation_preview_target(track, set_key, stem)
 
-    def separate(self, track: Track) -> str:
-        """Submit one Separation Job, or raise ``separation.model_missing``."""
-        return self._separation.separate(track)
+    def separate(self, track: Track, method: str | None = None) -> str:
+        """Submit one Separation Job for ``method``, or resolve ``None`` as auto."""
+        return self._separation.separate(track, method)
 
     def pending_separation_track_id(self) -> str | None:
         """The Track whose Separation waits for the model install, if any."""

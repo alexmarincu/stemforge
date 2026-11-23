@@ -207,9 +207,8 @@ def test_run_ui_connects_the_separation_engine(
         title="Song",
     )
     with pytest.raises(StemForgeError) as caught:
-        context.service.separate(track)
-    # Without the engine this is internal.unexpected; the model gate is the
-    # first legitimate refusal once separation is wired.
+        context.service.separate(track, method="demucs")
+    # An explicit Demucs request is gated by the model before any Job exists.
     assert caught.value.code == errors.SEPARATION_MODEL_MISSING
 
 

@@ -298,7 +298,11 @@ class Harness:
         }
         if inputs is not None:
             manifest["inputs"] = [
-                {"role": role, "artifact": f"stems/{role}.wav", "sha256": digest}
+                {
+                    "role": role,
+                    "artifact": f"separations/demucs/{role}.wav",
+                    "sha256": digest,
+                }
                 for role, digest in inputs.items()
             ]
         self.artifacts.commit_render(staging, key, manifest)

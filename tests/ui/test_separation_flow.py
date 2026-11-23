@@ -146,6 +146,7 @@ class FakeSeparation:
     def __init__(self) -> None:
         self.fail_code: str | None = None
         self.retryable = True
+        self.method = "demucs"
         self._gate: threading.Event | None = None
         self.started = threading.Event()
 
@@ -158,7 +159,9 @@ class FakeSeparation:
         canonical: Path,
         out_dir: Path,
         *,
-        model_path: Path,
+        method: str,
+        expected_outputs: Sequence[str],
+        model_path: Path | None,
         expected_duration_s: float,
         progress: object,
         cancel: CancelToken,
@@ -169,7 +172,8 @@ class FakeSeparation:
         timeout_s: float | None = None,
         on_spawn: object | None = None,
     ) -> SeparationOutputs:
-        del model_path, threads, model_revision, env, timeout_s, on_spawn
+        del canonical, model_path, threads, model_revision, env, timeout_s, on_spawn
+        self.method = method
         cancel.check()
         emit = progress
         assert callable(emit)
@@ -186,7 +190,7 @@ class FakeSeparation:
                 detail="reason=fake",
             )
         stems: dict[str, Path] = {}
-        for index, role in enumerate(("vocals", "drums", "bass", "other", "instrumental")):
+        for index, role in enumerate(expected_outputs):
             path = out_dir / f"{role}.wav"
             path.write_bytes(f"stem-{role}-{expected_duration_s}".encode())
             stems[role] = path
@@ -334,10 +338,17 @@ class Harness:
         path.write_bytes(b"fake source bytes for " + name.encode())
         return path
 
-    def add_separation(self, source_id: str, *, version: str = "v1") -> None:
-        staging = self.artifacts.stage(f"ui-separation-{version}")
+    def add_separation(
+        self, source_id: str, *, version: str = "v1", method: str = "demucs"
+    ) -> None:
+        roles = (
+            ("vocals", "instrumental")
+            if method == "karaoke"
+            else ("vocals", "instrumental", "drums", "bass", "other")
+        )
+        staging = self.artifacts.stage(f"ui-separation-{method}-{version}")
         files: list[Mapping[str, object]] = []
-        for role in ("vocals", "drums", "bass", "other", "instrumental"):
+        for role in roles:
             data = f"{version}-{role}-audio".encode()
             (staging / f"{role}.wav").write_bytes(data)
             files.append(_file_entry(f"{role}.wav", role, data))
@@ -350,7 +361,7 @@ class Harness:
             "source_id": source_id,
             "files": files,
         }
-        self.artifacts.commit_separation(staging, source_id, manifest)
+        self.artifacts.commit_separation(staging, source_id, manifest, method=method)
 
 
 @pytest.fixture
@@ -469,6 +480,7 @@ async def test_the_gate_shows_size_revision_licence_and_consent(tmp_path: Path) 
             assert "separation.model_missing" in _only(user, "separation-gate-error-code").text
             assert _enabled(user, "model-download") is True
             await user.should_not_see(marker="separation-action")
+            await user.should_see(marker="separation-karaoke-action")
 
             # Licence details opens About, not a modal of its own.
             user.find(marker="model-licence-details").click()
@@ -585,10 +597,86 @@ async def test_a_missing_model_never_crashes_and_renders_the_gate(tmp_path: Path
             await user.should_see(marker="separation-gate")
             await user.should_see(marker="separation-gate-error-code")
             await user.should_see(marker="separation-card")
+            await user.should_see(marker="separation-karaoke-action")
+            assert _enabled(user, "separation-karaoke-action") is True
             assert _enabled(user, f"track-play-{track_id}") is True
             assert harness.service.snapshot().tracks[0].track_id == track_id
     finally:
         harness.runner.stop(timeout=10)
+
+
+async def test_without_the_model_karaoke_runs_and_shows_two_outputs(tmp_path: Path) -> None:
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(),
+        separation=FakeSeparation(),
+        dialog=FakeDialog(),
+        transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
+        tiny_model=True,
+        install_model=False,
+    )
+    harness.runner.start()
+    try:
+        async for user, workspace_page in _open_page(harness):
+            track_id = await _import(harness, user, workspace_page)
+
+            user.find(marker="separation-karaoke-action").click()
+            await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+            await _poll(harness, user, workspace_page)
+
+            assert harness.separation.method == "karaoke"
+            assert harness.models.is_installed() is False
+            assert harness.service.pending_separation_track_id() is None
+            assert [job for job in harness.runner.jobs() if job.kind.value == "model_install"] == []
+            await user.should_not_see(marker="separation-error")
+
+            # The Demucs download gate stays available beside Karaoke.
+            await user.should_see(marker="separation-gate")
+            assert _enabled(user, "model-download") is True
+            await user.should_see(marker="separation-karaoke-action")
+            assert _only(user, "separation-status").text == (
+                "Vocals + Instrumental ready · Karaoke"
+            )
+            assert "Vocals + Instrumental" in _only(user, f"track-meta-{track_id}").text
+            assert "4 stems" not in _only(user, f"track-meta-{track_id}").text
+
+            await user.should_see(marker="output-row-vocals")
+            await user.should_see(marker="output-row-instrumental")
+            await user.should_not_see(marker="output-row-drums")
+            await user.should_not_see(marker="output-row-bass")
+            await user.should_not_see(marker="output-row-other")
+            await user.should_not_see(marker="outputs-show-more")
+            await user.should_not_see(marker="outputs-show-less")
+            await user.should_not_see("Show 3 more stems")
+            await user.should_see("primary")
+            await user.should_not_see("sum")
+            assert _enabled(user, "output-export-vocals") is False
+            assert _enabled(user, "output-export-instrumental") is False
+
+            track = harness.service.snapshot().tracks[0]
+            (item,) = harness.service.separation_sets(track)
+            assert item.method == "karaoke"
+            assert item.output_roles == ("vocals", "instrumental")
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_a_selected_karaoke_set_renders_only_its_two_outputs(harness: Harness) -> None:
+    async for user, workspace_page in _open_page(harness):
+        await _import(harness, user, workspace_page)
+        track = harness.service.snapshot().tracks[0]
+        harness.add_separation(track.source_id, method="karaoke")
+        with user:
+            workspace_page._detail.refresh()
+        await asyncio.sleep(0.05)
+
+        assert _only(user, "separation-status").text == ("Vocals + Instrumental ready · Karaoke")
+        await user.should_see(marker="output-row-vocals")
+        await user.should_see(marker="output-row-instrumental")
+        await user.should_not_see(marker="output-row-drums")
+        await user.should_not_see(marker="outputs-show-more")
+        await user.should_not_see("Show 3 more stems")
+        await user.should_not_see("sum")
 
 
 async def test_one_successful_install_resubmits_a_pending_separation_exactly_once(
