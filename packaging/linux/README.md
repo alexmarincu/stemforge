@@ -81,8 +81,11 @@ at all, so browser mode is the fallback.
 On WebKitGTK 2.52 and newer with an NVIDIA driver, the web view can open blank
 while the GTK frame renders. StemForge sets
 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` before opening the window, which keeps the
-view on the shared-memory renderer. If it is still blank, add the upstream CPU
-rendering override:
+view on the shared-memory renderer. The check on WebKitGTK 2.54.3 with the
+470-series NVIDIA driver is recorded in
+[the Linux window-rendering note](../../docs/verification/linux-white-window.md);
+the workaround is still required for that host. If it is still blank, add the
+upstream CPU rendering override:
 
 ```sh
 WEBKIT_SKIA_ENABLE_CPU_RENDERING=1 ./run.sh

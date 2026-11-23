@@ -872,7 +872,7 @@ does the work.
 | Unsigned Windows build | SmartScreen warns on first run. | Published SHA-256 sums and an explicit unsigned-build note. |
 | Model-weights licence | The weights have no granted licence and are likely non-commercial. | Separate consent, separate download, pinned revision and SHA-256, never redistributed. |
 | Thin AppImage | It does not run without host GTK, WebKitGTK, GStreamer, and FUSE 2. | The tarball is primary; `run.sh` falls back to browser mode; the packaging notes say so. |
-| NVIDIA/WebKitGTK rendering | WebKitGTK 2.52+ can paint a blank view on NVIDIA/X11. | `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` by default, with a documented CPU-rendering override. |
+| NVIDIA/WebKitGTK rendering | WebKitGTK 2.52+ can paint a blank view on NVIDIA/X11. | `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` by default, with a documented CPU-rendering override; still required on WebKitGTK 2.54.3 with the 470 driver, per [the verification record](docs/verification/linux-white-window.md). |
 | YouTube extractor drift | A YouTube change breaks import until a release updates the pinned yt-dlp. | Exact version pins and a classified extractor-outdated error. |
 | No crash reporting | A hard crash leaves only the startup recovery banner and local logs. | Copy-only diagnostics and per-Job logs; nothing is uploaded. |
 

@@ -88,6 +88,7 @@ build/test-only and are listed for completeness.
 | `python-engineio` | 4.15.1 | `MIT` | runtime | https://code.miguelgrinberg.com/miguelgrinberg/python-engineio | [`license-c9e97d3dbc1f.txt`](../texts/license-c9e97d3dbc1f.txt) |
 | `python-multipart` | 0.0.34 | `Apache-2.0` | runtime | https://github.com/Kludex/python-multipart | [`license-cfc7749b96f6.txt`](../texts/license-cfc7749b96f6.txt) |
 | `python-socketio` | 5.18.1 | `MIT` | runtime | https://code.miguelgrinberg.com/miguelgrinberg/python-socketio | [`license-c9e97d3dbc1f.txt`](../texts/license-c9e97d3dbc1f.txt) |
+| `python-xlib` | 0.33 | `LGPLv2+` | development | https://github.com/python-xlib/python-xlib | [`license-0640c7a235c5.txt`](../texts/license-0640c7a235c5.txt) |
 | `pythonnet` | 3.2.1 | `MIT` | runtime (windows) | https://github.com/pythonnet/pythonnet | [`MIT`](../common/MIT.txt) |
 | `pywebview` | 6.2.1 | `BSD-3-Clause` | runtime | https://github.com/r0x0r/pywebview | [`license-4a988dd35988.txt`](../texts/license-4a988dd35988.txt) |
 | `pywin32-ctypes` | 0.2.3 | `BSD-3-Clause` | build (windows) | https://github.com/enthought/pywin32-ctypes | [`BSD-3-Clause`](../common/BSD-3-Clause.txt) |
@@ -97,6 +98,7 @@ build/test-only and are listed for completeness.
 | `safetensors` | 0.8.0 | `Apache-2.0` | runtime | https://github.com/huggingface/safetensors | [`license-c71d239df917.txt`](../texts/license-c71d239df917.txt) |
 | `setuptools` | 84.2.1 | `MIT` | runtime | https://github.com/pypa/setuptools | [`license-86da0f01aeae.txt`](../texts/license-86da0f01aeae.txt) |
 | `simple-websocket` | 1.1.0 | `MIT` | runtime | https://github.com/miguelgrinberg/simple-websocket | [`license-4b8abadcc5e3.txt`](../texts/license-4b8abadcc5e3.txt) |
+| `six` | 1.17.0 | `MIT` | development | https://github.com/benjaminp/six | [`license-4375ba20e2b9.txt`](../texts/license-4375ba20e2b9.txt) |
 | `sphn` | 0.2.1 | `Apache-2.0` | runtime | https://github.com/adefossez/sphn | [`license-c71d239df917.txt`](../texts/license-c71d239df917.txt) |
 | `starlette` | 1.10.0 | `BSD-3-Clause` | runtime | https://github.com/Kludex/starlette | [`license.md-dcb95677a022.txt`](../texts/license.md-dcb95677a022.txt) |
 | `stemforge` | 0.1.0 | `GPL-3.0-only` | runtime | https://github.com/alexmarincu/stemforge | [`GPL-3.0-only`](../common/GPL-3.0-only.txt) |

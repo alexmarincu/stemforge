@@ -40,4 +40,4 @@ texts are stored once under `texts/` and referenced by content hash.
 Canonical SPDX texts live under [`common/`](./common/). They are copied
 from `packaging/licenses/texts/` and are never edited by hand.
 
-Packages covered: 107; curated components: 16.
+Packages covered: 109; curated components: 16.

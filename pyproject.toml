@@ -59,6 +59,7 @@ dev = [
   "pytest-cov>=7.0",
   "pytest-timeout>=2.4",
   "pyyaml>=6.0",
+  "python-xlib>=0.33",
   "ruff>=0.17",
 ]
 build = [
