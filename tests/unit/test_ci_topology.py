@@ -265,6 +265,19 @@ def test_licensing_runs_the_notice_gates(ci: dict[str, Any]) -> None:
     assert "pytest -m licensing" in text
 
 
+def test_windows_unit_parses_every_powershell_source(ci: dict[str, Any]) -> None:
+    job = ci["jobs"]["unit-windows"]
+    steps = [
+        step for step in _steps(job) if "scripts/check_powershell.py" in str(step.get("run", ""))
+    ]
+    assert len(steps) == 1
+    assert steps[0]["name"] == "Parse every PowerShell script and inline workflow step"
+    assert steps[0]["shell"] == "pwsh"
+    # The parser owns the shape of every source, so the workflow carries no
+    # second copy of the ParseFile loop to drift from it.
+    assert "ParseFile" not in _flat(job)
+
+
 def test_windows_integration_analyses_powershell_and_preflights(ci: dict[str, Any]) -> None:
     text = _flat(ci["jobs"]["integration-windows"])
     assert "Invoke-ScriptAnalyzer" in text
@@ -272,18 +285,6 @@ def test_windows_integration_analyses_powershell_and_preflights(ci: dict[str, An
     assert "packaging/windows/*.ps1" in text
     assert "--preflight" in text
     assert "--json" in text
-
-
-def test_windows_unit_parses_every_powershell_source(ci: dict[str, Any]) -> None:
-    steps = [
-        step
-        for step in _steps(ci["jobs"]["unit-windows"])
-        if "scripts/check_powershell.py" in str(step.get("run", ""))
-    ]
-
-    assert len(steps) == 1
-    assert steps[0]["name"] == "Parse every PowerShell script and inline workflow step"
-    assert steps[0]["shell"] == "pwsh"
 
 
 def test_windows_integration_fails_closed_when_the_vendor_build_fails(

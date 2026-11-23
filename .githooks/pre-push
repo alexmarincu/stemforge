@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# A push is the last point where the full gate runs before CI, so the hook runs
+# the slow checks too; the fast checks alone let a red marker or lockfile through.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+exec scripts/check.sh

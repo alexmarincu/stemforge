@@ -1,5 +1,9 @@
 # StemForge
 
+Before pushing, run `scripts/check.sh`. Install the hooks once per clone with
+`git config core.hooksPath .githooks`; a commit runs the fast checks and a push
+runs the full gate.
+
 ## Agent skills
 
 ### Issue tracker
