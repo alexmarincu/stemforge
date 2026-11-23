@@ -233,6 +233,12 @@ colour and text, and the dashed outline plus the appended label still carry the 
 **Classes.** `sf-chip`, `sf-chip-label`, `is-done`; `sf-version-tab`, `sf-tabs`, `is-active`,
 `is-stale`; `sf-stem-badge`, `sf-level-badge`.
 
+**Method switch.** `sf-method-switch` is the Separation card's two-item method selector: a `well`
+track holding pill-radius flat buttons, with the selected option using the active-tab fill and ring.
+`sf-method-fallback` is the `ui.select` shown in place of the switch when the card is narrower than
+320 px. `sf-demucs-offer` is a dashed `line2` row that reveals the model gate; it is not a second
+gate and never carries a download action of its own.
+
 **Do.** Keep the pill vocabulary for short status nouns and version labels. Let the label carry the
 state in words as well as colour.
 
