@@ -191,10 +191,15 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.13.
 ```sh
 git clone https://github.com/alexmarincu/stemforge
 cd stemforge
+git config core.hooksPath .githooks
 uv sync
 uv run stemforge
 scripts/check.sh
 ```
+
+That command installs the pre-commit and pre-push hooks: a commit runs the fast
+checks and a push runs the full gate. Bypass either with `--no-verify`.
+`scripts/check.sh --fast` skips the tests and the full-environment checks.
 
 On Linux, the native window needs GTK 3, WebKitGTK 4.1, and GStreamer installed
 system-wide, plus the matching Python bindings in the venv:
@@ -207,12 +212,14 @@ uv pip install pygobject pycairo
 Without the native stack, `STEMFORGE_BROWSER=1 uv run stemforge` serves the UI at
 `http://127.0.0.1:8080`.
 
-`scripts/check.sh` runs the same gate as CI: formatting, lint, strict typing, the
-import contracts, the notice and licensing checks, and the unit, UI, and licensing
-tests, followed by a self-test of the installed app. Integration tests run when
-`ffmpeg` and `ffprobe` are available; the slow tests exercise torch and Demucs. Bundle
-and installer builds live in [`packaging/`](packaging/), with per-platform instructions
-for [Linux](packaging/linux/README.md) and [Windows](packaging/windows/README.txt).
+`scripts/check.sh` runs the checks CI can make on one machine: the lockfile,
+formatting, lint, strict typing, the import contracts, ShellCheck and the
+PowerShell parser, the notice and licensing checks, and the unit, UI, and
+licensing tests in CI's marker split, followed by a self-test of the installed
+app. Integration tests run when `ffmpeg` and `ffprobe` are available; the slow
+tests exercise torch and Demucs. Bundle and installer builds live in
+[`packaging/`](packaging/), with per-platform instructions for
+[Linux](packaging/linux/README.md) and [Windows](packaging/windows/README.txt).
 
 ## Project and docs
 
@@ -231,7 +238,8 @@ and feature requests go to [GitHub Issues](https://github.com/alexmarincu/stemfo
 Include your operating system, the StemForge version, and a diagnostics report
 (`Settings & About` → `Copy diagnostics`).
 
-Before opening a pull request, run `scripts/check.sh`; it is the same gate CI uses.
+Before opening a pull request, run `scripts/check.sh`; it runs everything CI can
+check on one machine.
 
 ## Licence and source
 

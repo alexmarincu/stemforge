@@ -49,3 +49,20 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_
+
+## Implementation completion
+
+Before closing an implementation ticket, post a **Domain docs consulted** comment on the
+issue. Use this body, replacing the placeholders:
+
+```markdown
+**Domain docs consulted**
+
+- Glossary: <terms touched, or "none apply" and why>
+- ADRs: <numbers and titles consulted, or "none apply" and why>
+- Copy pass (UI and copy work only): <avoided synonyms checked>
+```
+
+For a UI or copy ticket, run the copy pass before review: every user-visible string uses
+the glossary term, not a synonym listed under its `_Avoid:_` line. Drop the copy-pass
+line when the change has no user-visible text.

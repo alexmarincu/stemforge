@@ -1296,6 +1296,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-timeout" },
+    { name = "pyyaml" },
     { name = "ruff" },
 ]
 
@@ -1324,6 +1325,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.2" },
     { name = "pytest-cov", specifier = ">=7.0" },
     { name = "pytest-timeout", specifier = ">=2.4" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.17" },
 ]
 
