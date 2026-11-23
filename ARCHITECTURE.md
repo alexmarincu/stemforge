@@ -330,7 +330,8 @@ Every mode returns a process exit code and never opens the workspace window.
 The model-install Job precedes Separation: it verifies installed weights first (an
 idempotent, offline success), otherwise requires current consent, resumes the `.partial`
 with `Range`, hashes while writing, and promotes only on a size and SHA-256 match. The
-page latches one Separation request so a successful install can resubmit it once.
+page latches one Separation request and its method so a successful install can resubmit
+exactly that method once; a Karaoke request clears a pending Demucs latch.
 
 ### 6.3 Import
 
@@ -392,6 +393,16 @@ worker, validates exactly the method's declared outputs, measures one gain, enco
 their previews, writes the manifest, and promotes the set. The worker imports torch and
 Demucs only on the Demucs path; Karaoke extracts the centre channel with numpy and
 writes Vocals and Instrumental.
+
+The card's method selector is also the set selector. A Track's displayed method
+resolves in this order: its per-Track view selection, the newest committed set's method,
+the persisted preference, then auto (Demucs when installed, otherwise Karaoke). Auto is
+resolved once per Track so a later install does not change the selection under the user.
+Selecting a method changes only the view; pressing Separate persists the resolved method
+before the model gate and submits it. The full gate appears only when Demucs is selected
+and absent; Karaoke selected with Demucs absent shows a compact line that selects Demucs
+and reveals the gate, never a second consent path. `has_separation` means the selected
+method has a committed set, so Outputs, the rail, and Pitch follow the selected set.
 
 ```mermaid
 sequenceDiagram
@@ -744,8 +755,10 @@ versioned.
 
 The document holds the ten-entry MRU recent list, the last export directory, the
 first-run flag, the cache cap, the model consent (with its notice version), the YouTube
-toggle, and the YouTube notice acknowledgement. A consent older than the bundled notice
-version is treated as absent.
+toggle, the YouTube notice acknowledgement, and the optional Separation method
+preference (unset means auto). An unknown or malformed method value is treated as unset
+rather than corrupting the document. A consent older than the bundled notice version is
+treated as absent.
 
 Settings are separate from the Workspace: the Workspace holds Tracks for this session
 only, while settings, cache, and model store survive restarts.

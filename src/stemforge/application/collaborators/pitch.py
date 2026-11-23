@@ -9,6 +9,7 @@ from stemforge.application.renders import render_views
 from stemforge.application.state import JobLedger
 from stemforge.application.views import PitchSet
 from stemforge.artifacts import ArtifactStore
+from stemforge.domain.methods import DEMUCS_METHOD
 from stemforge.domain.models import JobKind, RenderScope, Track
 from stemforge.engines.media import MediaTool
 from stemforge.engines.pitch import (
@@ -96,12 +97,16 @@ class PitchService:
         track: Track,
         semitones: int,
         scope: RenderScope | str,
+        *,
+        separation_method: str = DEMUCS_METHOD.id,
     ) -> str:
         """Submit one Pitch Render Job and return its id.
 
         The request is explicit: the UI's stepper never calls this by itself.
         ``scope`` is ``original`` for the default flow, or ``stems`` when the
-        user asks for the explicit stems action after a Separation.
+        user asks for the explicit stems action after a Separation. Until the
+        method-aware stems path lands, a stems request is Demucs-only: another
+        selected method must fail here rather than silently read the Demucs set.
         """
         shift = validate_semitones(semitones)
         resolved_scope = RenderScope(scope)
@@ -117,6 +122,8 @@ class PitchService:
             and self._artifacts.find_separation(track.source_id) is None
         ):
             raise ValueError(f"stems are not available for this source: {track.source_id}")
+        if resolved_scope is RenderScope.STEMS and separation_method != DEMUCS_METHOD.id:
+            raise ValueError(f"stems rendering is Demucs-only, not {separation_method!r}")
         job = Job(
             kind=JobKind.RENDER_PITCH,
             identity=(

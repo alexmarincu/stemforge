@@ -158,7 +158,49 @@ def test_save_writes_valid_json(paths: AppPaths) -> None:
         "youtube_notice_acknowledged": False,
         "youtube_notice_version": 0,
         "youtube_notice_accepted_at": None,
+        "separation_method": None,
     }
+
+
+@pytest.mark.unit
+def test_separation_method_defaults_to_unset_and_round_trips(paths: AppPaths) -> None:
+    store = SettingsStore(paths)
+
+    assert store.separation_method() is None
+
+    store.set_separation_method("karaoke")
+
+    assert store.separation_method() == "karaoke"
+    assert SettingsStore(paths).separation_method() == "karaoke"
+    assert json.loads(store.path.read_text(encoding="utf-8"))["separation_method"] == "karaoke"
+
+    store.set_separation_method(None)
+
+    assert store.separation_method() is None
+    assert SettingsStore(paths).separation_method() is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["repet-sim", 42, True, ["demucs"], {"id": "demucs"}])
+def test_an_unknown_or_malformed_separation_method_is_unset(paths: AppPaths, value: object) -> None:
+    (paths.config / "settings.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "separation_method": value,
+                "first_run": False,
+                "cache_cap_bytes": 4096,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = SettingsStore(paths)
+
+    assert store.separation_method() is None
+    assert store.first_run is False
+    assert store.settings.cache_cap_bytes == 4096
+    assert not list(paths.config.glob("settings.corrupt-*.json"))
 
 
 @pytest.mark.unit

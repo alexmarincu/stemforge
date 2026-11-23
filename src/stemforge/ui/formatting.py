@@ -256,14 +256,26 @@ PITCH_EARLIER_SEPARATION: Final = "based on an earlier separation"
 
 # The Separation card's copy.
 SEPARATION_TITLE: Final = "Separation"
-SEPARATION_NOT_SEPARATED: Final = "Not separated · htdemucs · CPU"
-SEPARATION_NOT_SEPARATED_HINT: Final = "Separate this track into four stems and an Instrumental."
-SEPARATION_ACTION: Final = "Separate vocals"
-SEPARATION_AGAIN: Final = "Separate again"
-SEPARATION_KARAOKE_ACTION: Final = "Separate with Karaoke"
-SEPARATION_DONE: Final = "4 stems ready · htdemucs · CPU"
-SEPARATION_DONE_KARAOKE: Final = "Vocals + Instrumental ready · Karaoke"
+SEPARATION_METHOD_LABEL: Final = "Method"
+SEPARATION_METHOD_ACTION: Final = "Method: {method}"
+SEPARATION_METHOD_MODEL_REQUIRED: Final = "Needs the Demucs model."
+SEPARATION_METHOD_NO_MODEL: Final = "No model or network needed."
+SEPARATION_DEMUCS_NOT_INSTALLED: Final = "Demucs is not installed."
+SEPARATION_DEMUCS_CHOOSE: Final = "Choose Demucs"
+SEPARATION_NOT_SEPARATED: Final = "Not separated · Demucs · CPU"
+SEPARATION_NOT_SEPARATED_HINT: Final = "Separate this track into four Stems and an Instrumental."
 SEPARATION_NOT_SEPARATED_KARAOKE: Final = "Not separated · Karaoke · no model required"
+SEPARATION_NOT_SEPARATED_HINT_KARAOKE: Final = (
+    "Separate this track into Vocals and an Instrumental."
+)
+SEPARATION_ACTION: Final = "Separate"
+SEPARATION_AGAIN: Final = "Separate again"
+SEPARATION_DONE: Final = "4 stems + Instrumental ready · Demucs"
+SEPARATION_DONE_KARAOKE: Final = "Vocals + Instrumental ready · Karaoke"
+SEPARATION_KARAOKE_FINEPRINT: Final = (
+    "Karaoke removes the centre channel. Some bleed and a thinner mix are expected; "
+    "Demucs gives the cleanest stems."
+)
 SEPARATION_PRIMARY_NOTE: Final = (
     "Vocals and Instrumental are primary. Drums, bass, and other stay behind Show 3 more stems."
 )

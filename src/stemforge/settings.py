@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
 
+from stemforge.domain.methods import method_by_id
 from stemforge.domain.models import ModelConsent, OriginKind
 from stemforge.platform.paths import AppPaths
 from stemforge.platform.storage import DEFAULT_CACHE_CAP_BYTES
@@ -59,6 +60,8 @@ class Settings:
     youtube_notice_acknowledged: bool = False
     youtube_notice_version: int = 0
     youtube_notice_accepted_at: datetime | None = None
+    # The user's Separation method preference; unset means auto.
+    separation_method: str | None = None
 
 
 class SettingsStore:
@@ -119,6 +122,19 @@ class SettingsStore:
             if self._settings.model_consent is None:
                 return
             self._write_locked(replace(self._settings, model_consent=None))
+
+    def separation_method(self) -> str | None:
+        """The persisted Separation method id, or ``None`` for auto."""
+        with self._lock:
+            return self._settings.separation_method
+
+    def set_separation_method(self, method: str | None) -> None:
+        """Persist the Separation method preference; ``None`` unsets it."""
+        normalized = _known_method(method)
+        with self._lock:
+            if normalized == self._settings.separation_method:
+                return
+            self._write_locked(replace(self._settings, separation_method=normalized))
 
     # -- YouTube -----------------------------------------------------------
 
@@ -290,6 +306,7 @@ class SettingsStore:
             youtube_notice_acknowledged=_parse_youtube_acknowledged(payload),
             youtube_notice_version=_parse_youtube_notice_version(payload),
             youtube_notice_accepted_at=_parse_youtube_notice_timestamp(payload),
+            separation_method=_parse_separation_method(payload),
         )
 
     def _recover_corrupt(self, raw: str, *, reason: str) -> Settings:
@@ -377,7 +394,26 @@ def _to_payload(settings: Settings) -> dict[str, object]:
             if settings.youtube_notice_accepted_at is not None
             else None
         ),
+        "separation_method": settings.separation_method,
     }
+
+
+def _known_method(value: object) -> str | None:
+    """A registered method id, or ``None`` for unset or unrecognised input."""
+    if not isinstance(value, str):
+        return None
+    return value if method_by_id(value) is not None else None
+
+
+def _parse_separation_method(payload: Mapping[str, object]) -> str | None:
+    """Read the method preference leniently; a bad value means auto, not corrupt settings."""
+    value = payload.get("separation_method")
+    if value is None:
+        return None
+    method = _known_method(value)
+    if method is None:
+        _LOG.warning("unknown Separation method %r in settings; using auto", value)
+    return method
 
 
 def _parse_youtube_acknowledged(payload: Mapping[str, object]) -> bool:
