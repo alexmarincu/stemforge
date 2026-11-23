@@ -21,11 +21,14 @@ import pytest
 
 from stemforge import errors
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.models import StereoLayout
 from stemforge.engines.media import (
+    DUAL_MONO_SIDE_PEAK_DBFS,
     CanonicalMetadata,
     ExportFormat,
     FfmpegTool,
     MediaInfo,
+    classify_stereo_layout,
 )
 from stemforge.platform import binaries, process
 
@@ -43,6 +46,7 @@ class Fixtures:
 
     root: Path
     stereo_44100_1s: Path
+    wide_stereo_44100_1s: Path
     stereo_44100_3s: Path
     stereo_48000_3s: Path
     mono_44100_3s: Path
@@ -222,6 +226,13 @@ def fixtures(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Fixtures
         stereo_44100_1s=wav(
             "stereo-44100-1s.wav",
             expression=stereo,
+            rate=44_100,
+            channels="stereo",
+            duration=1,
+        ),
+        wide_stereo_44100_1s=wav(
+            "wide-stereo-44100-1s.wav",
+            expression="0.5*sin(2*PI*440*t)|0.5*sin(2*PI*660*t)",
             rate=44_100,
             channels="stereo",
             duration=1,
@@ -1043,6 +1054,36 @@ def test_peak_dbfs_is_deterministic(tool: FfmpegTool, fixtures: Fixtures) -> Non
     second = tool.peak_dbfs(fixtures.stereo_44100_3s, cancel=CancelToken(), log=_logger())
 
     assert first == second
+
+
+def test_measure_levels_reports_the_peak_and_the_side_peak_in_one_pass(
+    tool: FfmpegTool, fixtures: Fixtures
+) -> None:
+    measured = tool.measure_levels(
+        fixtures.wide_stereo_44100_1s, cancel=CancelToken(), log=_logger()
+    )
+    peak = tool.peak_dbfs(fixtures.wide_stereo_44100_1s, cancel=CancelToken(), log=_logger())
+
+    assert measured.peak_dbfs == pytest.approx(peak, abs=0.01)
+    assert measured.side_peak_dbfs > DUAL_MONO_SIDE_PEAK_DBFS
+    assert (
+        classify_stereo_layout(original_channels=2, side_peak_dbfs=measured.side_peak_dbfs)
+        is StereoLayout.STEREO
+    )
+
+
+def test_measure_levels_reads_identical_channels_as_digital_silence(
+    tool: FfmpegTool, fixtures: Fixtures
+) -> None:
+    measured = tool.measure_levels(fixtures.stereo_44100_1s, cancel=CancelToken(), log=_logger())
+    peak = tool.peak_dbfs(fixtures.stereo_44100_1s, cancel=CancelToken(), log=_logger())
+
+    assert measured.peak_dbfs == pytest.approx(peak, abs=0.01)
+    assert measured.side_peak_dbfs == float("-inf")
+    assert (
+        classify_stereo_layout(original_channels=2, side_peak_dbfs=measured.side_peak_dbfs)
+        is StereoLayout.DUAL_MONO
+    )
 
 
 # --- helpers ---------------------------------------------------------------

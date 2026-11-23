@@ -26,8 +26,20 @@ from stemforge.artifacts import (
     free_space_requirement,
     require_free_space,
 )
-from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
-from stemforge.engines.media import MAX_DURATION_S, CanonicalMetadata, MediaTool
+from stemforge.domain.models import (
+    OriginKind,
+    Source,
+    SourceMetadata,
+    StereoLayout,
+    Track,
+    parse_stereo_layout,
+)
+from stemforge.engines.media import (
+    MAX_DURATION_S,
+    CanonicalMetadata,
+    MediaTool,
+    classify_stereo_layout,
+)
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import JobContext
 from stemforge.pipeline.source_manifest import source_manifest
@@ -123,8 +135,12 @@ def run_local_import(
 
         metadata = media.extract_metadata(source_path)
         cover = media.extract_cover(source_path, staging)
-        peak_dbfs = media.peak_dbfs(decoded.path, cancel=ctx.cancel, log=ctx.log)
-        gain_db = 0.0 if peak_dbfs <= 0.0 else -1.0 - peak_dbfs
+        levels = media.measure_levels(decoded.path, cancel=ctx.cancel, log=ctx.log)
+        gain_db = 0.0 if levels.peak_dbfs <= 0.0 else -1.0 - levels.peak_dbfs
+        stereo_layout = classify_stereo_layout(
+            original_channels=info.channels,
+            side_peak_dbfs=levels.side_peak_dbfs,
+        )
         ctx.cancel.check()
         ctx.progress(0.85, stage=STAGE_SAVING)
 
@@ -153,6 +169,8 @@ def run_local_import(
             decoded_sample_rate=decoded.sample_rate,
             decoded_channels=decoded.channels,
             downmixed=decoded.downmixed,
+            original_channels=info.channels,
+            stereo_layout=stereo_layout,
             metadata=metadata,
             title=title,
             gain_db=gain_db,
@@ -275,6 +293,8 @@ def _source_manifest(
     decoded_sample_rate: int,
     decoded_channels: int,
     downmixed: bool,
+    original_channels: int,
+    stereo_layout: StereoLayout,
     metadata: CanonicalMetadata,
     title: str,
     gain_db: float,
@@ -294,6 +314,8 @@ def _source_manifest(
         content_hash=source_id,
         gain_db=gain_db,
         downmixed=downmixed,
+        original_channels=original_channels,
+        stereo_layout=stereo_layout,
         metadata=_metadata_record(
             metadata,
             source_id=source_id,
@@ -358,6 +380,8 @@ def _source_from_artifact(
         origin_kind=OriginKind.FILE,
         metadata=metadata,
         downmixed=artifact.manifest.get("downmixed") is True,
+        original_channels=_as_int(artifact.manifest.get("original_channels")),
+        stereo_layout=parse_stereo_layout(artifact.manifest.get("stereo_layout")),
         gain_db=artifact.gain_db,
         native_path=artifact.path_for("native"),
         canonical_path=artifact.path_for("canonical"),

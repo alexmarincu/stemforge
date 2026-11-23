@@ -24,7 +24,12 @@ from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
+from stemforge.engines.media import (
+    CanonicalMetadata,
+    DecodeResult,
+    LevelMeasurement,
+    MediaInfo,
+)
 from stemforge.engines.separation import SeparationOutputs
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
@@ -67,14 +72,21 @@ def _tiny_spec() -> ModelSpec:
 class FakeMedia:
     """A scripted ``MediaTool`` that writes tiny stand-ins, never real audio."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        source_channels: int = CHANNELS,
+        side_peak_dbfs: float = -6.0,
+    ) -> None:
         self.duration_s = DURATION_S
+        self.source_channels = source_channels
+        self.side_peak_dbfs = side_peak_dbfs
 
     def probe(self, path: Path) -> MediaInfo:
         return MediaInfo(
             codec="pcm_f32le",
             sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
+            channels=self.source_channels,
             duration_s=self.duration_s,
             format="wav",
             tags={},
@@ -90,7 +102,7 @@ class FakeMedia:
             duration_s=self.duration_s,
             sample_rate=SAMPLE_RATE,
             channels=CHANNELS,
-            downmixed=False,
+            downmixed=self.source_channels > CHANNELS,
         )
 
     def extract_metadata(self, src: Path) -> CanonicalMetadata:
@@ -132,6 +144,12 @@ class FakeMedia:
     def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
         cancel.check()
         return -3.0
+
+    def measure_levels(
+        self, path: Path, *, cancel: CancelToken, log: logging.Logger
+    ) -> LevelMeasurement:
+        cancel.check()
+        return LevelMeasurement(peak_dbfs=-3.0, side_peak_dbfs=self.side_peak_dbfs)
 
 
 class FakeSeparation:

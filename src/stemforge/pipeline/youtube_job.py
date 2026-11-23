@@ -33,8 +33,15 @@ from stemforge.artifacts import (
     free_space_requirement,
     require_free_space,
 )
-from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
-from stemforge.engines.media import MediaTool
+from stemforge.domain.models import (
+    OriginKind,
+    Source,
+    SourceMetadata,
+    StereoLayout,
+    Track,
+    parse_stereo_layout,
+)
+from stemforge.engines.media import MediaTool, classify_stereo_layout
 from stemforge.engines.youtube import (
     YOUTUBE_MAX_DURATION_S,
     DownloadedAudio,
@@ -159,8 +166,12 @@ def run_youtube_import(
             log=ctx.log,
         )
         ctx.progress(0.86, stage=STAGE_DECODING)
-        peak_dbfs = media.peak_dbfs(decoded.path, cancel=ctx.cancel, log=ctx.log)
-        gain_db = 0.0 if peak_dbfs <= 0.0 else -1.0 - peak_dbfs
+        levels = media.measure_levels(decoded.path, cancel=ctx.cancel, log=ctx.log)
+        gain_db = 0.0 if levels.peak_dbfs <= 0.0 else -1.0 - levels.peak_dbfs
+        stereo_layout = classify_stereo_layout(
+            original_channels=native_info.channels,
+            side_peak_dbfs=levels.side_peak_dbfs,
+        )
         ctx.cancel.check()
 
         ctx.progress(0.90, stage=STAGE_FINISHING, detail="Encoding preview")
@@ -190,6 +201,8 @@ def run_youtube_import(
             sample_rate=decoded.sample_rate,
             channels=decoded.channels,
             downmixed=decoded.downmixed,
+            original_channels=native_info.channels,
+            stereo_layout=stereo_layout,
             native_bytes=_file_size(native_path),
             native_sha256=_sha256_file(native_path),
             gain_db=gain_db,
@@ -300,6 +313,7 @@ def _recover_from_native(
     try:
         native_target = staging / f"native{native_path.suffix.lower() or '.bin'}"
         _copy_native(native_path, native_target)
+        native_info = media.probe(native_target)
         decoded = media.decode_canonical(
             native_target,
             staging / CANONICAL_NAME,
@@ -307,8 +321,12 @@ def _recover_from_native(
             log=ctx.log,
         )
         ctx.progress(0.86, stage=STAGE_DECODING)
-        peak_dbfs = media.peak_dbfs(decoded.path, cancel=ctx.cancel, log=ctx.log)
-        gain_db = 0.0 if peak_dbfs <= 0.0 else -1.0 - peak_dbfs
+        levels = media.measure_levels(decoded.path, cancel=ctx.cancel, log=ctx.log)
+        gain_db = 0.0 if levels.peak_dbfs <= 0.0 else -1.0 - levels.peak_dbfs
+        stereo_layout = classify_stereo_layout(
+            original_channels=native_info.channels,
+            side_peak_dbfs=levels.side_peak_dbfs,
+        )
         ctx.cancel.check()
 
         ctx.progress(0.90, stage=STAGE_FINISHING, detail="Encoding preview")
@@ -336,6 +354,8 @@ def _recover_from_native(
             sample_rate=decoded.sample_rate,
             channels=decoded.channels,
             downmixed=decoded.downmixed,
+            original_channels=native_info.channels,
+            stereo_layout=stereo_layout,
             native_bytes=native_bytes,
             native_sha256=native_sha256,
             gain_db=gain_db,
@@ -533,6 +553,8 @@ def _source_manifest(
     sample_rate: int,
     channels: int,
     downmixed: bool,
+    original_channels: int,
+    stereo_layout: StereoLayout,
     native_bytes: int,
     native_sha256: str,
     gain_db: float,
@@ -546,6 +568,8 @@ def _source_manifest(
         content_hash=native_sha256,
         gain_db=gain_db,
         downmixed=downmixed,
+        original_channels=original_channels,
+        stereo_layout=stereo_layout,
         metadata={
             "title": metadata.title,
             "artist": metadata.artist,
@@ -601,6 +625,8 @@ def _source_from_artifact(artifact: SourceArtifact, *, fallback_origin: str) -> 
         origin_kind=OriginKind.YOUTUBE,
         metadata=metadata,
         downmixed=artifact.manifest.get("downmixed") is True,
+        original_channels=_as_int(artifact.manifest.get("original_channels")),
+        stereo_layout=parse_stereo_layout(artifact.manifest.get("stereo_layout")),
         gain_db=artifact.gain_db,
         native_path=artifact.path_for("native"),
         canonical_path=artifact.path_for("canonical"),
