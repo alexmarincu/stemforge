@@ -1,5 +1,15 @@
 # StemForge
 
+## Before changing code
+
+Read `docs/agents/domain.md` first: `GLOSSARY.md` for the vocabulary of the area you
+touch, and the ADRs under `docs/adr/` for the decisions that constrain it. An
+implementation ticket does not close until its **Domain docs consulted** comment records
+the glossary terms touched, the ADRs consulted (or "none apply" with a reason), and, for
+UI or copy work, the copy pass against the glossary's avoided synonyms.
+
+## Before pushing
+
 Before pushing, run `scripts/check.sh`. Install the hooks once per clone with
 `git config core.hooksPath .githooks`; a commit runs the fast checks and a push
 runs the full gate.
