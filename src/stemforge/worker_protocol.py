@@ -34,6 +34,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from types import MappingProxyType
 from typing import Final, cast
 
 PROTOCOL_VERSION: Final = 1
@@ -60,6 +61,16 @@ STEM_NAMES: Final[tuple[str, ...]] = ("vocals", "drums", "bass", "other")
 INSTRUMENTAL_NAME: Final = "instrumental"
 WORKER_OUTPUT_NAMES: Final[tuple[str, ...]] = (*STEM_NAMES, INSTRUMENTAL_NAME)
 WORKER_OUTPUTS: Final[frozenset[str]] = frozenset(WORKER_OUTPUT_NAMES)
+
+# The worker cannot import ``stemforge.domain``; this mapping is its copy of
+# the method registry's output roles, kept identical by a contract test. The
+# order is presentation order.
+METHOD_OUTPUT_ROLES: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType(
+    {
+        "demucs": ("vocals", "instrumental", "drums", "bass", "other"),
+        "karaoke": ("vocals", "instrumental"),
+    }
+)
 
 # 0 success, 2 handled failure, 3 model unavailable, 4 invalid input.
 EXIT_OK: Final = 0

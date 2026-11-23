@@ -203,6 +203,45 @@ def test_roles_have_one_canonical_definition() -> None:
 
 
 @pytest.mark.unit
+def test_separation_methods_are_the_single_source_of_roles_and_versions() -> None:
+    from stemforge.domain.methods import (
+        DEFAULT_METHOD_ID,
+        DEMUCS_METHOD,
+        KARAOKE_METHOD,
+        METHODS,
+        auto_method_id,
+        method_by_id,
+    )
+    from stemforge.worker_protocol import METHOD_OUTPUT_ROLES
+
+    assert DEFAULT_METHOD_ID == "demucs"
+    assert DEMUCS_METHOD.id == "demucs"
+    assert DEMUCS_METHOD.label == "Demucs"
+    assert DEMUCS_METHOD.version == 1
+    assert DEMUCS_METHOD.stems == ("vocals", "drums", "bass", "other")
+    assert DEMUCS_METHOD.output_roles == ("vocals", "instrumental", "drums", "bass", "other")
+    assert DEMUCS_METHOD.requires_model is True
+    assert DEMUCS_METHOD.output_count == 5
+
+    assert KARAOKE_METHOD.id == "karaoke"
+    assert KARAOKE_METHOD.label == "Karaoke"
+    assert KARAOKE_METHOD.version == 1
+    assert KARAOKE_METHOD.stems == ("vocals",)
+    assert KARAOKE_METHOD.output_roles == ("vocals", "instrumental")
+    assert KARAOKE_METHOD.requires_model is False
+    assert KARAOKE_METHOD.output_count == 2
+
+    assert METHODS == {"demucs": DEMUCS_METHOD, "karaoke": KARAOKE_METHOD}
+    assert method_by_id("karaoke") is KARAOKE_METHOD
+    assert method_by_id("unknown") is None
+    assert auto_method_id(demucs_installed=True) == "demucs"
+    assert auto_method_id(demucs_installed=False) == "karaoke"
+
+    # The worker cannot import the domain, so it carries this one copy.
+    assert {method.id: method.output_roles for method in METHODS.values()} == METHOD_OUTPUT_ROLES
+
+
+@pytest.mark.unit
 def test_job_kinds_and_states_match_the_decision_record() -> None:
     assert {kind.value for kind in JobKind} == {
         "import_local",
