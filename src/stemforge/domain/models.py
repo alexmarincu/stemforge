@@ -57,11 +57,15 @@ def parse_stereo_layout(value: object) -> StereoLayout | None:
 
 
 def stereo_unsupported_reason(layout: StereoLayout | None) -> str | None:
-    """Return the stable refusal reason for a layout without a stereo image."""
-    if layout is StereoLayout.MONO:
-        return layout.value
-    if layout is StereoLayout.DUAL_MONO:
-        return layout.value
+    """Return the stable refusal reason for a layout without a stereo image.
+
+    Equality rather than identity keeps a value that arrived as its recorded
+    string (a hand-built record, a test double) on the same path.
+    """
+    if layout == StereoLayout.MONO:
+        return StereoLayout.MONO.value
+    if layout == StereoLayout.DUAL_MONO:
+        return StereoLayout.DUAL_MONO.value
     return None
 
 
