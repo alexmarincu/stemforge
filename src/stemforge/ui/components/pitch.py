@@ -160,7 +160,7 @@ class PitchCard:
         if existing is not None:
             (
                 ui.button(
-                    f"{formatting.PITCH_OPEN} {existing.label} version",
+                    formatting.PITCH_OPEN_VERSION.format(label=existing.label),
                     on_click=lambda _=None: self._select(track, existing.render_key),
                     color=None,
                 )
@@ -172,7 +172,7 @@ class PitchCard:
         rendered = formatting.format_semitones(semitones)
         button = (
             ui.button(
-                f"{formatting.PITCH_RENDER} {rendered}",
+                formatting.PITCH_RENDER_ACTION.format(label=rendered),
                 on_click=lambda _=None: self._submit(track, semitones, self._current_scope(track)),
             )
             .props("unelevated no-caps")

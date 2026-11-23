@@ -30,9 +30,10 @@ def test_quasar_palette_replaces_the_blue_defaults() -> None:
 
 
 def test_shell_colours_are_tokens_not_scattered_literals() -> None:
-    # The first block declares the tokens; every rule after it must consume them.
-    after_tokens = page.SHELL_CSS.split(":root", 1)[1].split("}", 1)[1]
-    assert "#" not in after_tokens
+    # The tokens belong to theme; the shell rules must consume them, not restate them.
+    shell_rules = page.SHELL_CSS.removeprefix(theme.TOKENS_CSS)
+    assert shell_rules != page.SHELL_CSS
+    assert "#" not in shell_rules
     assert "#f0a83a" not in page.SHELL_CSS
     for token in (
         "--bg",
@@ -46,7 +47,7 @@ def test_shell_colours_are_tokens_not_scattered_literals() -> None:
         "--bad-action",
         "--bad-dim",
     ):
-        assert f"{token}:" in page.SHELL_CSS
+        assert f"{token}:" in theme.TOKENS_CSS
 
 
 def test_compact_controls_share_one_box() -> None:

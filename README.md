@@ -29,7 +29,7 @@
 
 ## What it does
 
-StemForge is a desktop app for taking a song apart. Add an audio file — or a YouTube
+StemForge is a desktop app for taking a song apart. Import an audio file — or a YouTube
 link — and StemForge separates the Track into four Stems: vocals, drums, bass, and
 other. Vocals and Instrumental are the two primary outputs. From there you can shift
 pitch by up to twelve semitones without changing tempo, preview every version against

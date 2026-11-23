@@ -16,7 +16,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from stemforge import errors
-from stemforge.domain.models import OriginKind
+from stemforge.domain.models import JobKind, OriginKind
 
 if TYPE_CHECKING:
     from stemforge.domain.models import Track
@@ -25,6 +25,11 @@ if TYPE_CHECKING:
 MAX_HEADLINE_LENGTH: Final = 90
 _MIB: Final = 1024 * 1024
 _GIB: Final = 1024 * _MIB
+
+APP_NAME: Final = "StemForge"
+APP_TAGLINE: Final = "Local stem separation, pitch shifting, and export."
+BRAND_SUBTITLE: Final = "local · offline"
+WINDOW_TITLE: Final = "{app} — {track}"
 
 MODEL_LICENCE_TITLE: Final = "Separation model not installed"
 MODEL_LICENCE_SUMMARY: Final = (
@@ -57,6 +62,7 @@ YOUTUBE_CONSENT_CANCEL: Final = "Cancel"
 YOUTUBE_ACTION_LABEL: Final = "Import from YouTube"
 YOUTUBE_MODAL_TITLE: Final = "Import from YouTube"
 IMPORT_AUDIO_LABEL: Final = "Import audio"
+IMPORT_CANCELLED: Final = "Import cancelled."
 ADD_HINT: Final = "or drop files anywhere"
 ADD_BUSY_HINT: Final = "Wait for the current job to finish."
 ADD_DIALOG_HINT: Final = "Finish choosing files first."
@@ -64,6 +70,7 @@ DROP_UNUSABLE_AUDIO: Final = (
     f"That drop didn't include a usable audio file. Use {IMPORT_AUDIO_LABEL}."
 )
 YOUTUBE_IMPORT_LABEL: Final = "Import"
+YOUTUBE_URL_PLACEHOLDER: Final = "https://www.youtube.com/watch?v=…"
 YOUTUBE_DECLINED: Final = "YouTube import is off until you accept the notice."
 YOUTUBE_OFF: Final = "YouTube import is off."
 YOUTUBE_SETTING_LABEL: Final = "YouTube import"
@@ -76,6 +83,11 @@ SETTINGS_BEHAVIOUR: Final = "Behaviour"
 SETTINGS_STORAGE: Final = "Storage"
 SETTINGS_CLOSE: Final = "Close"
 SETTINGS_VERSION_LABEL: Final = "Version"
+SETTINGS_VERSION_VALUE: Final = "{app} {version}"
+SETTINGS_UNKNOWN_VERSION: Final = "unknown"
+SETTINGS_LICENCE_DOCUMENT: Final = "StemForge licence"
+SETTINGS_ONE_FILE: Final = "{count} file"
+SETTINGS_MANY_FILES: Final = "{count} files"
 SETTINGS_LICENCE_LABEL: Final = "Licence"
 SETTINGS_NOTICES_LABEL: Final = "Third-party notices"
 SETTINGS_SOURCE_LABEL: Final = "Corresponding source"
@@ -116,11 +128,27 @@ YOUTUBE_CACHE_HINT: Final = (
     "yt-dlp's temporary download cache. Cached audio, the model, and recent files are not affected."
 )
 YOUTUBE_CACHE_CLEAR: Final = "Clear YouTube cache"
+YOUTUBE_CACHE_CLEARED: Final = "YouTube cache cleared ({size})."
 EMPTY_LEDE: Final = "Drop a local file. Everything runs on this machine."
 EMPTY_LEDE_YOUTUBE: Final = (
     "Drop a local file or import from YouTube. Everything runs on this machine."
 )
 EMPTY_TITLE: Final = "Import a track"
+TRACKS_LABEL: Final = "Tracks {count}"
+TRACKS_EMPTY: Final = "No tracks yet"
+RECENT_TITLE: Final = "Recent"
+RECENT_MISSING: Final = "missing"
+RECENT_SHOW_MORE: Final = "Show all"
+RECENT_SHOW_LESS: Final = "Show less"
+CACHE_LABEL: Final = "Cache"
+DROP_TITLE: Final = "Drop audio files here"
+DROP_SUBTITLE: Final = "WAV, MP3, FLAC, M4A — or choose files…"
+OR_LABEL: Final = "or"
+REMOVE_TRACK_TOOLTIP: Final = "Remove track and cached audio"
+REMOVE_TRACK_TITLE: Final = "Remove {title}?"
+REMOVE_TRACK_BODY: Final = (
+    "This removes the track and deletes its cached audio. The file on disk is not touched."
+)
 
 # The multichannel decode note and empty-state card.
 DOWNMIX_NOTE: Final = "Multichannel source downmixed to stereo."
@@ -175,6 +203,7 @@ OPEN_LOG_LABEL: Final = "Open log"
 COPY_DIAGNOSTICS_LABEL: Final = "Copy diagnostics"
 DIAGNOSTICS_TITLE: Final = "Diagnostics"
 DIAGNOSTICS_NOTICE: Final = "Contains local file paths. Review before sharing."
+ERROR_CODE_WITH_JOB: Final = "{code} · job {job_id}"
 DIAGNOSTICS_COPY: Final = "Copy"
 DIAGNOSTICS_CLOSE: Final = "Close"
 DIAGNOSTICS_COPIED: Final = "Copied."
@@ -188,13 +217,31 @@ RECOVERY_HEADLINE: Final = (
 RECOVERY_DISMISS: Final = "Dismiss"
 REMOVING: Final = "Removing…"
 RETRY: Final = "Retry"
+CANCEL: Final = "Cancel"
+REMOVE: Final = "Remove"
+PLAYBACK_UNAVAILABLE_TOOLTIP: Final = "Playback unavailable"
+JOB_STAGE: Final = "{label} · {stage}"
+JOB_STARTING: Final = "Starting"
+JOB_WORKING: Final = "Working"
+JOB_LABELS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        JobKind.IMPORT_LOCAL.value: "Importing",
+        JobKind.IMPORT_YOUTUBE.value: "Importing",
+        JobKind.SEPARATE.value: "Separating",
+        JobKind.RENDER_PITCH.value: "Rendering",
+        JobKind.EXPORT.value: "Exporting",
+        JobKind.MODEL_INSTALL.value: "Downloading model",
+    }
+)
 
 # The Pitch card's exact working copy.
 PITCH_TITLE: Final = "Pitch"
 PITCH_ORIGINAL: Final = "Original"
 PITCH_SEMITONES_UNIT: Final = "semitones"
 PITCH_RENDER: Final = "Render"
+PITCH_RENDER_ACTION: Final = "Render {label}"
 PITCH_OPEN: Final = "Open"
+PITCH_OPEN_VERSION: Final = "Open {label} version"
 PITCH_NEUTRAL_HINT: Final = "Set semitones to render a shifted set."
 PITCH_VIEWING: Final = "Viewing this render. Step semitones to render another set."
 PITCH_VIEWING_STATUS: Final = "{label} rendered · A/B compares it with Original."
@@ -228,6 +275,22 @@ SEPARATION_MODEL_RETRY: Final = "Retry download"
 SEPARATION_MODEL_CANCELLED: Final = "Model download cancelled."
 SEPARATION_CANCELLED: Final = "Separation cancelled."
 EXPORT_CANCELLED: Final = "Export cancelled."
+EXPORT_TITLE: Final = "Export"
+EXPORT_FORMAT_LABEL: Final = "Format"
+EXPORT_SOURCE_LABEL: Final = "Source"
+EXPORT_DEFAULT_NAME_LABEL: Final = "File name"
+EXPORT_DESTINATION_LABEL: Final = "Save to"
+EXPORT_DESTINATION_DEFAULT: Final = "Your system's default location"
+EXPORT_CONFIRM: Final = "Export"
+EXPORT_DISMISS: Final = "Dismiss"
+EXPORT_CHOOSE_FOLDER: Final = "Choose another folder…"
+EXPORT_NO_TARGETS: Final = "No exportable audio is available for this Track."
+EXPORT_ESTIMATE: Final = "about {size} MB"
+EXPORTED_TO: Final = "Exported to {path}"
+EXPORT_EXTENSION_CHANGED: Final = "Extension changed to {suffix} for {label}."
+EXPORT_FORMAT_WAV24: Final = "WAV 24-bit"
+EXPORT_FORMAT_FLAC24: Final = "FLAC 24-bit"
+EXPORT_FORMAT_MP3_320: Final = "MP3 320"
 SEPARATION_PRIMARY_BADGE: Final = "primary"
 SEPARATION_SUM_BADGE: Final = "sum"
 SEPARATION_ROLE_LABELS: Final[Mapping[str, str]] = MappingProxyType(
@@ -750,6 +813,12 @@ def format_bytes(size: int) -> str:
 def cache_cleared_message(freed_bytes: int) -> str:
     """The one sentence both Clear cached audio surfaces show."""
     return SETTINGS_CACHE_CLEARED.format(size=format_bytes(freed_bytes))
+
+
+def file_count_label(count: int) -> str:
+    """Name a count of recent files, singular only at one."""
+    template = SETTINGS_ONE_FILE if count == 1 else SETTINGS_MANY_FILES
+    return template.format(count=count)
 
 
 def cache_percent(used: int, cap: int) -> int:

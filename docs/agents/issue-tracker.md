@@ -13,6 +13,12 @@ Issues, specs, and implementation tickets for this repo live as GitHub issues in
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
+## Git and pull requests
+
+- Merge with a merge commit, not a squash, so each commit keeps its own
+  message and the branch history stays visible.
+- Put `Closes #<n>` in the PR body so the merge closes the ticket.
+
 ## Closing an implementation ticket
 
 Post the **Domain docs consulted** comment defined in `docs/agents/domain.md`, then

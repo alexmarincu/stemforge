@@ -101,31 +101,34 @@ class SettingsDialog:
         ui.label(formatting.SETTINGS_APP).classes("sf-card-title")
         self._row(
             formatting.SETTINGS_VERSION_LABEL,
-            f"StemForge {__version__}",
+            formatting.SETTINGS_VERSION_VALUE.format(
+                app=formatting.APP_NAME,
+                version=__version__,
+            ),
             marker="about-version",
         )
         versions = self._service.youtube_tool_versions()
         ui.label(formatting.SETTINGS_BUNDLED_TOOLS).classes("sf-fineprint")
         self._row(
             formatting.SETTINGS_YTDLP_LABEL,
-            versions.get("yt_dlp", "unknown"),
+            versions.get("yt_dlp", formatting.SETTINGS_UNKNOWN_VERSION),
             marker="about-ytdlp-version",
         )
         self._row(
             formatting.SETTINGS_YTDLP_EJS_LABEL,
-            versions.get("yt_dlp_ejs", "unknown"),
+            versions.get("yt_dlp_ejs", formatting.SETTINGS_UNKNOWN_VERSION),
             marker="about-ytdlp-ejs-version",
         )
         self._row(
             formatting.SETTINGS_DENO_LABEL,
-            versions.get("deno", "unknown"),
+            versions.get("deno", formatting.SETTINGS_UNKNOWN_VERSION),
             marker="about-deno-version",
         )
         self._document_row(
             formatting.SETTINGS_LICENCE_LABEL,
             "GPL-3.0-only",
             files.license,
-            title="StemForge licence",
+            title=formatting.SETTINGS_LICENCE_DOCUMENT,
             marker="about-licence",
             button_marker="about-view-licence",
         )
@@ -133,7 +136,7 @@ class SettingsDialog:
             formatting.SETTINGS_NOTICES_LABEL,
             "THIRD_PARTY_NOTICES.md",
             files.notices,
-            title="Third-party notices",
+            title=formatting.SETTINGS_NOTICES_LABEL,
             marker="about-notices",
             button_marker="about-view-notices",
         )
@@ -141,7 +144,7 @@ class SettingsDialog:
             formatting.SETTINGS_SOURCE_LABEL,
             "SOURCE_OFFER.md",
             files.source_offer,
-            title="Corresponding source",
+            title=formatting.SETTINGS_SOURCE_LABEL,
             marker="about-source-offer",
             button_marker="about-view-source",
         )
@@ -364,7 +367,7 @@ class SettingsDialog:
         if self._youtube_cache_size is not None:
             self._youtube_cache_size.set_text(self._youtube_size_text())
         toast(
-            f"YouTube cache cleared ({formatting.format_bytes(freed)}).",
+            formatting.YOUTUBE_CACHE_CLEARED.format(size=formatting.format_bytes(freed)),
             type="positive",
         )
 
@@ -381,8 +384,7 @@ class SettingsDialog:
         )
 
     def _recent_text(self) -> str:
-        count = len(self._service.recent_files())
-        return f"{count} file" if count == 1 else f"{count} files"
+        return formatting.file_count_label(len(self._service.recent_files()))
 
     def _youtube_size_text(self) -> str:
         return formatting.format_bytes(self._service.youtube_cache_bytes())

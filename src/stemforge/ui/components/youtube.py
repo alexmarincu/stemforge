@@ -68,7 +68,7 @@ class YouTubeRow:
         with ui.element("div").classes("sf-yt").mark("youtube-row"):
             with ui.element("div").classes("sf-yt-row"):
                 self._input = (
-                    ui.input(placeholder="https://www.youtube.com/watch?v=…")
+                    ui.input(placeholder=formatting.YOUTUBE_URL_PLACEHOLDER)
                     .props("dense outlined")
                     .classes("sf-yt-input")
                     .mark("youtube-url")

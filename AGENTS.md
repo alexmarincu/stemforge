@@ -28,6 +28,11 @@ Default five-role vocabulary. See `docs/agents/triage-labels.md`.
 
 Single-context: root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
 
+## Coding standards
+
+See `CODING_STANDARDS.md` for copy ownership, vocabulary, tests, and docs.
+Tooling-enforced rules stay in `pyproject.toml`.
+
 ## Code conventions
 
 ### Comments
