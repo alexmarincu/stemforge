@@ -9,6 +9,15 @@ uv run ruff format --check .
 uv run ruff check .
 uv run mypy src/stemforge
 uv run lint-imports
+
+# The gate needs a working PowerShell host. Without one the parse is skipped
+# locally; PR CI still runs it on the Windows unit job.
+if command -v pwsh >/dev/null 2>&1 && pwsh -NoProfile -NonInteractive -Command 'exit 0' >/dev/null 2>&1; then
+  uv run --frozen --no-sync python scripts/check_powershell.py
+else
+  echo "check.sh: pwsh is unavailable; skipping the PowerShell syntax gate" >&2
+fi
+
 uv run python scripts/generate_notices.py --check-release
 uv run python scripts/generate_notices.py --check
 uv run pytest -m "unit or ui or licensing"

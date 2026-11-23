@@ -274,6 +274,18 @@ def test_windows_integration_analyses_powershell_and_preflights(ci: dict[str, An
     assert "--json" in text
 
 
+def test_windows_unit_parses_every_powershell_source(ci: dict[str, Any]) -> None:
+    steps = [
+        step
+        for step in _steps(ci["jobs"]["unit-windows"])
+        if "scripts/check_powershell.py" in str(step.get("run", ""))
+    ]
+
+    assert len(steps) == 1
+    assert steps[0]["name"] == "Parse every PowerShell script and inline workflow step"
+    assert steps[0]["shell"] == "pwsh"
+
+
 def test_windows_integration_fails_closed_when_the_vendor_build_fails(
     ci: dict[str, Any],
 ) -> None:
