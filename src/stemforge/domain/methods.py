@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final
 
+from stemforge.domain.roles import INSTRUMENTAL_ROLE
+
 __all__ = [
     "DEFAULT_METHOD_ID",
     "DEMUCS_METHOD",
@@ -37,7 +39,9 @@ class SeparationMethod:
     ``stems`` is the method's Stem vocabulary; Instrumental is an output, never
     a Stem (GLOSSARY). ``output_roles`` is every role the method emits in the
     order the UI presents them, so a caller never reconstructs it from a global
-    list.
+    list. ``instrumental_is_sum`` records whether the Instrumental is derived by
+    summing the method's non-vocal Stems or stored directly as its own output;
+    the two shapes take different Render paths.
     """
 
     id: str
@@ -46,6 +50,7 @@ class SeparationMethod:
     stems: tuple[str, ...]
     output_roles: tuple[str, ...]
     requires_model: bool
+    instrumental_is_sum: bool
 
     def __post_init__(self) -> None:
         if not self.id or not self.label:
@@ -56,10 +61,30 @@ class SeparationMethod:
             raise ValueError("output roles must be a non-empty unique tuple")
         if not set(self.stems) < set(self.output_roles):
             raise ValueError("Stems must be a proper subset of the output roles")
+        if not isinstance(self.instrumental_is_sum, bool):
+            raise ValueError("instrumental_is_sum must be a bool")
+        if INSTRUMENTAL_ROLE not in self.output_roles:
+            raise ValueError("every method emits an instrumental output")
+        if self.instrumental_is_sum and not self.non_vocal_stems:
+            raise ValueError("a summed Instrumental needs non-vocal Stems")
 
     @property
     def output_count(self) -> int:
         return len(self.output_roles)
+
+    @property
+    def non_vocal_stems(self) -> tuple[str, ...]:
+        return tuple(role for role in self.stems if role != "vocals")
+
+    @property
+    def render_input_roles(self) -> tuple[str, ...]:
+        """The stored roles a stems Render reads for this method.
+
+        A summed Instrumental is derived from the Stems, so it is not read; a
+        stored Instrumental is shifted directly and is an input like any other
+        output.
+        """
+        return self.stems if self.instrumental_is_sum else self.output_roles
 
 
 DEMUCS_METHOD: Final = SeparationMethod(
@@ -69,6 +94,7 @@ DEMUCS_METHOD: Final = SeparationMethod(
     stems=("vocals", "drums", "bass", "other"),
     output_roles=("vocals", "instrumental", "drums", "bass", "other"),
     requires_model=True,
+    instrumental_is_sum=True,
 )
 
 KARAOKE_METHOD: Final = SeparationMethod(
@@ -78,6 +104,7 @@ KARAOKE_METHOD: Final = SeparationMethod(
     stems=("vocals",),
     output_roles=("vocals", "instrumental"),
     requires_model=False,
+    instrumental_is_sum=False,
 )
 
 METHODS: Final[MappingProxyType[str, SeparationMethod]] = MappingProxyType(

@@ -222,6 +222,7 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
     assert DEMUCS_METHOD.output_roles == ("vocals", "instrumental", "drums", "bass", "other")
     assert DEMUCS_METHOD.requires_model is True
     assert DEMUCS_METHOD.output_count == 5
+    assert DEMUCS_METHOD.instrumental_is_sum is True
 
     assert KARAOKE_METHOD.id == "karaoke"
     assert KARAOKE_METHOD.label == "Karaoke"
@@ -230,6 +231,7 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
     assert KARAOKE_METHOD.output_roles == ("vocals", "instrumental")
     assert KARAOKE_METHOD.requires_model is False
     assert KARAOKE_METHOD.output_count == 2
+    assert KARAOKE_METHOD.instrumental_is_sum is False
 
     assert METHODS == {"demucs": DEMUCS_METHOD, "karaoke": KARAOKE_METHOD}
     assert method_by_id("karaoke") is KARAOKE_METHOD
@@ -239,6 +241,39 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
 
     # The worker cannot import the domain, so it carries this one copy.
     assert {method.id: method.output_roles for method in METHODS.values()} == METHOD_OUTPUT_ROLES
+
+
+@pytest.mark.unit
+def test_a_method_declares_how_its_instrumental_is_produced() -> None:
+    from stemforge.domain.methods import DEMUCS_METHOD, KARAOKE_METHOD, SeparationMethod
+
+    # A summed Instrumental is derived from the Stems; a stored one is shifted
+    # like every other output and is therefore also a render input.
+    assert DEMUCS_METHOD.instrumental_is_sum is True
+    assert DEMUCS_METHOD.render_input_roles == DEMUCS_METHOD.stems
+    assert KARAOKE_METHOD.instrumental_is_sum is False
+    assert KARAOKE_METHOD.render_input_roles == KARAOKE_METHOD.output_roles
+
+    with pytest.raises(ValueError, match="non-vocal"):
+        SeparationMethod(
+            id="broken",
+            label="Broken",
+            version=1,
+            stems=("vocals",),
+            output_roles=("vocals", "instrumental"),
+            requires_model=False,
+            instrumental_is_sum=True,
+        )
+    with pytest.raises(ValueError, match="instrumental"):
+        SeparationMethod(
+            id="broken",
+            label="Broken",
+            version=1,
+            stems=("vocals",),
+            output_roles=("vocals", "drums"),
+            requires_model=False,
+            instrumental_is_sum=False,
+        )
 
 
 @pytest.mark.unit
