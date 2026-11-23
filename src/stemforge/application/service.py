@@ -384,9 +384,7 @@ class WorkspaceService:
         """The Track whose Separation waits for the model install, if any."""
         return self._separation.pending_separation_track_id()
 
-    def remember_pending_separation(
-        self, track_id: str, method: str = DEFAULT_METHOD_ID
-    ) -> None:
+    def remember_pending_separation(self, track_id: str, method: str = DEFAULT_METHOD_ID) -> None:
         """Latch one post-install resubmit; the first request wins."""
         self._separation.remember_pending_separation(track_id, method)
 
