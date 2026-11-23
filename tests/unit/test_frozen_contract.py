@@ -1,7 +1,8 @@
 """The frozen-build contract: lazy imports and the two Bundle roots.
 
 The contract fixes ``freeze_support()`` as the first statement in the main
-guard and keeps torch/Demucs imports inside ``workers/separation.py::run()``.
+guard and keeps torch/Demucs imports inside the Demucs branch of
+``workers/separation.py``, never on the Karaoke path.
 ADR 0010 splits resource resolution into a **data root**
 (``sys._MEIPASS`` when frozen) and a **Bundle root**
 (``Path(sys.executable).resolve().parent`` when frozen), both of which are the
@@ -111,13 +112,15 @@ def test_no_module_outside_the_separation_worker_imports_torch_or_demucs_at_modu
 
 
 @pytest.mark.unit
-def test_the_separation_worker_imports_torch_and_demucs_only_inside_run() -> None:
+def test_the_separation_worker_imports_torch_and_demucs_only_inside_the_demucs_path() -> None:
     tree = ast.parse(SEPARATION_WORKER.read_text(encoding="utf-8"))
 
     assert not (_module_scope_imports(tree) & HEAVY_MODULES)
-    for name in ("torch", "demucs"):
-        if name in _all_imports(tree):
-            assert name in _imports_in_function(tree, "run"), f"{name} must be imported in run()"
+    demucs_path = _imports_in_function(tree, "_run_demucs")
+    karaoke_path = _imports_in_function(tree, "_run_karaoke")
+    for name in HEAVY_MODULES:
+        assert name in demucs_path, f"{name} must be imported in _run_demucs()"
+        assert name not in karaoke_path, f"{name} must not be imported by Karaoke"
 
 
 @pytest.mark.unit

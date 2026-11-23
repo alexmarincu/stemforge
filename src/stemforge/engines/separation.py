@@ -8,6 +8,11 @@ It never imports torch or Demucs: only ``workers/separation.py`` does, inside
 Cancellation closes the child's stdin (the worker treats EOF as a cancel
 request), waits briefly, then terminates the whole process group. A hard timeout
 does the same and reports ``separation.engine_error`` with ``reason=timeout``.
+
+The adapter is method-aware: the request names the method and its expected
+output roles, the ``hello`` must declare that same method and role set, and only
+the declared outputs are returned. Model flags and block-plan flags are passed
+only for a method that requires Model weights.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from typing import Final, Protocol
 
 from stemforge import errors
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.methods import SeparationMethod, method_by_id
 from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.platform import binaries, process
 from stemforge.worker_protocol import (
@@ -42,7 +48,6 @@ from stemforge.worker_protocol import (
     EXIT_MODEL_UNAVAILABLE,
     EXIT_OK,
     INSTRUMENTAL_NAME,
-    WORKER_OUTPUT_NAMES,
     ProtocolError,
     WorkerEvent,
     parse_event,
@@ -84,7 +89,9 @@ class SeparationEngine(Protocol):
         canonical: Path,
         out_dir: Path,
         *,
-        model_path: Path,
+        method: str,
+        expected_outputs: Sequence[str],
+        model_path: Path | None,
         expected_duration_s: float,
         progress: ProgressSink,
         cancel: CancelToken,
@@ -99,7 +106,7 @@ class SeparationEngine(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class SeparationOutputs:
-    """The five output WAVs the worker committed inside ``out_dir``."""
+    """The declared output WAVs the worker committed inside ``out_dir``."""
 
     outputs: Mapping[str, Path]
 
@@ -108,7 +115,7 @@ class SeparationOutputs:
 
     @property
     def stems(self) -> Mapping[str, Path]:
-        """The four Stems; Instrumental is an output, not a Stem (GLOSSARY)."""
+        """The method's Stems; Instrumental is an output, not a Stem (GLOSSARY)."""
         return {role: path for role, path in self.outputs.items() if role != INSTRUMENTAL_NAME}
 
 
@@ -169,25 +176,21 @@ class WorkerSeparationEngine:
         canonical: Path,
         out_dir: Path,
         *,
-        model_path: Path,
+        method: str,
+        model_path: Path | None = None,
         expected_duration_s: float,
         threads: int | None = None,
         model_revision: str = "",
     ) -> list[str]:
         """Build the worker argv (exposed for the Job log and tests)."""
+        descriptor = _method_descriptor(method)
         base = (
             list(self._argv) if self._argv is not None else binaries.worker_command(["separation"])
         )
         base.extend(
             [
-                "--model",
-                DEFAULT_MODEL,
-                "--model-path",
-                str(model_path),
-                "--model-revision",
-                model_revision,
-                "--device",
-                DEFAULT_DEVICE,
+                "--method",
+                descriptor.id,
                 "--input",
                 str(canonical),
                 "--out",
@@ -196,18 +199,33 @@ class WorkerSeparationEngine:
                 str(_resolved_threads(threads)),
                 "--expected-duration",
                 f"{expected_duration_s:.3f}",
-                "--block-seconds",
-                f"{self._block_seconds:g}",
-                "--crossfade-seconds",
-                f"{self._crossfade_seconds:g}",
-                "--overlap",
-                f"{self._overlap:g}",
-                "--shifts",
-                str(self._shifts),
             ]
         )
-        if self._segment_seconds is not None:
-            base.extend(["--segment", f"{self._segment_seconds:g}"])
+        if descriptor.requires_model:
+            if model_path is None:
+                raise ValueError(f"method {descriptor.id} requires a model path")
+            base.extend(
+                [
+                    "--model",
+                    DEFAULT_MODEL,
+                    "--model-path",
+                    str(model_path),
+                    "--model-revision",
+                    model_revision,
+                    "--device",
+                    DEFAULT_DEVICE,
+                    "--block-seconds",
+                    f"{self._block_seconds:g}",
+                    "--crossfade-seconds",
+                    f"{self._crossfade_seconds:g}",
+                    "--overlap",
+                    f"{self._overlap:g}",
+                    "--shifts",
+                    str(self._shifts),
+                ]
+            )
+            if self._segment_seconds is not None:
+                base.extend(["--segment", f"{self._segment_seconds:g}"])
         return base
 
     def separate(
@@ -215,7 +233,9 @@ class WorkerSeparationEngine:
         canonical: Path,
         out_dir: Path,
         *,
-        model_path: Path,
+        method: str,
+        expected_outputs: Sequence[str],
+        model_path: Path | None,
         expected_duration_s: float,
         progress: ProgressSink,
         cancel: CancelToken,
@@ -226,9 +246,15 @@ class WorkerSeparationEngine:
         timeout_s: float | None = None,
         on_spawn: Callable[[int], None] | None = None,
     ) -> SeparationOutputs:
-        """Run one separation and return the five validated output paths."""
+        """Run one separation and return exactly the requested output paths."""
         cancel.check()
-        if not Path(model_path).is_file():
+        descriptor = _method_descriptor(method)
+        declared_roles = tuple(expected_outputs)
+        if not declared_roles or len(set(declared_roles)) != len(declared_roles):
+            raise ValueError("expected_outputs must be a non-empty unique sequence")
+        if descriptor.requires_model and (
+            model_path is None or not Path(model_path).is_file()
+        ):
             raise StemForgeError(
                 errors.SEPARATION_MODEL_MISSING,
                 "the separation weights are missing",
@@ -240,7 +266,8 @@ class WorkerSeparationEngine:
         argv = self.command(
             Path(canonical),
             out_dir,
-            model_path=Path(model_path),
+            method=descriptor.id,
+            model_path=Path(model_path) if descriptor.requires_model and model_path else None,
             expected_duration_s=expected_duration_s,
             threads=threads,
             model_revision=model_revision,
@@ -305,6 +332,20 @@ class WorkerSeparationEngine:
                     failure = item.error
                     break
                 if item.event == EVENT_HELLO:
+                    if hello is not None:
+                        failure = ProtocolError("duplicate hello event")
+                        break
+                    if item.method != descriptor.id:
+                        failure = ProtocolError(
+                            f"hello method {item.method!r} does not match {descriptor.id!r}"
+                        )
+                        break
+                    if set(item.declared_outputs) != set(declared_roles):
+                        failure = ProtocolError(
+                            "hello roles "
+                            f"{list(item.declared_outputs)!r} do not match {list(declared_roles)!r}"
+                        )
+                        break
                     hello = item
                 elif item.event == EVENT_STAGE:
                     log.debug(
@@ -324,9 +365,15 @@ class WorkerSeparationEngine:
                             _progress_detail(item),
                         )
                 elif item.event == EVENT_OUTPUT:
+                    if hello is None:
+                        failure = ProtocolError("output event before hello")
+                        break
                     resolved = _resolve_output(out_dir, item.path)
                     if item.stem is None or resolved is None:
                         failure = ProtocolError(f"unsafe output path: {item.path!r}")
+                        break
+                    if item.stem not in hello.declared_outputs:
+                        failure = ProtocolError(f"undeclared output role: {item.stem}")
                         break
                     if item.stem in outputs:
                         failure = ProtocolError(f"duplicate output event: {item.stem}")
@@ -336,6 +383,15 @@ class WorkerSeparationEngine:
                         break
                     outputs[item.stem] = resolved
                 elif item.event == EVENT_DONE:
+                    if hello is None:
+                        failure = ProtocolError("done event before hello")
+                        break
+                    if set(item.outputs) != set(hello.declared_outputs):
+                        failure = ProtocolError(
+                            "done.outputs does not match the declared roles: "
+                            f"{list(item.outputs)!r}"
+                        )
+                        break
                     done = item
                 elif item.event == EVENT_ERROR:
                     reported = item
@@ -363,13 +419,19 @@ class WorkerSeparationEngine:
                 raise _protocol_error(
                     ProtocolError("worker exited 0 after an error event"), stderr_text, returncode
                 )
+            if hello is None:
+                raise _protocol_error(
+                    ProtocolError("worker exited 0 without a hello event"),
+                    stderr_text,
+                    returncode,
+                )
             if done is None:
                 raise _protocol_error(
                     ProtocolError("worker exited 0 without a done event"),
                     stderr_text,
                     returncode,
                 )
-            missing = [stem for stem in WORKER_OUTPUT_NAMES if stem not in outputs]
+            missing = [stem for stem in declared_roles if stem not in outputs]
             if missing:
                 raise StemForgeError(
                     errors.SEPARATION_OUTPUT_INVALID,
@@ -378,12 +440,13 @@ class WorkerSeparationEngine:
                     context={"missing": missing, "stderr": stderr_text},
                 )
             log.debug(
-                "separation: %s hello=%s outputs=%s",
+                "separation: %s method=%s hello=%s outputs=%s",
                 returncode,
-                None if hello is None else hello.engine_version,
+                descriptor.id,
+                hello.engine_version,
                 sorted(outputs),
             )
-            return SeparationOutputs(outputs={stem: outputs[stem] for stem in WORKER_OUTPUT_NAMES})
+            return SeparationOutputs(outputs={stem: outputs[stem] for stem in declared_roles})
         if returncode == EXIT_HANDLED:
             if reported is None:
                 raise _protocol_error(
@@ -492,6 +555,13 @@ def _title(stage: str | None) -> str:
     if not stage:
         return ""
     return stage.replace("_", " ").title()
+
+
+def _method_descriptor(method: str) -> SeparationMethod:
+    descriptor = method_by_id(method)
+    if descriptor is None:
+        raise ValueError(f"unknown Separation method: {method!r}")
+    return descriptor
 
 
 def _resolved_threads(threads: int | None) -> int:

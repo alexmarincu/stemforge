@@ -19,20 +19,27 @@ from pathlib import Path
 
 SAMPLE_RATE = 44_100
 CHANNELS = 2
-OUTPUTS = ("vocals", "drums", "bass", "other", "instrumental")
+OUTPUTS = ("vocals", "instrumental", "drums", "bass", "other")
+KARAOKE_OUTPUTS = ("vocals", "instrumental")
 
 
 def emit(payload: dict[str, object]) -> None:
-    print(json.dumps({"v": 1, **payload}, sort_keys=True), flush=True)
+    print(json.dumps({"v": 2, **payload}, sort_keys=True), flush=True)
 
 
-def hello() -> None:
+def hello(
+    *,
+    method: str = "demucs",
+    outputs: tuple[str, ...] = OUTPUTS,
+) -> None:
     emit(
         {
             "event": "hello",
             "engine": "stub",
             "engine_version": "1.0",
-            "model": "htdemucs",
+            "method": method,
+            "outputs": list(outputs),
+            "model": "htdemucs" if method == "demucs" else "",
             "model_revision": "test-revision",
             "device": "cpu",
             "sample_rate": SAMPLE_RATE,
@@ -59,10 +66,15 @@ def write_wav(path: Path, *, frames: int = 4410, sample_rate: int = SAMPLE_RATE)
     path.write_bytes(header + data)
 
 
-def write_outputs(out: Path, *, extra_frames: int = 0) -> dict[str, Path]:
+def write_outputs(
+    out: Path,
+    *,
+    roles: tuple[str, ...] = OUTPUTS,
+    extra_frames: int = 0,
+) -> dict[str, Path]:
     out.mkdir(parents=True, exist_ok=True)
     paths: dict[str, Path] = {}
-    for role in OUTPUTS:
+    for role in roles:
         target = out / f"{role}.wav"
         write_wav(target, frames=4410 + extra_frames)
         paths[role] = target
@@ -84,13 +96,13 @@ def progress(fraction: float) -> None:
     )
 
 
-def mode_ok(out: Path) -> int:
-    hello()
+def mode_ok(out: Path, *, method: str = "demucs", roles: tuple[str, ...] = OUTPUTS) -> int:
+    hello(method=method, outputs=roles)
     emit({"event": "stage", "stage": "model_load", "state": "start"})
     emit({"event": "stage", "stage": "model_load", "state": "end", "seconds": 0.01})
     emit({"event": "stage", "stage": "separate", "state": "start"})
     progress(0.5)
-    paths = write_outputs(out)
+    paths = write_outputs(out, roles=roles)
     for role, path in paths.items():
         emit(
             {
@@ -104,27 +116,29 @@ def mode_ok(out: Path) -> int:
         )
     progress(1.0)
     emit({"event": "stage", "stage": "separate", "state": "end", "seconds": 0.01})
-    emit({"event": "done", "elapsed_seconds": 0.01, "outputs": list(OUTPUTS)})
+    emit({"event": "done", "elapsed_seconds": 0.01, "outputs": list(roles)})
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", default="ok")
+    parser.add_argument("--method", default="demucs")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--input", required=True, type=Path)
-    parser.add_argument("--model-path", required=True, type=Path)
+    parser.add_argument("--model-path", type=Path)
     args, _unknown = parser.parse_known_args()
     out = args.out
     mode = args.mode
 
     if mode == "ok":
-        return mode_ok(out)
+        roles = KARAOKE_OUTPUTS if args.method == "karaoke" else OUTPUTS
+        return mode_ok(out, method=args.method, roles=roles)
     if mode == "unknown-event":
         emit({"event": "future", "anything": True})
         return mode_ok(out)
     if mode == "version":
-        print(json.dumps({"v": 2, "event": "hello"}), flush=True)
+        print(json.dumps({"v": 1, "event": "hello"}), flush=True)
         return 0
     if mode == "malformed":
         print("this is not json", flush=True)
@@ -188,6 +202,55 @@ def main() -> int:
                 "event": "output",
                 "stem": "vocals",
                 "path": "../escape.wav",
+                "format": "wav",
+                "sample_rate": SAMPLE_RATE,
+                "channels": CHANNELS,
+            }
+        )
+        return 0
+    if mode == "method-mismatch":
+        return mode_ok(out, method="karaoke", roles=KARAOKE_OUTPUTS)
+    if mode == "roles-mismatch":
+        return mode_ok(out, method="demucs", roles=KARAOKE_OUTPUTS)
+    if mode == "undeclared-output":
+        hello()
+        paths = write_outputs(out, roles=("vocals", "instrumental", "guitar"))
+        for role in ("vocals", "instrumental", "guitar"):
+            emit(
+                {
+                    "event": "output",
+                    "stem": role,
+                    "path": paths[role].name,
+                    "format": "wav",
+                    "sample_rate": SAMPLE_RATE,
+                    "channels": CHANNELS,
+                }
+            )
+        emit({"event": "done", "elapsed_seconds": 0.01, "outputs": list(OUTPUTS)})
+        return 0
+    if mode == "done-mismatch":
+        hello()
+        paths = write_outputs(out, roles=KARAOKE_OUTPUTS)
+        for role in KARAOKE_OUTPUTS:
+            emit(
+                {
+                    "event": "output",
+                    "stem": role,
+                    "path": paths[role].name,
+                    "format": "wav",
+                    "sample_rate": SAMPLE_RATE,
+                    "channels": CHANNELS,
+                }
+            )
+        emit({"event": "done", "elapsed_seconds": 0.01, "outputs": ["vocals"]})
+        return 0
+    if mode == "output-before-hello":
+        paths = write_outputs(out, roles=("vocals",))
+        emit(
+            {
+                "event": "output",
+                "stem": "vocals",
+                "path": paths["vocals"].name,
                 "format": "wav",
                 "sample_rate": SAMPLE_RATE,
                 "channels": CHANNELS,

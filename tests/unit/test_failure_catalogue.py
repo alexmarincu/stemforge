@@ -41,7 +41,7 @@ from stemforge.platform import preflight
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
 from stemforge.ui import formatting
-from stemforge.worker_protocol import ProtocolError, WorkerEvent
+from stemforge.worker_protocol import METHOD_OUTPUT_ROLES, ProtocolError, WorkerEvent
 
 pytestmark = pytest.mark.unit
 
@@ -195,6 +195,8 @@ def _worker_crashed(probe: Probe) -> str:
         lambda: engine.separate(
             probe.tmp / "canonical.wav",
             probe.tmp / "stems",
+            method="demucs",
+            expected_outputs=METHOD_OUTPUT_ROLES["demucs"],
             model_path=model,
             expected_duration_s=1.0,
             progress=lambda *args: None,
