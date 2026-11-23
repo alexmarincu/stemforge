@@ -9,9 +9,21 @@ Issues, specs, and implementation tickets for this repo live as GitHub issues in
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
+- **Close**: `gh issue close <number>` after the **Domain docs consulted** comment required by [Closing an implementation ticket](#closing-an-implementation-ticket).
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
+
+## Git and pull requests
+
+- Merge with a merge commit, not a squash, so each commit keeps its own
+  message and the branch history stays visible.
+- Put `Closes #<n>` in the PR body so the merge closes the ticket.
+
+## Closing an implementation ticket
+
+Post the **Domain docs consulted** comment defined in `docs/agents/domain.md`, then
+`gh issue close <number>`. `gh issue close <number> --comment "<body>"` is the same two
+steps when `<body>` is that comment.
 
 ## Pull requests as a triage surface
 

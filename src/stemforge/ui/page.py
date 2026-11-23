@@ -64,7 +64,7 @@ from stemforge.ui.components.youtube import YouTubeRow
 from stemforge.ui.failure import JobFailure
 from stemforge.ui.toast import toast
 
-TITLE: Final = "StemForge"
+TITLE: Final = formatting.APP_NAME
 POLL_INTERVAL_S: Final = 0.4
 RECENT_VISIBLE: Final = 3
 OUTPUT_ROLES: Final = SEPARATION_OUTPUT_ROLES
@@ -463,7 +463,7 @@ def _render_unconfigured() -> None:
     ui.page_title(TITLE)
     with ui.column().classes("absolute-center items-center gap-2"):
         ui.label(TITLE).classes("text-3xl font-bold")
-        ui.label("Local stem separation, pitch shifting, and export.").classes("text-base")
+        ui.label(formatting.APP_TAGLINE).classes("text-base")
 
 
 class WorkspacePage:
@@ -586,8 +586,8 @@ class WorkspacePage:
                 if mark is not None:
                     ui.html(mark, sanitize=False).mark("brand-mark")
                 with ui.element("div"):
-                    ui.label("StemForge").classes("sf-brand-name")
-                    ui.label("local · offline").classes("sf-brand-sub")
+                    ui.label(formatting.APP_NAME).classes("sf-brand-name")
+                    ui.label(formatting.BRAND_SUBTITLE).classes("sf-brand-sub")
             with ui.element("div").classes("sf-add"):
                 self._add_button = (
                     ui.button(formatting.IMPORT_AUDIO_LABEL, icon="add", on_click=self._open_files)
@@ -622,9 +622,9 @@ class WorkspacePage:
     @ui.refreshable_method
     def _tracks(self) -> None:
         snapshot = self.service.snapshot()
-        ui.label(f"Tracks {len(snapshot)}").classes("sf-rail-label")
+        ui.label(formatting.TRACKS_LABEL.format(count=len(snapshot))).classes("sf-rail-label")
         if not snapshot.tracks:
-            ui.label("No tracks yet").classes("sf-rail-empty")
+            ui.label(formatting.TRACKS_EMPTY).classes("sf-rail-empty")
             return
         for track in snapshot.tracks:
             selected = " is-selected" if track.track_id == self._selected_id else ""
@@ -686,7 +686,7 @@ class WorkspacePage:
         if not entries:
             return
         youtube_off = not self.service.youtube_enabled()
-        ui.label("Recent").classes("sf-rail-label")
+        ui.label(formatting.RECENT_TITLE).classes("sf-rail-label")
         visible = entries if self._recent_expanded else entries[:RECENT_VISIBLE]
         for entry in visible:
             available = self.service.recent_available(entry.source_id)
@@ -718,7 +718,7 @@ class WorkspacePage:
                         ui.label(
                             formatting.format_relative_time(entry.last_opened)
                             if available
-                            else "missing"
+                            else formatting.RECENT_MISSING
                         ).classes("sf-recent-meta")
                 if not available:
                     (
@@ -732,7 +732,9 @@ class WorkspacePage:
                     )
         if len(entries) > RECENT_VISIBLE:
             ui.button(
-                "Show less" if self._recent_expanded else "Show all",
+                formatting.RECENT_SHOW_LESS
+                if self._recent_expanded
+                else formatting.RECENT_SHOW_MORE,
                 on_click=self._toggle_recent,
                 color=None,
             ).props("flat dense no-caps size=sm").classes("sf-fineprint")
@@ -743,7 +745,7 @@ class WorkspacePage:
         cap = self.service.cache_cap_bytes()
         percent = formatting.cache_percent(used, cap)
         with ui.element("div").classes("sf-cache-line"):
-            ui.label("Cache")
+            ui.label(formatting.CACHE_LABEL)
             ui.label(f"{formatting.format_bytes(used)} / {formatting.format_bytes(cap)}")
         bar = ui.element("div").classes("sf-bar")
         with bar:
@@ -896,7 +898,7 @@ class WorkspacePage:
                         )
                         .props("flat dense round size=sm")
                         .mark("detail-remove")
-                        .tooltip("Remove track and cached audio")
+                        .tooltip(formatting.REMOVE_TRACK_TOOLTIP)
                     )
             self._signal_path(track)
             sets = self.service.pitch_sets(track)
@@ -926,10 +928,10 @@ class WorkspacePage:
             )
             with dropzone:
                 ui.icon("upload_file").classes("text-3xl sf-drop-icon")
-                ui.label("Drop audio files here").classes("sf-drop-title")
-                ui.label("WAV, MP3, FLAC, M4A — or choose files…").classes("sf-drop-sub")
+                ui.label(formatting.DROP_TITLE).classes("sf-drop-title")
+                ui.label(formatting.DROP_SUBTITLE).classes("sf-drop-sub")
             if youtube_on:
-                ui.label("or").classes("sf-or")
+                ui.label(formatting.OR_LABEL).classes("sf-or")
                 self._youtube_row = self._make_youtube_row(busy=busy)
                 self._youtube_row.build()
             else:
@@ -1656,7 +1658,7 @@ class WorkspacePage:
         button.set_enabled(enabled)
         if not enabled:
             reason = (
-                "Playback unavailable"
+                formatting.PLAYBACK_UNAVAILABLE_TOOLTIP
                 if not self.context.playback_available
                 else formatting.OUTPUTS_NO_PREVIEW
             )
@@ -1685,7 +1687,10 @@ class WorkspacePage:
         with ui.element("div").classes("sf-jobbar").mark("job-bar"):
             ui.element("span").classes("sf-dot is-run")
             ui.label(
-                f"{self._job_label(snapshot.kind.value)} · {snapshot.stage or 'Starting'}"
+                formatting.JOB_STAGE.format(
+                    label=self._job_label(snapshot.kind.value),
+                    stage=snapshot.stage or formatting.JOB_STARTING,
+                )
             ).classes("sf-job-text").mark("job-stage")
             # Local imports keep their filename out of the bar until the Track
             # exists; YouTube's wait countdown and byte progress are user-facing.
@@ -1696,7 +1701,7 @@ class WorkspacePage:
             )
             ui.label(f"{round(snapshot.progress * 100)}%").classes("sf-job-pct").mark("job-percent")
             (
-                ui.button("Cancel", on_click=self._cancel_job, color=None)
+                ui.button(formatting.CANCEL, on_click=self._cancel_job, color=None)
                 .props("flat dense no-caps size=sm")
                 .mark("cancel-job")
             )
@@ -1928,7 +1933,7 @@ class WorkspacePage:
                 self._export_notice = ExportSuccess(spec, result.path)
                 with contextlib.suppress(OSError):
                     self.service.remember_export_dir(result.path.parent)
-                toast(f"Exported to {result.path}", type="positive")
+                toast(formatting.EXPORTED_TO.format(path=result.path), type="positive")
         elif snapshot.state.value == "failed":
             failure = JobFailure.from_job(
                 snapshot,
@@ -2099,7 +2104,7 @@ class WorkspacePage:
             elif snapshot.state.value == "failed":
                 self._on_import_failure(snapshot, retry=retry)
             elif snapshot.state.value == "cancelled":
-                toast("Import cancelled.", type="info")
+                toast(formatting.IMPORT_CANCELLED, type="info")
                 self._refresh_all()
 
     def _finish_separation_job(self, snapshot: JobView) -> None:
@@ -2272,15 +2277,17 @@ class WorkspacePage:
 
     def _confirm_remove(self, track: Track) -> None:
         with ui.dialog() as dialog, ui.card().classes("sf-card").mark("remove-dialog"):
-            ui.label(f"Remove {track.title}?").classes("sf-title")
-            ui.label(
-                "This removes the track and deletes its cached audio. "
-                "The file on disk is not touched."
-            ).classes("sf-lede")
+            ui.label(formatting.REMOVE_TRACK_TITLE.format(title=track.title)).classes("sf-title")
+            ui.label(formatting.REMOVE_TRACK_BODY).classes("sf-lede")
             with ui.row().classes("w-full justify-end gap-2"):
-                ui.button("Cancel", on_click=dialog.close, color=None).props("flat no-caps")
+                ui.button(formatting.CANCEL, on_click=dialog.close, color=None).props(
+                    "flat no-caps"
+                )
                 (
-                    ui.button("Remove", on_click=lambda: self._remove_track(track, dialog))
+                    ui.button(
+                        formatting.REMOVE,
+                        on_click=lambda: self._remove_track(track, dialog),
+                    )
                     .props("unelevated no-caps color=negative")
                     .mark("confirm-remove")
                 )
@@ -2450,7 +2457,11 @@ class WorkspacePage:
 
     def _sync_title(self) -> None:
         track = self._selected_track()
-        ui.page_title(f"{TITLE} — {track.title}" if track is not None else TITLE)
+        ui.page_title(
+            formatting.WINDOW_TITLE.format(app=TITLE, track=track.title)
+            if track is not None
+            else TITLE
+        )
 
     def _recent_state(self) -> tuple[tuple[str, bool], ...]:
         return tuple(
@@ -2545,15 +2556,7 @@ class WorkspacePage:
                 )
 
     def _job_label(self, kind: str) -> str:
-        labels: Mapping[str, str] = {
-            "import_local": "Importing",
-            "import_youtube": "Importing",
-            "separate": "Separating",
-            "render_pitch": "Rendering",
-            "export": "Exporting",
-            "model_install": "Downloading model",
-        }
-        return labels.get(kind, "Working")
+        return formatting.JOB_LABELS.get(kind, formatting.JOB_WORKING)
 
 
 def _dispatch_drop(event: NativeEventArguments) -> None:

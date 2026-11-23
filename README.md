@@ -29,7 +29,7 @@
 
 ## What it does
 
-StemForge is a desktop app for taking a song apart. Add an audio file — or a YouTube
+StemForge is a desktop app for taking a song apart. Import an audio file — or a YouTube
 link — and StemForge separates the Track into four Stems: vocals, drums, bass, and
 other. Vocals and Instrumental are the two primary outputs. From there you can shift
 pitch by up to twelve semitones without changing tempo, preview every version against
@@ -191,10 +191,15 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.13.
 ```sh
 git clone https://github.com/alexmarincu/stemforge
 cd stemforge
+git config core.hooksPath .githooks
 uv sync
 uv run stemforge
 scripts/check.sh
 ```
+
+That command installs the pre-commit and pre-push hooks: a commit runs the fast
+checks and a push runs the full gate. Bypass either with `--no-verify`.
+`scripts/check.sh --fast` skips the tests and the full-environment checks.
 
 On Linux, the native window needs GTK 3, WebKitGTK 4.1, and GStreamer installed
 system-wide, plus the matching Python bindings in the venv:
@@ -207,12 +212,14 @@ uv pip install pygobject pycairo
 Without the native stack, `STEMFORGE_BROWSER=1 uv run stemforge` serves the UI at
 `http://127.0.0.1:8080`.
 
-`scripts/check.sh` runs the same gate as CI: formatting, lint, strict typing, the
-import contracts, the notice and licensing checks, and the unit, UI, and licensing
-tests, followed by a self-test of the installed app. Integration tests run when
-`ffmpeg` and `ffprobe` are available; the slow tests exercise torch and Demucs. Bundle
-and installer builds live in [`packaging/`](packaging/), with per-platform instructions
-for [Linux](packaging/linux/README.md) and [Windows](packaging/windows/README.txt).
+`scripts/check.sh` runs the checks CI can make on one machine: the lockfile,
+formatting, lint, strict typing, the import contracts, ShellCheck and the
+PowerShell parser, the notice and licensing checks, and the unit, UI, and
+licensing tests in CI's marker split, followed by a self-test of the installed
+app. Integration tests run when `ffmpeg` and `ffprobe` are available; the slow
+tests exercise torch and Demucs. Bundle and installer builds live in
+[`packaging/`](packaging/), with per-platform instructions for
+[Linux](packaging/linux/README.md) and [Windows](packaging/windows/README.txt).
 
 ## Project and docs
 
@@ -220,6 +227,7 @@ for [Linux](packaging/linux/README.md) and [Windows](packaging/windows/README.tx
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | How the system is put together: packages, Jobs, the worker boundary, deployment, and crosscutting rules. |
 | [`GLOSSARY.md`](GLOSSARY.md) | The shared vocabulary: Track, Stem, Instrumental, Separation, Render, Artifact, Export. |
+| [`DESIGN.md`](DESIGN.md) | The app shell's visual language: palette, typography, component patterns, layout, and the agent checklist. |
 | [`docs/adr/`](docs/adr/) | Accepted architecture decisions and their consequences. |
 | [`scripts/check.sh`](scripts/check.sh) | The local CI gate. |
 | [`packaging/linux/README.md`](packaging/linux/README.md) and [`packaging/windows/README.txt`](packaging/windows/README.txt) | Frozen Bundle, AppImage, and Windows installer builds. |
@@ -232,7 +240,8 @@ and feature requests go to [GitHub Issues](https://github.com/alexmarincu/stemfo
 Include your operating system, the StemForge version, and a diagnostics report
 (`Settings & About` → `Copy diagnostics`).
 
-Before opening a pull request, run `scripts/check.sh`; it is the same gate CI uses.
+Before opening a pull request, run `scripts/check.sh`; it runs everything CI can
+check on one machine.
 
 ## Licence and source
 
