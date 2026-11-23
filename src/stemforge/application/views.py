@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Final, Protocol
 
 from stemforge.artifacts import RemoveReport
+from stemforge.domain.methods import DEMUCS_METHOD
 from stemforge.domain.models import RenderScope, Track
 from stemforge.domain.roles import INSTRUMENTAL_ROLE
 from stemforge.engines.media import ExportFormat
@@ -28,13 +29,8 @@ SEPARATION_ROLE_LABELS: Final[Mapping[str, str]] = {
     "other": "Other",
 }
 
-SEPARATION_OUTPUT_ROLES: Final[tuple[str, ...]] = (
-    "vocals",
-    INSTRUMENTAL_ROLE,
-    "drums",
-    "bass",
-    "other",
-)
+# Demucs presentation order; a committed set carries its own roles instead.
+SEPARATION_OUTPUT_ROLES: Final[tuple[str, ...]] = DEMUCS_METHOD.output_roles
 
 
 class PreflightCheckView(Protocol):
@@ -208,14 +204,16 @@ class PitchSet:
 class SeparationSet:
     """One committed Separation set as the Separation card sees it.
 
-    The artifact store keeps one Stems set per Source: a re-separation
-    replaces it. The view is still a list so the UI contract does
-    not have to change when an archived set appears; ``set_key`` is the stable
-    identity used by preview lookups.
+    A Source keeps one set per method, so the view names its method and method
+    version beside the roles the descriptor declares. ``set_key`` is the stable
+    identity used by preview lookups and includes the method.
     """
 
     set_key: str
     created_at: datetime
     label: str
+    method: str
+    method_version: int
+    output_roles: tuple[str, ...]
     stem_roles: tuple[str, ...]
     based_on_earlier_separation: bool = False

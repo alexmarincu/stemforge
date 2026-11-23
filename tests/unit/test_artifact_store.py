@@ -364,32 +364,173 @@ def _commit_render(
     return store.commit_render(staging, render_key, manifest)
 
 
+def _commit_separation(
+    store: ArtifactStore,
+    source_id: str,
+    *,
+    method: str = "demucs",
+    version: str = "v1",
+    created_at: datetime | None = None,
+) -> Any:
+    roles = (
+        ("vocals", "instrumental")
+        if method == "karaoke"
+        else (
+            "vocals",
+            "instrumental",
+            "drums",
+            "bass",
+            "other",
+        )
+    )
+    staging = store.stage(f"job-{uuid4().hex}")
+    files: list[dict[str, object]] = []
+    for role in roles:
+        data = f"{version}-{method}-{role}".encode()
+        (staging / f"{role}.wav").write_bytes(data)
+        files.append(_file_entry(f"{role}.wav", data, role))
+        preview = f"{version}-{method}-{role}-preview".encode()
+        (staging / f"{role}_preview.mp3").write_bytes(preview)
+        files.append(_file_entry(f"{role}_preview.mp3", preview, f"{role}_preview"))
+    return store.commit_separation(
+        staging,
+        source_id,
+        {
+            "schema_version": 1,
+            "kind": "separation",
+            "source_id": source_id,
+            "created_at": (created_at or datetime(2026, 11, 16, 12, 0, tzinfo=UTC)).isoformat(),
+            "gain_db": -1.0,
+            "files": files,
+        },
+        method=method,
+    )
+
+
 @pytest.mark.unit
 def test_commit_separation_promotes_into_the_source_subtree(store: ArtifactStore) -> None:
     _commit_source(store, "abc123")
-    staging = store.stage("job-sep")
-    (staging / "vocals.wav").write_bytes(b"vocals")
-    (staging / "vocals.mp3").write_bytes(b"preview")
-    manifest: dict[str, object] = {
-        "schema_version": 1,
-        "kind": "separation",
-        "source_id": "abc123",
-        "created_at": datetime(2026, 11, 16, 12, 0, tzinfo=UTC).isoformat(),
-        "gain_db": -1.0,
-        "files": [
-            _file_entry("vocals.wav", b"vocals", "vocals"),
-            _file_entry("vocals.mp3", b"preview", "vocals_preview"),
-        ],
-    }
 
-    artifact = store.commit_separation(staging, "abc123", manifest)
+    artifact = _commit_separation(store, "abc123")
 
-    assert artifact.directory == store.sources_dir / "abc123" / "stems"
+    assert artifact.directory == store.sources_dir / "abc123" / "separations" / "demucs"
     assert artifact.path_for("vocals") == artifact.directory / "vocals.wav"
     assert artifact.gain_db == -1.0
+    assert artifact.method == "demucs"
+    assert artifact.method_version == 1
+    assert artifact.manifest["method"] == "demucs"
+    assert artifact.manifest["method_version"] == 1
     assert (artifact.directory / "manifest.json").is_file()
     assert store.find_separation("abc123") == artifact
     assert store.find_separation("missing") is None
+
+
+@pytest.mark.unit
+def test_both_methods_coexist_and_rerunning_one_replaces_only_that_set(
+    store: ArtifactStore,
+) -> None:
+    _commit_source(store, "abc123")
+    created = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
+    demucs = _commit_separation(
+        store, "abc123", method="demucs", version="demucs-old", created_at=created
+    )
+    karaoke = _commit_separation(
+        store,
+        "abc123",
+        method="karaoke",
+        version="karaoke-old",
+        created_at=created + timedelta(minutes=1),
+    )
+
+    assert store.separation_sets("abc123") == (demucs, karaoke)
+    assert store.find_separation("abc123", method="demucs") == demucs
+    assert store.find_separation("abc123", method="karaoke") == karaoke
+
+    newer_karaoke = _commit_separation(
+        store,
+        "abc123",
+        method="karaoke",
+        version="karaoke-new",
+        created_at=created + timedelta(minutes=2),
+    )
+
+    assert store.separation_sets("abc123") == (demucs, newer_karaoke)
+    assert (
+        store.find_separation("abc123", method="demucs").directory / "vocals.wav"
+    ).read_bytes() == b"demucs-old-demucs-vocals"
+    assert (newer_karaoke.directory / "vocals.wav").read_bytes() == b"karaoke-new-karaoke-vocals"
+
+
+@pytest.mark.unit
+def test_a_legacy_stems_set_is_read_as_demucs_until_a_new_demucs_set_is_promoted(
+    store: ArtifactStore,
+) -> None:
+    source = _commit_source(store, "abc123")
+    legacy = source.directory / "stems"
+    legacy.mkdir()
+    (legacy / "vocals.wav").write_bytes(b"legacy-vocals")
+    (legacy / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "kind": "separation",
+                "source_id": "abc123",
+                "created_at": datetime(2026, 11, 16, 9, 0, tzinfo=UTC).isoformat(),
+                "files": [_file_entry("vocals.wav", b"legacy-vocals", "vocals")],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    artifact = store.find_separation("abc123")
+
+    assert artifact is not None
+    assert artifact.directory == legacy
+    assert artifact.method == "demucs"
+    assert artifact.method_version == 1
+    assert store.find_separation("abc123", method="karaoke") is None
+    assert store.separation_sets("abc123") == (artifact,)
+
+    promoted = _commit_separation(store, "abc123", method="demucs", version="new")
+
+    assert not legacy.exists()
+    assert store.find_separation("abc123") == promoted
+    assert store.separation_sets("abc123") == (promoted,)
+
+
+@pytest.mark.unit
+def test_the_store_refuses_to_file_a_set_under_a_different_method(store: ArtifactStore) -> None:
+    _commit_source(store, "abc123")
+    staging = store.stage("job-sep")
+    (staging / "vocals.wav").write_bytes(b"vocals")
+    manifest = {
+        "schema_version": 1,
+        "kind": "separation",
+        "source_id": "abc123",
+        "method": "demucs",
+        "files": [_file_entry("vocals.wav", b"vocals", "vocals")],
+    }
+
+    with pytest.raises(ValueError, match="method"):
+        store.commit_separation(staging, "abc123", manifest, method="karaoke")
+
+    assert not (store.sources_dir / "abc123" / "separations").exists()
+
+
+@pytest.mark.unit
+def test_a_source_with_two_methods_is_still_one_cache_unit(store: ArtifactStore) -> None:
+    source = _commit_source(store, "abc123")
+    _commit_separation(store, "abc123", method="demucs")
+    _commit_separation(store, "abc123", method="karaoke")
+    _commit_source(store, "other")
+    size = sum(path.stat().st_size for path in source.directory.rglob("*") if path.is_file())
+    capped = ArtifactStore(store.paths, cap_bytes=size + 1)
+
+    report = capped.enforce_cap()
+
+    assert [entry.key for entry in report.evicted] == ["abc123"]
+    assert not (capped.sources_dir / "abc123").exists()
+    assert (capped.sources_dir / "other").is_dir()
 
 
 @pytest.mark.unit

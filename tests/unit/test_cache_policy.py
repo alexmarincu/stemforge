@@ -173,7 +173,12 @@ def test_disk_estimate_math_is_pinned() -> None:
         (10_000_000 + (pcm + preview) * minutes) * 1.2
     )
     assert estimate_import_bytes(minutes * 60, youtube=True) == ceil(24_000_000 * minutes * 1.2)
-    assert estimate_separation_bytes(minutes * 60) == ceil(5 * (pcm + preview) * minutes * 1.2)
+    assert estimate_separation_bytes(minutes * 60, outputs=5) == ceil(
+        5 * (pcm + preview) * minutes * 1.2
+    )
+    assert estimate_separation_bytes(minutes * 60, outputs=2) == ceil(
+        2 * (pcm + preview) * minutes * 1.2
+    )
     assert estimate_render_bytes(minutes * 60) == ceil((pcm + preview) * minutes * 1.2)
     assert estimate_render_bytes(minutes * 60, outputs=5) == ceil(
         5 * (pcm + preview) * minutes * 1.2

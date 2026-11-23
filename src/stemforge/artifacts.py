@@ -13,7 +13,7 @@ Layout::
     sources/<source_id>/original.mp3
     sources/<source_id>/cover.<ext>
     sources/<source_id>/source.json
-    sources/<source_id>/stems/... + manifest.json
+    sources/<source_id>/separations/<method>/... + manifest.json
     renders/<render_key>/... + manifest.json
     staging/<job_id>/
     tmp/
@@ -69,6 +69,7 @@ from typing import Final, cast
 from uuid import uuid4
 
 from stemforge import errors
+from stemforge.domain.methods import DEFAULT_METHOD_ID, SeparationMethod, method_by_id
 from stemforge.errors import StemForgeError
 from stemforge.platform.paths import AppPaths
 from stemforge.platform.storage import DEFAULT_CACHE_CAP_BYTES
@@ -80,6 +81,8 @@ SOURCE_MANIFEST_NAME: Final = "source.json"
 ARTIFACT_MANIFEST_NAME: Final = "manifest.json"
 USED_MARKER_NAME: Final = ".used"
 EVICTION_LEDGER_NAME: Final = "evictions.jsonl"
+SEPARATIONS_DIRNAME: Final = "separations"
+LEGACY_SEPARATION_DIRNAME: Final = "stems"
 
 SOURCE_KIND: Final = "source"
 SEPARATION_KIND: Final = "separation"
@@ -137,10 +140,14 @@ def estimate_import_bytes(
     )
 
 
-def estimate_separation_bytes(duration_s: float) -> int:
-    """Five WAVs plus five previews, including the 1.2 job headroom."""
+def estimate_separation_bytes(duration_s: float, *, outputs: int) -> int:
+    """One method's WAVs plus previews, including the 1.2 job headroom."""
     minutes = _minutes(duration_s)
-    return ceil(5 * (PCM_F32_BYTES_PER_MINUTE + PREVIEW_BYTES_PER_MINUTE) * minutes * JOB_HEADROOM)
+    if outputs < 1:
+        raise ValueError("outputs must be positive")
+    return ceil(
+        outputs * (PCM_F32_BYTES_PER_MINUTE + PREVIEW_BYTES_PER_MINUTE) * minutes * JOB_HEADROOM
+    )
 
 
 def estimate_render_bytes(duration_s: float, *, outputs: int = 1) -> int:
@@ -291,7 +298,7 @@ class SourceManifest:
 
 @dataclass(frozen=True, slots=True)
 class SeparationArtifact:
-    """A committed ``sources/<source_id>/stems/`` set."""
+    """A committed ``sources/<source_id>/separations/<method>/`` set."""
 
     source_id: str
     directory: Path
@@ -300,6 +307,8 @@ class SeparationArtifact:
     files: tuple[ManifestFile, ...]
     created_at: datetime
     gain_db: float
+    method: str
+    method_version: int
 
     def path_for(self, role: str) -> Path | None:
         for entry in self.files:
@@ -309,12 +318,15 @@ class SeparationArtifact:
 
     @property
     def stems(self) -> Mapping[str, Path]:
-        """Every file whose role names a stem, keyed by role."""
+        """The method's Stems; Instrumental is an output, not a Stem (GLOSSARY)."""
+        descriptor = method_by_id(self.method)
+        if descriptor is None:
+            return MappingProxyType({})
         return MappingProxyType(
             {
                 entry.role: self.directory / entry.path
                 for entry in self.files
-                if entry.role is not None and entry.role.endswith("_preview") is False
+                if entry.role in descriptor.stems
             }
         )
 
@@ -480,14 +492,32 @@ class ArtifactStore:
         return artifact
 
     def commit_separation(
-        self, staging: Path, source_id: str, manifest: Mapping[str, object]
+        self,
+        staging: Path,
+        source_id: str,
+        manifest: Mapping[str, object],
+        *,
+        method: str = DEFAULT_METHOD_ID,
     ) -> SeparationArtifact:
-        """Promote a staged Separation set into ``sources/<id>/stems/``."""
+        """Promote a staged Separation set into its method's directory."""
         _validate_identity(source_id, "source id")
+        descriptor = _method_descriptor(method)
         staging = self._validated_staging(staging)
         payload = _normalize_payload(
             manifest, kind=SEPARATION_KIND, identity_field="source_id", identity=source_id
         )
+        recorded_method = payload.get("method", descriptor.id)
+        if recorded_method != descriptor.id:
+            raise ValueError(f"manifest method must be {descriptor.id!r}: {recorded_method!r}")
+        payload["method"] = descriptor.id
+        version = payload.get("method_version", descriptor.version)
+        if (
+            isinstance(version, bool)
+            or not isinstance(version, int)
+            or version != descriptor.version
+        ):
+            raise ValueError(f"manifest method_version must be {descriptor.version!r}: {version!r}")
+        payload["method_version"] = descriptor.version
         _validate_referenced_files(payload, staging)
         self._ensure_roots()
         source_dir = self.sources_dir / source_id
@@ -496,13 +526,25 @@ class ArtifactStore:
         self._write_manifest(staging, ARTIFACT_MANIFEST_NAME, payload)
 
         with self._lock:
-            target = source_dir / "stems"
+            target = source_dir / SEPARATIONS_DIRNAME / descriptor.id
             self._promote(staging, target)
+            if descriptor.id == DEFAULT_METHOD_ID:
+                self._remove_legacy_separation(source_dir)
 
-        artifact = self.find_separation(source_id)
+        artifact = self.find_separation(source_id, method=descriptor.id)
         if artifact is None:  # pragma: no cover - defensive
             raise StemForgeError(errors.INTERNAL_UNEXPECTED, "committed separation is unreadable")
         return artifact
+
+    def _remove_legacy_separation(self, source_dir: Path) -> None:
+        """Delete the original Demucs ``stems/`` set after a new one is promoted."""
+        legacy = source_dir / LEGACY_SEPARATION_DIRNAME
+        if not (legacy.exists() or legacy.is_symlink()):
+            return
+        try:
+            _remove_tree(legacy)
+        except OSError:
+            _LOG.warning("could not remove the legacy separation set %s", legacy, exc_info=True)
 
     def commit_render(
         self, staging: Path, render_key: str, manifest: Mapping[str, object]
@@ -668,12 +710,75 @@ class ArtifactStore:
         )
 
     def find_separation(
-        self, source_id: str, *, verify_hashes: bool = False
+        self,
+        source_id: str,
+        *,
+        method: str = DEFAULT_METHOD_ID,
+        verify_hashes: bool = False,
     ) -> SeparationArtifact | None:
-        """Return the committed Stems set; see :meth:`find_source` for integrity."""
+        """Return one method's committed set; see :meth:`find_source` for integrity.
+
+        Demucs falls back to the original ``stems/`` directory while no new
+        ``separations/demucs/`` set exists, so an upgrade keeps finished work.
+        """
         if not _is_valid_identity(source_id):
             return None
-        directory = self.sources_dir / source_id / "stems"
+        descriptor = method_by_id(method)
+        if descriptor is None:
+            return None
+        directory = self.sources_dir / source_id / SEPARATIONS_DIRNAME / descriptor.id
+        artifact = self._read_separation(
+            source_id,
+            directory,
+            method=descriptor.id,
+            default_version=descriptor.version,
+            verify_hashes=verify_hashes,
+        )
+        if artifact is not None or descriptor.id != DEFAULT_METHOD_ID:
+            return artifact
+        legacy = self.sources_dir / source_id / LEGACY_SEPARATION_DIRNAME
+        return self._read_separation(
+            source_id,
+            legacy,
+            method=descriptor.id,
+            default_version=descriptor.version,
+            verify_hashes=verify_hashes,
+        )
+
+    def separation_sets(
+        self, source_id: str, *, verify_hashes: bool = False
+    ) -> tuple[SeparationArtifact, ...]:
+        """Every committed method set for one Source, oldest first."""
+        if not _is_valid_identity(source_id):
+            return ()
+        found: list[SeparationArtifact] = []
+        methods_dir = self.sources_dir / source_id / SEPARATIONS_DIRNAME
+        if methods_dir.is_dir() and not methods_dir.is_symlink():
+            for entry in sorted(methods_dir.iterdir(), key=lambda item: item.name):
+                if not entry.is_dir() or entry.is_symlink():
+                    continue
+                artifact = self.find_separation(
+                    source_id, method=entry.name, verify_hashes=verify_hashes
+                )
+                if artifact is not None:
+                    found.append(artifact)
+        if not any(artifact.method == DEFAULT_METHOD_ID for artifact in found):
+            legacy = self.find_separation(
+                source_id, method=DEFAULT_METHOD_ID, verify_hashes=verify_hashes
+            )
+            if legacy is not None and legacy.directory.name == LEGACY_SEPARATION_DIRNAME:
+                found.append(legacy)
+        return tuple(sorted(found, key=lambda artifact: (artifact.created_at, artifact.method)))
+
+    def _read_separation(
+        self,
+        source_id: str,
+        directory: Path,
+        *,
+        method: str,
+        default_version: int,
+        verify_hashes: bool,
+    ) -> SeparationArtifact | None:
         result = _read_manifest(
             directory / ARTIFACT_MANIFEST_NAME,
             base_dir=directory,
@@ -687,6 +792,12 @@ class ArtifactStore:
             return None
         assert result.payload is not None
         assert result.created_at is not None
+        recorded_method = _manifest_method(result.payload)
+        if recorded_method != method:
+            return None
+        version = _manifest_method_version(result.payload, default=default_version)
+        if version is None:
+            return None
         return SeparationArtifact(
             source_id=source_id,
             directory=directory,
@@ -695,6 +806,8 @@ class ArtifactStore:
             files=result.files,
             created_at=result.created_at,
             gain_db=_gain_db(result.payload),
+            method=method,
+            method_version=version,
         )
 
     def find_render(self, render_key: str, *, verify_hashes: bool = False) -> RenderArtifact | None:
@@ -1562,6 +1675,25 @@ def _manifest_source_id(path: Path) -> str | None:
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
+
+
+def _method_descriptor(method: str) -> SeparationMethod:
+    descriptor = method_by_id(method)
+    if descriptor is None:
+        raise ValueError(f"unknown Separation method: {method!r}")
+    return descriptor
+
+
+def _manifest_method(payload: Mapping[str, object]) -> str:
+    value = payload.get("method", DEFAULT_METHOD_ID)
+    return value if isinstance(value, str) and value else ""
+
+
+def _manifest_method_version(payload: Mapping[str, object], *, default: int) -> int | None:
+    value = payload.get("method_version", default)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
 
 
 def _is_valid_identity(value: object) -> bool:

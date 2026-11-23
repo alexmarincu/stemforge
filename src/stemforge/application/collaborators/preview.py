@@ -8,12 +8,9 @@ from urllib.parse import quote
 from stemforge.application.identity import separation_key
 from stemforge.application.renders import RenderView, render_views
 from stemforge.application.state import WorkspaceState
-from stemforge.application.views import (
-    SEPARATION_OUTPUT_ROLES,
-    SEPARATION_ROLE_LABELS,
-    PreviewTarget,
-)
+from stemforge.application.views import SEPARATION_ROLE_LABELS, PreviewTarget
 from stemforge.artifacts import ArtifactStore
+from stemforge.domain.methods import method_by_id
 from stemforge.domain.models import RenderScope, Track
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
 
@@ -95,16 +92,25 @@ class PreviewService:
         set_key: str,
         stem: str,
     ) -> PreviewTarget | None:
-        """The playable preview of one stem in one Separation set.
+        """The playable preview of one role in one Separation set.
 
-        ``stem`` is a Demucs role or ``instrumental``. A missing set, an unknown
-        role, or a cleared preview returns ``None`` so the row can be marked
-        unavailable instead of pointing at a URL that can only 404.
+        The set key is looked up across every method, and the role must belong to
+        that method's descriptor. A missing set, an unknown role, or a cleared
+        preview returns ``None`` so the row can be marked unavailable instead of
+        pointing at a URL that can only 404.
         """
-        artifact = self._artifacts.find_separation(track.source_id)
-        if artifact is None or separation_key(artifact) != set_key:
+        artifact = next(
+            (
+                item
+                for item in self._artifacts.separation_sets(track.source_id)
+                if separation_key(item) == set_key
+            ),
+            None,
+        )
+        if artifact is None:
             return None
-        if stem not in SEPARATION_OUTPUT_ROLES:
+        descriptor = method_by_id(artifact.method)
+        if descriptor is None or stem not in descriptor.output_roles:
             return None
         path = artifact.path_for(f"{stem}_preview")
         url = self._preview_url(path)
