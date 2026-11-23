@@ -491,10 +491,10 @@ async def test_degraded_preview_keeps_a_banner_and_disables_only_transport(
 
             # Other capabilities stay usable. The Pitch card is
             # usable even though its Render action is disabled at 0 by design;
-            # Separation shows its inline model gate because no weights are
-            # installed in this harness.
+            # Separation offers the Demucs download beside Karaoke because no
+            # weights are installed in this harness.
             assert _enabled(user, "add-audio") is True
-            assert _enabled(user, "model-download") is True
+            assert _enabled(user, "separation-demucs-offer-action") is True
             assert _only(user, "pitch-semitones").text == "0"
             assert _enabled(user, "pitch-up") is True
             assert _enabled(user, "pitch-render") is False
@@ -525,6 +525,10 @@ async def test_playback_stays_enabled_while_second_job_actions_disable(
         await asyncio.sleep(0.05)
         assert _enabled(user, "pitch-render") is True
 
+        # Reveal the Demucs gate so the busy state has a download action to
+        # disable; auto would otherwise select Karaoke without a model.
+        user.find(marker="separation-method-demucs").click()
+        await asyncio.sleep(0.05)
         gate = harness.media.block_decoding()
         harness.dialog._selections = [(str(harness.source_file("Later.wav")),)]
         user.find(marker="add-audio").click()

@@ -312,6 +312,21 @@ SHELL_CSS: Final = (
 .sf-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .sf-player { display: none; }
 .sf-separation-status { font-size: 11.5px; color: var(--muted); margin: 2px 0 6px; }
+.sf-method { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px;
+  container-type: inline-size; }
+.sf-method-switch { display: inline-flex; align-items: center; gap: 2px; padding: 2px;
+  background: var(--well); border: 1px solid var(--line); border-radius: 999px; }
+.sf-method-switch .q-btn { border-radius: 999px; }
+.sf-method-switch .q-btn.is-active { background: var(--accent-soft); color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-line); }
+.sf-method-fallback { display: none; min-width: 160px; }
+@container (max-width: 320px) {
+  .sf-method-switch { display: none; }
+  .sf-method-fallback { display: block; }
+}
+.sf-demucs-offer { display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 8px 10px; border: 1px dashed var(--line2); border-radius: 8px;
+  margin: 4px 0 8px; }
 .sf-gate { display: flex; flex-direction: column; gap: 6px; padding: 12px;
   border: 1px solid var(--line2); border-radius: 10px; background: var(--well);
   margin: 4px 0 10px; }
@@ -522,6 +537,7 @@ class WorkspacePage:
             on_cancel=self._cancel_active_job,
             on_open_about=self._open_settings,
             on_clear_cache=self._clear_cache,
+            on_method_selected=self._separation_method_selected,
             diagnostics=context.diagnostics,
             clipboard=context.clipboard,
             open_path=context.open_path,
@@ -965,8 +981,8 @@ class WorkspacePage:
         """Roles the Outputs card may show for the active artifact set."""
         if active_key != "original":
             return DEMUCS_OUTPUT_ROLES
-        separation_sets = self.service.separation_sets(track)
-        return separation_sets[-1].output_roles if separation_sets else ()
+        selected = self.service.selected_separation_set(track)
+        return selected.output_roles if selected is not None else ()
 
     def _version_rows(self, track: Track) -> tuple[tuple[OutputRow, ...], str]:
         sets = self.service.pitch_sets(track)
@@ -1002,10 +1018,9 @@ class WorkspacePage:
                     export_key=exports.get(("master", "original", None)),
                 )
             ]
-            separation_sets = self.service.separation_sets(track)
-            if not separation_sets:
+            selected = self.service.selected_separation_set(track)
+            if selected is None:
                 return tuple(rows)
-            selected = separation_sets[-1]
             for role in selected.output_roles:
                 rows.append(
                     OutputRow(
@@ -1091,6 +1106,32 @@ class WorkspacePage:
 
     def _separation_card(self, track: Track) -> None:
         self._separation.build(track, busy=self._busy())
+
+    def _separation_method_selected(self, track: Track) -> None:
+        """Switch the viewed set without losing the player's place in a still-visible row."""
+        sets = self.service.pitch_sets(track)
+        rows = self._rows_for(track, self._active_version(track, sets), sets)
+        if self._loaded_track_id == track.track_id and self._loaded_preview is not None:
+            still_present = any(
+                row.preview is not None and row.preview.key == self._loaded_preview.key
+                for row in rows
+            )
+            if not still_present:
+                if self._player is not None:
+                    self._player.pause()
+                self._is_playing = False
+                self._position_s = 0.0
+                first = next((row for row in rows if row.preview is not None), None)
+                self._loaded_preview = first.preview if first is not None else None
+                if (
+                    first is not None
+                    and first.preview is not None
+                    and self._player is not None
+                    and self._playback_allowed()
+                ):
+                    self._player.set_source(first.preview.url)
+                    self._player.seek(0.0)
+        self._refresh_playback()
 
     def _transport(
         self,
@@ -2510,7 +2551,8 @@ class WorkspacePage:
             return formatting.TRACK_STATUS_FAILED, "is-bad"
         latest = self._latest_render(track)
         if self.service.has_separation(track):
-            selected = self.service.separation_sets(track)[-1]
+            selected = self.service.selected_separation_set(track)
+            assert selected is not None
             status = (
                 formatting.TRACK_STATUS_KARAOKE
                 if selected.method == "karaoke"
@@ -2547,7 +2589,7 @@ class WorkspacePage:
 
     def _signal_path(self, track: Track) -> None:
         has_stems = self.service.has_separation(track)
-        selected = self.service.separation_sets(track)[-1] if has_stems else None
+        selected = self.service.selected_separation_set(track) if has_stems else None
         latest = self._latest_render(track)
         with ui.element("div").classes("sf-sigpath").mark("signal-path"):
             with ui.element("span").classes("sf-chip is-done"):
