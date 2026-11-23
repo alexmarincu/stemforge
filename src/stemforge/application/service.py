@@ -17,6 +17,7 @@ from typing import cast
 
 from stemforge import errors
 from stemforge.artifacts import ArtifactStore, ClearReport, EvictionReport, SweepReport
+from stemforge.domain.methods import DEFAULT_METHOD_ID
 from stemforge.domain.models import ModelConsent, OriginKind, RenderScope, Track
 from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
 from stemforge.engines.media import ExportFormat as ExportFormat
@@ -50,6 +51,7 @@ from .views import (
     PitchSet,
     PreviewTarget,
     RemoveOutcome,
+    SeparationMethodView,
     SeparationSet,
 )
 
@@ -137,6 +139,7 @@ class WorkspaceService:
             self._models,
             cast("SeparationEngine | None", self._engines.separation),
             self._engines.media,
+            self._settings,
         )
 
     @property
@@ -239,6 +242,7 @@ class WorkspaceService:
             self._cache.release_reference(track.source_id)
             still_live = self._cache.is_live(track.source_id)
             self._ledger.forget(owned)
+        self._separation.forget_track(track_id)
         if still_live:
             return RemoveOutcome(track=track, cache_removed=False)
         report = self._cache.remove_source(track.source_id)
@@ -325,14 +329,35 @@ class WorkspaceService:
         semitones: int,
         scope: RenderScope | str,
     ) -> str:
-        """Submit one Pitch Render Job and return its id."""
-        return self._pitch.render_pitch(track, semitones, scope)
+        """Submit one Pitch Render Job for the selected Separation method."""
+        return self._pitch.render_pitch(
+            track,
+            semitones,
+            scope,
+            separation_method=self._separation.separation_method(track),
+        )
 
     # -- Separation --------------------------------------------------------
 
     def has_separation(self, track: Track) -> bool:
-        """Whether the Track has committed Stems, so the stems scope can be offered."""
+        """Whether the selected method has a committed set for this Track."""
         return self._separation.has_separation(track)
+
+    def separation_methods(self) -> tuple[SeparationMethodView, ...]:
+        """The Separation methods the card's selector offers."""
+        return self._separation.separation_methods()
+
+    def separation_method(self, track: Track) -> str:
+        """The selected method id for this Track, after resolution."""
+        return self._separation.separation_method(track)
+
+    def selected_separation_set(self, track: Track) -> SeparationSet | None:
+        """The selected method's newest committed set, or ``None``."""
+        return self._separation.selected_separation_set(track)
+
+    def select_separation_method(self, track: Track, method_id: str) -> None:
+        """Change the per-Track view selection without persisting or submitting."""
+        self._separation.select_separation_method(track, method_id)
 
     def separation_sets(self, track: Track) -> tuple[SeparationSet, ...]:
         """Every committed Separation set for the Track, oldest first."""
@@ -348,16 +373,22 @@ class WorkspaceService:
         return self._preview.separation_preview_target(track, set_key, stem)
 
     def separate(self, track: Track, method: str | None = None) -> str:
-        """Submit one Separation Job for ``method``, or resolve ``None`` as auto."""
+        """Submit one Separation Job for the selected method or ``method``."""
         return self._separation.separate(track, method)
+
+    def pending_separation(self) -> tuple[str, str] | None:
+        """The latched post-install resubmit, as ``(track_id, method)``."""
+        return self._separation.pending_separation()
 
     def pending_separation_track_id(self) -> str | None:
         """The Track whose Separation waits for the model install, if any."""
         return self._separation.pending_separation_track_id()
 
-    def remember_pending_separation(self, track_id: str) -> None:
+    def remember_pending_separation(
+        self, track_id: str, method: str = DEFAULT_METHOD_ID
+    ) -> None:
         """Latch one post-install resubmit; the first request wins."""
-        self._separation.remember_pending_separation(track_id)
+        self._separation.remember_pending_separation(track_id, method)
 
     def resubmit_pending_separation(self, track: Track) -> str | None:
         """Submit the latched Separation exactly once, or ``None``."""

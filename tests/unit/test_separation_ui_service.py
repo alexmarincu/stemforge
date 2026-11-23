@@ -366,6 +366,185 @@ def test_export_targets_cover_vocals_instrumental_and_the_three_secondary_stems(
 
 
 # ---------------------------------------------------------------------------
+# Method selection and persistence
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_separation_methods_are_exposed_as_selector_descriptors(tmp_path: Path) -> None:
+    service, _store = _service(tmp_path)
+
+    methods = service.separation_methods()
+
+    assert [(item.id, item.label, item.requires_model) for item in methods] == [
+        ("demucs", "Demucs", True),
+        ("karaoke", "Karaoke", False),
+    ]
+
+
+@pytest.mark.unit
+def test_without_sets_or_a_preference_auto_follows_the_model(tmp_path: Path) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    models = ModelStore(paths, spec=_tiny_spec())
+    models.install_bytes(PAYLOAD)
+    service, store = _service(tmp_path, models=models)
+    _commit_source(store)
+    track = _track()
+
+    assert service.separation_method(track) == "demucs"
+    assert service.selected_separation_set(track) is None
+    assert service.has_separation(track) is False
+
+
+@pytest.mark.unit
+def test_an_auto_karaoke_selection_survives_a_later_model_install(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    track = _track()
+
+    assert service.separation_method(track) == "karaoke"
+
+    service.models.install_bytes(PAYLOAD)
+
+    assert service.separation_method(track) == "karaoke"
+
+
+@pytest.mark.unit
+def test_the_persisted_preference_is_used_only_without_a_set(tmp_path: Path) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    models = ModelStore(paths, spec=_tiny_spec())
+    models.install_bytes(PAYLOAD)
+    service, store = _service(tmp_path, models=models)
+    _commit_source(store)
+    track = _track()
+    service.settings.set_separation_method("karaoke")
+
+    assert service.separation_method(track) == "karaoke"
+
+    _commit_separation(store)
+
+    assert service.separation_method(track) == "demucs"
+
+
+@pytest.mark.unit
+def test_the_newest_set_wins_until_the_user_selects_another_method(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, version="demucs-v1")
+    _commit_separation(store, version="karaoke-v1", method="karaoke")
+    track = _track()
+
+    assert service.separation_method(track) == "karaoke"
+    assert service.selected_separation_set(track).method == "karaoke"
+
+    service.select_separation_method(track, "demucs")
+
+    assert service.separation_method(track) == "demucs"
+    assert service.selected_separation_set(track).method == "demucs"
+    assert service.has_separation(track) is True
+
+    service.select_separation_method(track, "karaoke")
+
+    assert service.selected_separation_set(track).method == "karaoke"
+
+
+@pytest.mark.unit
+def test_selecting_a_method_is_view_only_and_does_not_persist_or_submit(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    track = _track()
+    service.settings.set_separation_method("demucs")
+    jobs_before = service.runner.jobs()
+
+    service.select_separation_method(track, "karaoke")
+
+    assert service.separation_method(track) == "karaoke"
+    assert service.settings.separation_method() == "demucs"
+    assert service.runner.jobs() == jobs_before
+
+    service.select_separation_method(track, "repet-sim")
+
+    assert service.separation_method(track) == "demucs"
+    assert service.settings.separation_method() == "demucs"
+    assert "unknown Separation method" in caplog.text
+
+
+@pytest.mark.unit
+def test_an_explicit_selection_with_no_set_hides_the_other_methods_set(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, method="karaoke")
+    track = _track()
+
+    service.select_separation_method(track, "demucs")
+
+    assert service.separation_method(track) == "demucs"
+    assert service.selected_separation_set(track) is None
+    assert service.has_separation(track) is False
+    assert service.separation_sets(track)[0].method == "karaoke"
+
+
+@pytest.mark.unit
+def test_separate_resolves_the_selection_and_persists_it_before_submitting(
+    tmp_path: Path,
+) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    track = _track()
+    service.select_separation_method(track, "karaoke")
+
+    job_id = service.separate(track)
+
+    assert [job.job_id for job in service.runner.jobs()] == [job_id]
+    assert service.settings.separation_method() == "karaoke"
+
+
+@pytest.mark.unit
+def test_an_explicit_demucs_request_persists_before_the_model_gate(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    track = _track()
+
+    with pytest.raises(StemForgeError) as raised:
+        service.separate(track, method="demucs")
+
+    assert raised.value.code == errors.SEPARATION_MODEL_MISSING
+    assert service.settings.separation_method() == "demucs"
+    assert service.runner.jobs() == []
+
+
+@pytest.mark.unit
+def test_installing_demucs_does_not_change_the_selected_method(tmp_path: Path) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    models = ModelStore(paths, spec=_tiny_spec())
+    service, store = _service(tmp_path, models=models)
+    _commit_source(store)
+    track = _track()
+    service.select_separation_method(track, "karaoke")
+
+    models.install_bytes(PAYLOAD)
+
+    assert service.separation_method(track) == "karaoke"
+
+
+@pytest.mark.unit
+def test_removing_a_track_clears_its_view_selection(tmp_path: Path) -> None:
+    workspace = Workspace()
+    service, store = _service(tmp_path, workspace=workspace)
+    _commit_source(store)
+    track = _track()
+    workspace.add_track(track)
+    service.select_separation_method(track, "demucs")
+    assert service.separation_method(track) == "demucs"
+
+    service.remove_track(track.track_id)
+
+    assert service.separation_method(track) == "karaoke"
+
+
+# ---------------------------------------------------------------------------
 # Separation submission and the once-only post-install resubmit
 # ---------------------------------------------------------------------------
 
@@ -393,6 +572,60 @@ def test_separate_requires_the_model_before_submitting_and_latches_once(tmp_path
     assert jobs[0].kind.value == "separate"
     assert service.pending_separation_track_id() is None
     assert service.resubmit_pending_separation(track) is None
+
+
+@pytest.mark.unit
+def test_the_latch_remembers_the_explicit_method_and_resubmits_it(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    track = _track()
+
+    with pytest.raises(StemForgeError):
+        service.separate(track, method="demucs")
+
+    assert service.pending_separation() == (TRACK_ID, "demucs")
+
+    service.models.install_bytes(PAYLOAD)
+    assert service.resubmit_pending_separation(track) is not None
+
+    assert service.pending_separation() is None
+    assert service.separation_method(track) == "demucs"
+
+
+@pytest.mark.unit
+def test_an_explicit_karaoke_request_clears_a_pending_demucs_latch(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    track = _track()
+
+    with pytest.raises(StemForgeError):
+        service.separate(track, method="demucs")
+    assert service.pending_separation() == (TRACK_ID, "demucs")
+
+    service.separate(track, method="karaoke")
+
+    assert service.pending_separation() is None
+
+    service.models.install_bytes(PAYLOAD)
+    assert service.resubmit_pending_separation(track) is None
+    assert len(service.runner.jobs()) == 1
+
+
+@pytest.mark.unit
+def test_viewing_another_method_does_not_clear_the_pending_latch(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    track = _track()
+
+    with pytest.raises(StemForgeError):
+        service.separate(track, method="demucs")
+
+    service.select_separation_method(track, "karaoke")
+
+    assert service.pending_separation() == (TRACK_ID, "demucs")
+
+    service.models.install_bytes(PAYLOAD)
+    assert service.resubmit_pending_separation(track) is not None
 
 
 @pytest.mark.unit

@@ -22,6 +22,7 @@ from .views import (
     PreflightView,
     PreviewTarget,
     RemoveOutcome,
+    SeparationMethodView,
     SeparationSet,
 )
 
@@ -38,6 +39,7 @@ __all__ = [
     "PreflightView",
     "PreviewTarget",
     "RemoveOutcome",
+    "SeparationMethodView",
     "SeparationSet",
     "ServiceEngines",
     "WorkspaceService",

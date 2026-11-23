@@ -201,6 +201,19 @@ class PitchSet:
 
 
 @dataclass(frozen=True, slots=True)
+class SeparationMethodView:
+    """One Separation method as the card's selector sees it.
+
+    The descriptor owns the stable id and label and whether choosing it
+    requires Model weights; the card never reconstructs a method from its id.
+    """
+
+    id: str
+    label: str
+    requires_model: bool
+
+
+@dataclass(frozen=True, slots=True)
 class SeparationSet:
     """One committed Separation set as the Separation card sees it.
 

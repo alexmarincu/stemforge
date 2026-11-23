@@ -411,6 +411,39 @@ def test_render_pitch_rejects_zero_and_stems_without_a_separation_before_submitt
     with pytest.raises(ValueError, match="stems are not available"):
         service.render_pitch(_track(), 3, RenderScope.STEMS)
 
+
+@pytest.mark.unit
+def test_a_karaoke_selection_never_renders_the_demucs_set(tmp_path: Path) -> None:
+    service, store = _service(
+        tmp_path, engines=ServiceEngines(pitch=_FakePitch(), media=_FakeMedia())
+    )
+    _commit_separation(store)
+    staging = store.stage("job-stems-karaoke")
+    files = []
+    for role in ("vocals", "instrumental"):
+        data = f"karaoke-{role}".encode()
+        (staging / f"{role}.wav").write_bytes(data)
+        files.append(_file_entry(f"{role}.wav", role, data))
+    store.commit_separation(
+        staging,
+        SOURCE_ID,
+        {
+            "schema_version": 1,
+            "kind": "separation",
+            "source_id": SOURCE_ID,
+            "files": files,
+        },
+        method="karaoke",
+    )
+    track = _track()
+    service.select_separation_method(track, "karaoke")
+    assert service.has_separation(track) is True
+
+    with pytest.raises(ValueError, match="Demucs"):
+        service.render_pitch(track, 3, RenderScope.STEMS)
+
+    assert service.runner.jobs() == []
+
     assert service.runner.jobs() == []
 
 
