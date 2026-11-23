@@ -143,9 +143,14 @@ jobs:
       - name: Smoke-test the frozen bundle
         shell: pwsh
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass `
-            -File packaging/windows/smoke-test.ps1 `
-            -WithSeparation:${{ inputs.with_separation }}
+          $arguments = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', 'packaging/windows/smoke-test.ps1'
+          )
+          if ('${{ inputs.with_separation }}' -eq 'true') {
+            $arguments += '-WithSeparation'
+          }
+          & powershell.exe @arguments
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package the portable ZIP and Inno setup
