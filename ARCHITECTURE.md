@@ -696,7 +696,11 @@ cancellation subclass. The taxonomy groups codes by subsystem: `import.*`, `deco
 
 User-facing headlines, hints, and remediation live in `ui/formatting.py`, which maps
 `(code, reason)` to copy; an unknown code from a newer worker falls back to
-`internal.unexpected`. A degraded capability is announced, never silent.
+`internal.unexpected`. A degraded capability is announced, never silent. The rule is
+wider than errors: visible copy in the page and its components comes from
+`formatting.py`, and `tests/unit/test_copy_policy.py` fails on an inline literal passed
+to a label, button, notification, tooltip, or placeholder, or on an avoided Import
+synonym. `CODING_STANDARDS.md` records the judgement calls around that rule.
 
 Retryability is a property of the failure, not a guess by the UI: a download, a missing
 file, or a cache-full condition is retryable; malformed input or a licence refusal is not.
@@ -824,6 +828,11 @@ geometry, Quasar semantic-colour overrides, and the embedded brand assets. `ui/p
 builds `SHELL_CSS` from `theme.TOKENS_CSS`; every rule consumes a token, so the palette
 cannot drift into a second copy. The page applies the palette once per client before it
 builds the shell, which keeps Quasar's default blue off every default-coloured control.
+
+[`DESIGN.md`](DESIGN.md) is the agent-facing account of that language: palette, type,
+component patterns, and layout. `tests/unit/test_design_doc.py` keeps its token table
+equal to `theme.TOKENS_CSS` and rejects a hex value outside it, so the document cannot
+drift from the visual root.
 
 Formatting, labels, and error copy are separate: `ui/formatting.py` owns user-facing
 prose, `ui/failure.py` owns the shared failure payload, and `ui/toast.py` owns the
