@@ -432,6 +432,25 @@ def test_nightly_builds_and_runs_the_real_separation(
     assert "-WithSeparation" in windows_text
 
 
+def test_the_smoke_test_passes_the_separation_switch_as_a_bare_argument(
+    windows_bundle: dict[str, Any],
+) -> None:
+    (step,) = [
+        step
+        for step in _steps(windows_bundle["jobs"]["windows-bundle"])
+        if step.get("name") == "Smoke-test the frozen bundle"
+    ]
+    text = step["run"]
+
+    # GitHub renders the boolean input as the word ``true``; a colon-bound
+    # [switch] accepts only $true/$false/1/0 and fails to bind before the
+    # script body runs, so the switch must travel as a bare argument.
+    assert "-WithSeparation:" not in text
+    assert "'${{ inputs.with_separation }}' -eq 'true'" in text
+    assert "$arguments += '-WithSeparation'" in text
+    assert "& powershell.exe @arguments" in text
+
+
 def test_nightly_uploads_evidence_with_seven_day_retention(
     linux_bundle: dict[str, Any], windows_bundle: dict[str, Any]
 ) -> None:
