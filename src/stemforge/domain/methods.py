@@ -27,6 +27,7 @@ __all__ = [
     "SeparationMethod",
     "auto_method_id",
     "method_by_id",
+    "method_id_or_default",
 ]
 
 DEFAULT_METHOD_ID: Final = "demucs"
@@ -123,3 +124,15 @@ def method_by_id(method_id: str) -> SeparationMethod | None:
 def auto_method_id(*, demucs_installed: bool) -> str:
     """Resolve an unset preference: Demucs when installed, otherwise Karaoke."""
     return DEMUCS_METHOD.id if demucs_installed else KARAOKE_METHOD.id
+
+
+def method_id_or_default(value: object) -> str:
+    """A manifest's recorded method, or Demucs for an absent or unknown value.
+
+    Manifests written before methods existed have no field, and every one of
+    them is a Demucs set (ADR 0015). An unknown id is treated the same way so a
+    stray value cannot invent a method the registry does not know.
+    """
+    if isinstance(value, str) and method_by_id(value) is not None:
+        return value
+    return DEFAULT_METHOD_ID

@@ -121,13 +121,15 @@ def render_key_for(
     window: str = WINDOW,
     engine: str = ENGINE_NAME,
     preset: str = ENGINE_PRESET,
+    separation_method: str | None = None,
 ) -> str:
     """The content-addressed identity of one render set.
 
     The key covers the source identity, the scope, the semitones, the sorted
     input hashes, and the engine version/preset. Scope is part of the identity,
     so a master render can never satisfy a stems request even when both exist at
-    the same semitone.
+    the same semitone. A stems key also names the Separation method, so two
+    methods at one semitone cannot collide; an original render has no method.
     """
     validate_semitones(semitones)
     resolved_scope = RenderScope(scope)
@@ -136,7 +138,12 @@ def render_key_for(
     hashes = sorted(input_hashes)
     if not hashes or any(not isinstance(digest, str) or not digest for digest in hashes):
         raise ValueError("a render key needs at least one non-empty input hash")
-    payload = {
+    if resolved_scope is RenderScope.STEMS:
+        if not separation_method:
+            raise ValueError("a stems render key needs a Separation method")
+    else:
+        separation_method = None
+    payload: dict[str, object] = {
         "engine": engine,
         "engine_version": engine_version,
         "formant": formant,
@@ -149,6 +156,8 @@ def render_key_for(
         "window": window,
         "preset": preset,
     }
+    if separation_method is not None:
+        payload["separation_method"] = separation_method
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.blake2b(encoded.encode("utf-8"), digest_size=32).hexdigest()
 
