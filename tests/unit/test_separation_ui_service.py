@@ -361,8 +361,15 @@ def test_export_targets_cover_vocals_instrumental_and_the_three_secondary_stems(
         "other": "Other",
     }
     assert all(target.source_id == SOURCE_ID for target in targets)
-    assert len({target.key for target in targets}) == 5
-    assert item.set_key  # set enumeration and export enumeration agree on the source
+    assert {target.key for target in targets} == {
+        "separation:demucs:vocals",
+        "separation:demucs:instrumental",
+        "separation:demucs:drums",
+        "separation:demucs:bass",
+        "separation:demucs:other",
+    }
+    assert {target.set_key for target in targets} == {item.set_key}
+    assert {target.separation_method for target in targets} == {"demucs"}
 
 
 # ---------------------------------------------------------------------------
