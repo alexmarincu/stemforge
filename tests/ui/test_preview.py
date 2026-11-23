@@ -318,6 +318,39 @@ async def test_transport_and_output_rows_drive_the_same_single_player(harness: H
         assert float(_only(user, "seek").value) == 42.0
 
 
+async def test_output_row_controls_share_the_compact_icon_box(harness: Harness) -> None:
+    """Play and export are 32 px compact icon controls, not Quasar's small buttons."""
+    async for user, workspace_page in _open_page(harness):
+        (track_id,) = await _import(harness, user, workspace_page, "Song.wav")
+        await asyncio.sleep(0.05)
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        for marker in ("output-play-original", "output-export-original"):
+            control = _only(user, marker)
+            assert "sf-control" in control.classes
+            assert "sf-control--icon" in control.classes
+            assert "size" not in control.props
+            assert control.enabled is True
+
+        user.find(marker="output-play-original").click()
+        await asyncio.sleep(0.05)
+        assert "is-playing" in _only(user, "output-row-original").classes
+
+        # An unavailable row keeps the same box and disables both controls.
+        preview = harness.service.snapshot().tracks[0].source.preview_path
+        assert preview is not None
+        preview.unlink()
+        with user:
+            workspace_page.poll()
+        await asyncio.sleep(0.05)
+        for marker in ("output-play-original", "output-export-original"):
+            control = _only(user, marker)
+            assert "sf-control" in control.classes
+            assert "sf-control--icon" in control.classes
+            assert control.enabled is False
+
+
 async def test_detail_header_shows_duration_and_format(harness: Harness) -> None:
     async for user, workspace_page in _open_page(harness):
         (track_id,) = await _import(harness, user, workspace_page, "Song.wav")
