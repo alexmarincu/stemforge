@@ -920,12 +920,13 @@ async def test_the_selector_switches_sets_without_persisting_or_submitting(
     harness: Harness,
 ) -> None:
     async for user, workspace_page in _open_page(harness):
-        await _import(harness, user, workspace_page)
+        track_id = await _import(harness, user, workspace_page)
         track = harness.service.snapshot().tracks[0]
         harness.add_separation(track.source_id, version="demucs-v1")
         harness.add_separation(track.source_id, version="karaoke-v1", method="karaoke")
         with user:
             workspace_page._detail.refresh()
+            workspace_page._tracks.refresh()
         await asyncio.sleep(0.05)
 
         # Both controls are present; the segmented control is active and the
@@ -935,6 +936,8 @@ async def test_the_selector_switches_sets_without_persisting_or_submitting(
         assert "is-active" in _only(user, "separation-method-karaoke").classes
         assert _only(user, "separation-status").text == ("Vocals + Instrumental ready · Karaoke")
         assert _only(user, "separation-action-method").text == "Method: Karaoke"
+        assert "Vocals + Instrumental" in _only(user, f"track-meta-{track_id}").text
+        assert "4 stems" not in _only(user, f"track-meta-{track_id}").text
         assert _only(user, "separation-karaoke-fineprint").text == (
             "Karaoke removes the centre channel. Some bleed and a thinner mix are "
             "expected; Demucs gives the cleanest stems."
@@ -955,6 +958,7 @@ async def test_the_selector_switches_sets_without_persisting_or_submitting(
         assert "is-active" not in _only(user, "separation-method-karaoke").classes
         assert _only(user, "separation-status").text == ("4 stems + Instrumental ready · Demucs")
         assert _only(user, "separation-action-method").text == "Method: Demucs"
+        assert "4 stems" in _only(user, f"track-meta-{track_id}").text
         await user.should_not_see(marker="separation-karaoke-fineprint")
         await user.should_see(marker="output-row-vocals")
         await user.should_see(marker="output-row-instrumental")
@@ -1025,6 +1029,8 @@ async def test_installing_demucs_after_karaoke_stays_on_karaoke(tmp_path: Path) 
             assert _only(user, "separation-status").text == (
                 "Not separated · Karaoke · no model required"
             )
+            await user.should_see("Separate this track into Vocals and an Instrumental.")
+            await user.should_not_see("Separate this track into four Stems and an Instrumental.")
             await user.should_see(marker="separation-karaoke-fineprint")
 
             harness.models.install_bytes(PAYLOAD)
