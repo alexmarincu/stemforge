@@ -8,6 +8,7 @@ headless: the artifact store is real under ``tmp_path`` and no engine runs.
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -239,6 +240,41 @@ def test_re_separation_replaces_the_set_and_its_key(tmp_path: Path) -> None:
     assert second.set_key != first.set_key
     assert service.separation_preview_target(_track(), first.set_key, "vocals") is None
     assert service.separation_preview_target(_track(), second.set_key, "vocals") is not None
+
+
+@pytest.mark.unit
+def test_a_legacy_stems_set_is_listed_as_the_demucs_set(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    legacy = store.sources_dir / SOURCE_ID / "stems"
+    legacy.mkdir()
+    vocals = b"legacy-vocals"
+    preview = b"legacy-preview"
+    (legacy / "vocals.wav").write_bytes(vocals)
+    (legacy / "vocals_preview.mp3").write_bytes(preview)
+    (legacy / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "kind": "separation",
+                "source_id": SOURCE_ID,
+                "created_at": "2026-11-16T12:00:00+00:00",
+                "files": [
+                    _file_entry("vocals.wav", "vocals", vocals),
+                    _file_entry("vocals_preview.mp3", "vocals_preview", preview),
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    (item,) = service.separation_sets(_track())
+
+    assert item.method == "demucs"
+    assert item.output_roles == ("vocals", "instrumental", "drums", "bass", "other")
+    target = service.separation_preview_target(_track(), item.set_key, "vocals")
+    assert target is not None
+    assert target.url.endswith("/stems/vocals_preview.mp3")
 
 
 @pytest.mark.unit
