@@ -476,24 +476,31 @@ the rest. The UI shows the stage label and, for a YouTube import, the byte detai
 ### 6.5 Pitch Render
 
 A Render is an explicit action, not an automatic consequence of Separation. It reads
-either the original Track's canonical WAV or all four committed Stems.
+either the original Track's canonical WAV or the selected Separation method's committed
+set.
 
 - `scope=original` shifts the canonical master into one output.
-- `scope=stems` shifts each of vocals, drums, bass, and other, then sums drums + bass +
-  other in float32 to produce a shifted Instrumental.
+- `scope=stems` reads every stored output of the selected method. Demucs shifts its four
+  Stems and sums the shifted non-vocal Stems in float32 into the shifted Instrumental;
+  Karaoke shifts its stored Vocals and Instrumental directly, with no summation.
 - Semitones are integers in `-12..+12`, excluding zero. Rubber Band runs as
   `rubberband -3 -F -p <n> --ignore-clipping`, which selects R3, preserves formants, and
   keeps the relative level of the Stems. The engine validates the output before renaming
   its partial into place.
-- A Render set's identity (`render_key`) hashes the source id, the scope, the semitone
-  count, every input file hash, and the engine version/preset. A master Render can never
-  answer a stems request, and a changed input produces a new set.
+- A Render set's identity (`render_key`) hashes the source id, the scope, the method (for
+  stems), the semitone count, every input file hash, and the engine version/preset. A
+  master Render can never answer a stems request, two methods cannot collide at one
+  semitone, and a changed input produces a new set.
 - The set records one presentation gain, encodes one preview per output, writes its
-  manifest last, and reuses an existing set without staging another.
+  manifest last, and reuses an existing set without staging another. A stems manifest
+  records `separation_method` and `separation_set_key`; an original-scope manifest has
+  no method.
 
 Each Render set is an independent Artifact. Rendering +3 does not modify the +1 set, and
 a later Separation does not invalidate earlier Render sets; the UI marks a stems Render
-based on an earlier Separation as stale rather than deleting it.
+stale only when its own method's set is replaced. A Render written before methods existed
+is treated as Demucs. Tabs add a method label only when two methods would otherwise share
+one tab text.
 
 ### 6.6 Export
 
