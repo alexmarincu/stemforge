@@ -36,7 +36,7 @@ from stemforge.integration import shell
 from stemforge.integration.shell import SystemPathOpener
 from stemforge.jobs.job import JobContext
 from stemforge.models import ModelConsent, ModelStore
-from stemforge.pipeline import export_job, import_job, model_job
+from stemforge.pipeline import export_job, import_job, model_job, separation_job
 from stemforge.platform import preflight
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
@@ -223,6 +223,46 @@ def _worker_output_invalid(probe: Probe) -> str:
 def _protocol_mismatch(probe: Probe) -> str:
     del probe
     return separation._protocol_error(ProtocolError("bad line"), "", 0).code
+
+
+def _method_unsupported(probe: Probe) -> str:
+    artifacts = ArtifactStore(probe.paths)
+    source_id = "src-method-unsupported"
+    staging = artifacts.stage("catalogue-source")
+    canonical = staging / "canonical.wav"
+    data = b"canonical-audio"
+    canonical.write_bytes(data)
+    artifacts.commit_source(
+        staging,
+        source_id,
+        {
+            "schema_version": 1,
+            "kind": "source",
+            "source_id": source_id,
+            "created_at": datetime.now(UTC).isoformat(),
+            "original_channels": 1,
+            "stereo_layout": "mono",
+            "files": [
+                {
+                    "path": "canonical.wav",
+                    "role": "canonical",
+                    "size": len(data),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                }
+            ],
+        },
+    )
+    return _raised(
+        lambda: separation_job.run_separation_job(
+            _context(),
+            artifacts=artifacts,
+            engine=object(),  # type: ignore[arg-type]
+            media=object(),  # type: ignore[arg-type]
+            models=object(),  # type: ignore[arg-type]
+            source_id=source_id,
+            method="karaoke",
+        )
+    )
 
 
 def _pitch_engine_missing(probe: Probe) -> str:
@@ -447,6 +487,7 @@ TRIGGERS: dict[str, Callable[[Probe], str]] = {
     errors.SEPARATION_ENGINE_ERROR: _worker_engine_error,
     errors.SEPARATION_PROTOCOL_MISMATCH: _protocol_mismatch,
     errors.SEPARATION_OUTPUT_INVALID: _worker_output_invalid,
+    errors.SEPARATION_METHOD_UNSUPPORTED: _method_unsupported,
     errors.PITCH_ENGINE_MISSING: _pitch_engine_missing,
     errors.PITCH_RENDER_FAILED: _pitch_render_failed,
     errors.PITCH_OUTPUT_INVALID: _pitch_output_invalid,

@@ -430,6 +430,10 @@ COPY_BY_CODE: Final[Mapping[str, ErrorCopy]] = MappingProxyType(
             "Separation finished, but its output didn't pass StemForge's checks.",
             "Try again; if it keeps failing, open the job log.",
         ),
+        errors.SEPARATION_METHOD_UNSUPPORTED: ErrorCopy(
+            "Karaoke can't run on this track.",
+            "Select Demucs.",
+        ),
         errors.PITCH_ENGINE_MISSING: ErrorCopy(
             "The pitch-shift engine is missing.",
             "Reinstall StemForge.",
@@ -539,6 +543,14 @@ REASON_COPY: Final[Mapping[tuple[str, str], ErrorCopy]] = MappingProxyType(
         (errors.SEPARATION_MODEL_MISSING, "checksum"): ErrorCopy(
             "The separation model needs to be downloaded again.",
             "The cached copy didn't match its checksum. Download the model.",
+        ),
+        (errors.SEPARATION_METHOD_UNSUPPORTED, "mono"): ErrorCopy(
+            "Karaoke can't run on a mono track; its centre split would be silent.",
+            "Select Demucs.",
+        ),
+        (errors.SEPARATION_METHOD_UNSUPPORTED, "dual_mono"): ErrorCopy(
+            "Karaoke can't run on a dual-mono track; its channels are identical.",
+            "Select Demucs.",
         ),
         (errors.SEPARATION_MODEL_DOWNLOAD_FAILED, "offline"): ErrorCopy(
             "The model download failed.",
