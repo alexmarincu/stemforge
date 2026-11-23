@@ -80,18 +80,28 @@ def sanitize_base_name(name: str) -> str:
     return cleaned
 
 
-def suggest_base_name(title: str, *, role: str | None = None, semitones: int = 0) -> str:
+def suggest_base_name(
+    title: str,
+    *,
+    role: str | None = None,
+    semitones: int = 0,
+    method_label: str | None = None,
+) -> str:
     """Build the suggested export name, without an extension.
 
     ``title`` for the original; ``title - Vocals`` for an unshifted output;
     ``title +3st`` for a shifted original; ``title - Vocals +3st`` for a shifted
-    stem. The title is sanitized first and shortened so the complete base stays
-    within :data:`MAX_BASE_CHARS`; the role and semitone suffix is never cut.
+    stem. ``method_label`` qualifies the output with its Separation method when
+    the Source holds more than one set: ``title - Vocals (Karaoke) +3st``. The
+    title is sanitized first and shortened so the complete base stays within
+    :data:`MAX_BASE_CHARS`; the role, method, and semitone suffix is never cut.
     """
     suffix = ""
     if role is not None and role != "original":
         label = ROLE_LABELS.get(role, role.replace("_", " ").title())
         suffix += f" - {label}"
+        if method_label:
+            suffix += f" ({method_label})"
     if semitones:
         suffix += f" {semitones:+d}st"
 

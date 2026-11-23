@@ -501,15 +501,18 @@ Export copies one committed Artifact to a destination the user chooses. It never
 normalises, never invents a gain, and never writes over the source audio or an existing
 file.
 
-1. `WorkspaceService.export_targets` enumerates the master, the Separation outputs, and
-   every Render set, newest first. Each target carries its role, gain, semitones, scope,
-   and suggested Windows-safe base name.
+1. `WorkspaceService.export_targets` enumerates the master, the selected Separation
+   method's set (keyed `separation:<method>:<role>`), and every Render set from every
+   method, newest first. Legacy `stem:<role>` and `instrumental` keys still resolve to
+   Demucs. Each target carries its role, gain, semitones, scope, Separation provenance,
+   and suggested Windows-safe base name; the method qualifies that name only when the
+   Source holds more than one Separation set.
 2. The native save dialog returns an absolute path; `NativeSaveDialog` repairs a known
    audio extension to the selected format but never reinterprets a wrong extension as a
    format request.
-3. The Job re-resolves the target against the current manifests with hash verification,
-   probes its duration, checks free space against the WAV-24 worst case, and requires the
-   destination directory to exist and be writable.
+3. The Job re-resolves the target and its key's method against the current manifests with
+   hash verification, probes its duration, checks free space against the WAV-24 worst
+   case, and requires the destination directory to exist and be writable.
 4. FFmpeg encodes into `staging/<job_id>/export.<ext>` as WAV 24, FLAC 24, or MP3 320.
    Tags and cover art come from the Source record; WAV carries only the INFO subset that
    FFmpeg persists.
@@ -518,8 +521,10 @@ file.
    partial; a hard crash is the one documented exception.
 
 The result carries the path, format, size, SHA-256, metadata, cover, and the manifest
-that was logged. The UI shows success or the coded failure; it never reads the cache
-store directly.
+that was logged. That manifest records the target key, role, scope, Separation method
+and set key, render key, and semitones, so a file's provenance survives outside the
+cache. The UI shows success or the coded failure; it never reads the cache store
+directly.
 
 ### 6.7 Cancellation and shutdown
 

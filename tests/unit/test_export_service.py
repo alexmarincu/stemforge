@@ -37,6 +37,8 @@ LOG = logging.getLogger("test.export-service")
 
 SOURCE_ID = "src-export"
 TITLE = "Song"
+DEMUCS_ROLES = ("vocals", "instrumental", "drums", "bass", "other")
+KARAOKE_ROLES = ("vocals", "instrumental")
 
 
 def _entry(path: Path, role: str) -> dict[str, object]:
@@ -84,12 +86,18 @@ def _commit_source(
     return SOURCE_ID
 
 
-def _commit_separation(store: ArtifactStore, *, gain_db: float = -2.0) -> None:
-    staging = store.stage("separation-job")
+def _commit_separation(
+    store: ArtifactStore,
+    *,
+    method: str = "demucs",
+    gain_db: float = -2.0,
+) -> None:
+    roles = KARAOKE_ROLES if method == "karaoke" else DEMUCS_ROLES
+    staging = store.stage(f"separation-job-{method}")
     files = []
-    for role in ("vocals", "drums", "bass", "other", "instrumental"):
+    for role in roles:
         path = staging / f"{role}.wav"
-        path.write_bytes(f"fake {role}".encode())
+        path.write_bytes(f"fake {method} {role}".encode())
         files.append(_entry(path, role))
     store.commit_separation(
         staging,
@@ -102,6 +110,7 @@ def _commit_separation(store: ArtifactStore, *, gain_db: float = -2.0) -> None:
             "gain_db": gain_db,
             "files": files,
         },
+        method=method,
     )
 
 
@@ -114,28 +123,31 @@ def _commit_render(
     roles: tuple[str, ...],
     gain_db: float,
     minute: int,
+    separation_method: str | None = None,
+    separation_set_key: str | None = None,
 ) -> str:
     staging = store.stage(f"render-job-{key}")
     files = []
     for role in roles:
         path = staging / f"{role}.wav"
-        path.write_bytes(f"fake render {role}".encode())
+        path.write_bytes(f"fake render {key} {role}".encode())
         files.append(_entry(path, role))
-    store.commit_render(
-        staging,
-        key,
-        {
-            "schema_version": 1,
-            "kind": "render",
-            "source_id": SOURCE_ID,
-            "render_key": key,
-            "created_at": datetime(2026, 11, 16, 10, minute, tzinfo=UTC).isoformat(),
-            "scope": scope,
-            "semitones": semitones,
-            "gain_db": gain_db,
-            "files": files,
-        },
-    )
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "kind": "render",
+        "source_id": SOURCE_ID,
+        "render_key": key,
+        "created_at": datetime(2026, 11, 16, 10, minute, tzinfo=UTC).isoformat(),
+        "scope": scope,
+        "semitones": semitones,
+        "gain_db": gain_db,
+        "files": files,
+    }
+    if separation_method is not None:
+        manifest["separation_method"] = separation_method
+    if separation_set_key is not None:
+        manifest["separation_set_key"] = separation_set_key
+    store.commit_render(staging, key, manifest)
     return key
 
 
@@ -225,17 +237,14 @@ def test_export_targets_adds_unshifted_stems_and_the_instrumental(tmp_path: Path
 
     assert [target.key for target in targets] == [
         "master",
-        "stem:vocals",
-        "stem:drums",
-        "stem:bass",
-        "stem:other",
-        "instrumental",
+        *(f"separation:demucs:{role}" for role in DEMUCS_ROLES),
     ]
     stems = {target.key: target for target in targets}
-    assert stems["stem:vocals"].label == "Vocals"
-    assert stems["stem:vocals"].base_name == f"{TITLE} - Vocals"
-    assert stems["instrumental"].base_name == f"{TITLE} - Instrumental"
-    assert stems["instrumental"].gain_db == pytest.approx(-2.0)
+    assert stems["separation:demucs:vocals"].label == "Vocals"
+    assert stems["separation:demucs:vocals"].base_name == f"{TITLE} - Vocals"
+    assert stems["separation:demucs:instrumental"].base_name == f"{TITLE} - Instrumental"
+    assert stems["separation:demucs:instrumental"].gain_db == pytest.approx(-2.0)
+    assert stems["separation:demucs:vocals"].separation_method == "demucs"
 
 
 def test_the_instrumental_is_an_output_not_a_stem_key(tmp_path: Path) -> None:
@@ -246,9 +255,165 @@ def test_the_instrumental_is_an_output_not_a_stem_key(tmp_path: Path) -> None:
 
     by_key = {target.key: target for target in service.export_targets(track)}
 
-    assert by_key["instrumental"].role == "instrumental"
-    assert resolve_export_target(store, source_id=SOURCE_ID, key="instrumental") is not None
+    assert by_key["separation:demucs:instrumental"].role == "instrumental"
+    assert (
+        resolve_export_target(store, source_id=SOURCE_ID, key="separation:demucs:instrumental")
+        is not None
+    )
+    assert (
+        resolve_export_target(store, source_id=SOURCE_ID, key="separation:demucs:original") is None
+    )
     assert resolve_export_target(store, source_id=SOURCE_ID, key="stem:instrumental") is None
+
+
+def test_separation_keys_name_the_method_and_legacy_keys_resolve_as_demucs(
+    tmp_path: Path,
+) -> None:
+    service, store, _, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, method="demucs", gain_db=-2.0)
+    _commit_separation(store, method="karaoke", gain_db=-4.0)
+    track = _add_track(store, workspace)
+
+    demucs = resolve_export_target(store, source_id=SOURCE_ID, key="separation:demucs:vocals")
+    karaoke = resolve_export_target(store, source_id=SOURCE_ID, key="separation:karaoke:vocals")
+
+    assert demucs is not None
+    assert karaoke is not None
+    assert demucs.separation_method == "demucs"
+    assert karaoke.separation_method == "karaoke"
+    assert demucs.path.read_bytes() == b"fake demucs vocals"
+    assert karaoke.path.read_bytes() == b"fake karaoke vocals"
+    sets = {item.method: item.set_key for item in service.separation_sets(track)}
+    assert demucs.set_key == sets["demucs"]
+    assert karaoke.set_key == sets["karaoke"]
+    assert demucs.set_key != karaoke.set_key
+
+    assert resolve_export_target(store, source_id=SOURCE_ID, key="separation:karaoke:drums") is None
+    assert (
+        resolve_export_target(store, source_id=SOURCE_ID, key="separation:unknown:vocals") is None
+    )
+    assert resolve_export_target(store, source_id=SOURCE_ID, key="separation:demucs") is None
+    assert (
+        resolve_export_target(store, source_id=SOURCE_ID, key="separation:demucs:vocals:extra")
+        is None
+    )
+
+    legacy_stem = resolve_export_target(store, source_id=SOURCE_ID, key="stem:vocals")
+    legacy_instrumental = resolve_export_target(store, source_id=SOURCE_ID, key="instrumental")
+    assert legacy_stem is not None
+    assert legacy_instrumental is not None
+    assert legacy_stem.separation_method == "demucs"
+    assert legacy_stem.path.read_bytes() == b"fake demucs vocals"
+    assert legacy_instrumental.role == "instrumental"
+    assert legacy_instrumental.path.read_bytes() == b"fake demucs instrumental"
+
+
+def test_export_targets_list_only_the_selected_methods_separation_set(tmp_path: Path) -> None:
+    service, store, _, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, method="demucs")
+    _commit_separation(store, method="karaoke")
+    track = _add_track(store, workspace)
+
+    service.select_separation_method(track, "karaoke")
+    karaoke = [target for target in service.export_targets(track) if target.scope == "separation"]
+    assert [target.key for target in karaoke] == [
+        "separation:karaoke:vocals",
+        "separation:karaoke:instrumental",
+    ]
+    assert {target.separation_method for target in karaoke} == {"karaoke"}
+    assert all(target.path.read_bytes().startswith(b"fake karaoke") for target in karaoke)
+
+    service.select_separation_method(track, "demucs")
+    demucs = [target for target in service.export_targets(track) if target.scope == "separation"]
+    assert [target.key for target in demucs] == [
+        *(f"separation:demucs:{role}" for role in DEMUCS_ROLES)
+    ]
+    assert {target.separation_method for target in demucs} == {"demucs"}
+    assert all(target.path.read_bytes().startswith(b"fake demucs") for target in demucs)
+
+
+def test_another_methods_render_sets_stay_listed_with_collision_only_qualifiers(
+    tmp_path: Path,
+) -> None:
+    service, store, _, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, method="demucs")
+    _commit_separation(store, method="karaoke")
+    demucs_render = _commit_render(
+        store,
+        "render-demucs-stems",
+        scope="stems",
+        semitones=-2,
+        roles=DEMUCS_ROLES,
+        gain_db=-3.0,
+        minute=1,
+    )
+    karaoke_render = _commit_render(
+        store,
+        "render-karaoke-stems",
+        scope="stems",
+        semitones=-2,
+        roles=KARAOKE_ROLES,
+        gain_db=-4.0,
+        minute=2,
+        separation_method="karaoke",
+    )
+    original_render = _commit_render(
+        store,
+        "render-original",
+        scope="original",
+        semitones=3,
+        roles=("original",),
+        gain_db=-1.0,
+        minute=3,
+    )
+    track = _add_track(store, workspace)
+    service.select_separation_method(track, "karaoke")
+
+    targets = service.export_targets(track)
+    by_key = {target.key: target for target in targets}
+
+    assert "separation:karaoke:vocals" in by_key
+    assert not any(key.startswith("separation:demucs") for key in by_key)
+    assert f"render:{demucs_render}:drums" in by_key
+    assert f"render:{karaoke_render}:vocals" in by_key
+    assert f"render:{original_render}:original" in by_key
+
+    assert by_key[f"render:{demucs_render}:vocals"].separation_method == "demucs"
+    assert by_key[f"render:{karaoke_render}:vocals"].separation_method == "karaoke"
+    assert by_key[f"render:{demucs_render}:vocals"].label == "Vocals -2 st (Demucs)"
+    assert by_key[f"render:{karaoke_render}:vocals"].label == "Vocals -2 st (Karaoke)"
+    assert by_key[f"render:{demucs_render}:drums"].label == "Drums -2 st"
+    labels = [target.label for target in targets]
+    assert len(labels) == len(set(labels))
+
+    assert by_key[f"render:{demucs_render}:vocals"].base_name == (f"{TITLE} - Vocals (Demucs) -2st")
+    assert by_key[f"render:{karaoke_render}:vocals"].base_name == (
+        f"{TITLE} - Vocals (Karaoke) -2st"
+    )
+    assert by_key[f"render:{original_render}:original"].base_name == f"{TITLE} +3st"
+    assert by_key["separation:karaoke:vocals"].base_name == f"{TITLE} - Vocals (Karaoke)"
+    assert by_key["separation:karaoke:instrumental"].base_name == (
+        f"{TITLE} - Instrumental (Karaoke)"
+    )
+
+
+@pytest.mark.parametrize("method", ["demucs", "karaoke"])
+def test_one_separation_set_keeps_unqualified_labels_and_names(tmp_path: Path, method: str) -> None:
+    service, store, _, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, method=method)
+    track = _add_track(store, workspace)
+
+    targets = service.export_targets(track)
+
+    assert all("(" not in target.label for target in targets)
+    assert all("(" not in target.base_name for target in targets)
+    vocals = next(target for target in targets if target.key == f"separation:{method}:vocals")
+    assert vocals.label == "Vocals"
+    assert vocals.base_name == f"{TITLE} - Vocals"
 
 
 def test_export_targets_adds_every_member_of_a_pitch_set(tmp_path: Path) -> None:
@@ -294,10 +459,10 @@ def test_export_targets_adds_every_member_of_a_pitch_set(tmp_path: Path) -> None
     render_keys = [target.key for target in targets if target.key.startswith("render:")]
     assert render_keys[:5] == [
         "render:render-stems:vocals",
+        "render:render-stems:instrumental",
         "render:render-stems:drums",
         "render:render-stems:bass",
         "render:render-stems:other",
-        "render:render-stems:instrumental",
     ]
 
 
@@ -333,6 +498,8 @@ def test_resolve_export_target_refuses_a_role_that_the_set_does_not_have(
     track = _add_track(store, workspace)
 
     assert resolve_export_target(store, source_id=SOURCE_ID, key="stem:vocals") is None
+    assert resolve_export_target(store, source_id=SOURCE_ID, key="instrumental") is None
+    assert resolve_export_target(store, source_id=SOURCE_ID, key="separation:demucs:vocals") is None
     assert service.export_targets(track)[0].key == "master"
 
 
@@ -374,6 +541,40 @@ def test_submit_export_accepts_a_target_key_and_string_format(tmp_path: Path) ->
 
     assert runner.submitted[0].identity[2] == "master"
     assert runner.submitted[0].identity[3] == "mp3_320"
+
+
+def test_submit_export_queues_the_method_scoped_key_for_the_selected_set(
+    tmp_path: Path,
+) -> None:
+    service, store, runner, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, method="demucs")
+    _commit_separation(store, method="karaoke")
+    track = _add_track(store, workspace)
+    service.select_separation_method(track, "karaoke")
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    service.submit_export(track, "separation:karaoke:vocals", ExportFormat.FLAC24, destination)
+
+    assert runner.submitted[0].identity[2] == "separation:karaoke:vocals"
+
+
+def test_preview_export_uses_the_method_qualified_name_when_two_sets_exist(
+    tmp_path: Path,
+) -> None:
+    service, store, _, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, method="demucs")
+    _commit_separation(store, method="karaoke")
+    track = _add_track(store, workspace)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    preview = service.preview_export(track, "separation:karaoke:vocals", "wav24", destination)
+
+    assert preview == destination / f"{TITLE} - Vocals (Karaoke).wav"
+    assert not preview.exists()
 
 
 def test_submit_export_carries_the_dialog_chosen_name(tmp_path: Path) -> None:

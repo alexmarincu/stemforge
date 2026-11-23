@@ -22,8 +22,8 @@ import errno
 import hashlib
 import json
 import os
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final
 from uuid import uuid4
@@ -37,8 +37,9 @@ from stemforge.artifacts import (
     require_free_space,
 )
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.methods import DEFAULT_METHOD_ID, SeparationMethod, method_by_id
 from stemforge.domain.models import RenderScope
-from stemforge.domain.roles import INSTRUMENTAL_ROLE, OUTPUT_ROLES, STEM_ROLES
+from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
 from stemforge.engines.media import (
     EXPORT_TAG_FIELDS,
     WAV_TAG_FIELDS,
@@ -83,7 +84,12 @@ _ProgressSink = Callable[[float, str, str], None]
 
 @dataclass(frozen=True, slots=True)
 class ExportTarget:
-    """One selectable artifact for Export, already resolved for the UI."""
+    """One selectable artifact for Export, already resolved for the UI.
+
+    ``separation_method`` and ``set_key`` record where a Separation-derived
+    target came from; ``method_label`` qualifies the suggested filename only
+    when the Source holds more than one Separation set.
+    """
 
     source_id: str
     key: str
@@ -95,11 +101,19 @@ class ExportTarget:
     scope: str
     render_key: str | None
     title: str
+    separation_method: str | None = None
+    set_key: str | None = None
+    method_label: str | None = None
 
     @property
     def base_name(self) -> str:
         """The suggested filename, without an extension."""
-        return suggest_base_name(self.title, role=self.role, semitones=self.semitones)
+        return suggest_base_name(
+            self.title,
+            role=self.role,
+            semitones=self.semitones,
+            method_label=self.method_label,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,32 +138,36 @@ def export_targets(
     *,
     source_id: str,
     title: str | None = None,
+    separation_method: str = DEFAULT_METHOD_ID,
 ) -> tuple[ExportTarget, ...]:
     """Every existing, valid selection for one Source, in display order.
 
-    The master is first, then the unshifted Stems and Instrumental, then pitch
-    render sets newest-first (their original or each shifted member). A missing
-    or invalid manifest and a missing file simply omit that target.
+    The master is first, then the selected method's Separation set, then pitch
+    render sets from every method newest-first. A missing or invalid manifest
+    and a missing file simply omit that target.
     """
     source = artifacts.find_source(source_id)
     if source is None:
         return ()
     resolved_title = title or _record_title(source.manifest, source_id)
+    qualify_method = _has_multiple_separation_sets(artifacts, source_id)
 
     targets: list[ExportTarget] = []
     master = _master_target(source, resolved_title)
     if master is not None:
         targets.append(master)
-    separation = artifacts.find_separation(source_id)
+    separation = artifacts.find_separation(source_id, method=separation_method)
     if separation is not None:
-        targets.extend(_separation_targets(separation, resolved_title))
+        targets.extend(
+            _separation_targets(separation, resolved_title, qualify_method=qualify_method)
+        )
     for render in sorted(
         (item for item in artifacts.iter_renders() if item.source_id == source_id),
         key=lambda item: item.created_at,
         reverse=True,
     ):
-        targets.extend(_render_targets(render, resolved_title))
-    return tuple(targets)
+        targets.extend(_render_targets(render, resolved_title, qualify_method=qualify_method))
+    return _qualify_colliding_labels(targets)
 
 
 def resolve_export_target(
@@ -165,19 +183,29 @@ def resolve_export_target(
     A Job calls this again when it runs, so a queued Export follows the current
     committed set and never trusts a path that was deleted in the meantime.
     ``verify_hashes=True`` is the Job's deep verification of the file it is about
-    to encode; the UI's enumeration stays metadata-only.
+    to encode; the UI's enumeration stays metadata-only. Separation keys name
+    their method, while the legacy ``stem:<role>`` and ``instrumental`` keys
+    resolve against the Demucs set.
     """
     source = artifacts.find_source(source_id, verify_hashes=verify_hashes)
     if source is None:
         return None
     resolved_title = title or _record_title(source.manifest, source_id)
+    qualify_method = _has_multiple_separation_sets(artifacts, source_id)
 
     if key == "master":
         return _master_target(source, resolved_title)
     if key == INSTRUMENTAL_ROLE:
-        separation = artifacts.find_separation(source_id, verify_hashes=verify_hashes)
+        separation = artifacts.find_separation(
+            source_id, method=DEFAULT_METHOD_ID, verify_hashes=verify_hashes
+        )
         return (
-            _separation_target(separation, INSTRUMENTAL_ROLE, resolved_title)
+            _separation_target(
+                separation,
+                INSTRUMENTAL_ROLE,
+                resolved_title,
+                qualify_method=qualify_method,
+            )
             if separation is not None
             else None
         )
@@ -185,9 +213,34 @@ def resolve_export_target(
         role = key.removeprefix("stem:")
         if role not in STEM_ROLES:
             return None
-        separation = artifacts.find_separation(source_id, verify_hashes=verify_hashes)
+        separation = artifacts.find_separation(
+            source_id, method=DEFAULT_METHOD_ID, verify_hashes=verify_hashes
+        )
         return (
-            _separation_target(separation, role, resolved_title) if separation is not None else None
+            _separation_target(
+                separation,
+                role,
+                resolved_title,
+                qualify_method=qualify_method,
+            )
+            if separation is not None
+            else None
+        )
+    if key.startswith("separation:"):
+        parts = key.split(":")
+        if len(parts) != 3:
+            return None
+        _, method, role = parts
+        separation = artifacts.find_separation(
+            source_id, method=method, verify_hashes=verify_hashes
+        )
+        if separation is None:
+            return None
+        return _separation_target(
+            separation,
+            role,
+            resolved_title,
+            qualify_method=qualify_method,
         )
     if key.startswith("render:"):
         parts = key.split(":")
@@ -197,7 +250,18 @@ def resolve_export_target(
         render = artifacts.find_render(render_key, verify_hashes=verify_hashes)
         if render is None or render.source_id != source_id:
             return None
-        return _render_target(render, role, resolved_title)
+        scope = _render_scope(render)
+        if scope is None:
+            return None
+        descriptor = _render_separation_method(render, scope)
+        return _render_target(
+            render,
+            role,
+            resolved_title,
+            scope=scope,
+            descriptor=descriptor,
+            qualify_method=qualify_method,
+        )
     return None
 
 
@@ -373,24 +437,44 @@ def _master_target(source: SourceArtifact, title: str) -> ExportTarget | None:
     )
 
 
-def _separation_targets(separation: SeparationArtifact, title: str) -> tuple[ExportTarget, ...]:
+def _separation_targets(
+    separation: SeparationArtifact,
+    title: str,
+    *,
+    qualify_method: bool,
+) -> tuple[ExportTarget, ...]:
+    descriptor = method_by_id(separation.method)
+    if descriptor is None:
+        return ()
     targets: list[ExportTarget] = []
-    for role in (*STEM_ROLES, INSTRUMENTAL_ROLE):
-        target = _separation_target(separation, role, title)
+    for role in descriptor.output_roles:
+        target = _separation_target(
+            separation,
+            role,
+            title,
+            qualify_method=qualify_method,
+        )
         if target is not None:
             targets.append(target)
     return tuple(targets)
 
 
 def _separation_target(
-    separation: SeparationArtifact, role: str, title: str
+    separation: SeparationArtifact,
+    role: str,
+    title: str,
+    *,
+    qualify_method: bool,
 ) -> ExportTarget | None:
+    descriptor = method_by_id(separation.method)
+    if descriptor is None or role not in descriptor.output_roles:
+        return None
     path = separation.path_for(role)
     if path is None:
         return None
     return ExportTarget(
         source_id=separation.source_id,
-        key=(INSTRUMENTAL_ROLE if role == INSTRUMENTAL_ROLE else f"stem:{role}"),
+        key=f"separation:{descriptor.id}:{role}",
         label=ROLE_LABELS[role],
         role=role,
         path=path,
@@ -399,33 +483,59 @@ def _separation_target(
         scope="separation",
         render_key=None,
         title=title,
+        separation_method=descriptor.id,
+        set_key=separation.set_key,
+        method_label=descriptor.label if qualify_method else None,
     )
 
 
-def _render_targets(render: RenderArtifact, title: str) -> tuple[ExportTarget, ...]:
+def _render_targets(
+    render: RenderArtifact,
+    title: str,
+    *,
+    qualify_method: bool,
+) -> tuple[ExportTarget, ...]:
     scope = _render_scope(render)
-    roles: tuple[str, ...]
+    if scope is None:
+        return ()
     if scope is RenderScope.ORIGINAL:
-        roles = (ORIGINAL_ROLE,)
+        descriptor = None
+        roles: tuple[str, ...] = (ORIGINAL_ROLE,)
     elif scope is RenderScope.STEMS:
-        roles = OUTPUT_ROLES
+        descriptor = _render_separation_method(render, scope)
+        if descriptor is None:
+            return ()
+        roles = descriptor.output_roles
     else:
         return ()
     targets: list[ExportTarget] = []
     for role in roles:
-        target = _render_target(render, role, title)
+        target = _render_target(
+            render,
+            role,
+            title,
+            scope=scope,
+            descriptor=descriptor,
+            qualify_method=qualify_method,
+        )
         if target is not None:
             targets.append(target)
     return tuple(targets)
 
 
-def _render_target(render: RenderArtifact, role: str, title: str) -> ExportTarget | None:
-    scope = _render_scope(render)
-    if scope is None:
-        return None
-    if scope is RenderScope.ORIGINAL and role != ORIGINAL_ROLE:
-        return None
-    if scope is RenderScope.STEMS and role not in OUTPUT_ROLES:
+def _render_target(
+    render: RenderArtifact,
+    role: str,
+    title: str,
+    *,
+    scope: RenderScope,
+    descriptor: SeparationMethod | None,
+    qualify_method: bool,
+) -> ExportTarget | None:
+    if scope is RenderScope.ORIGINAL:
+        if role != ORIGINAL_ROLE:
+            return None
+    elif descriptor is None or role not in descriptor.output_roles:
         return None
     path = render.path_for(role)
     if path is None:
@@ -444,6 +554,9 @@ def _render_target(render: RenderArtifact, role: str, title: str) -> ExportTarge
         scope=scope.value,
         render_key=render.render_key,
         title=title,
+        separation_method=descriptor.id if descriptor is not None else None,
+        set_key=_recorded_set_key(render) if descriptor is not None else None,
+        method_label=(descriptor.label if descriptor is not None and qualify_method else None),
     )
 
 
@@ -453,6 +566,57 @@ def _render_scope(render: RenderArtifact) -> RenderScope | None:
         return RenderScope(value) if isinstance(value, str) else None
     except ValueError:
         return None
+
+
+def _render_separation_method(
+    render: RenderArtifact, scope: RenderScope
+) -> SeparationMethod | None:
+    """The method a stems Render set came from; a legacy set is Demucs."""
+    if scope is not RenderScope.STEMS:
+        return None
+    recorded = render.manifest.get("separation_method", DEFAULT_METHOD_ID)
+    if recorded is None:
+        recorded = DEFAULT_METHOD_ID
+    if not isinstance(recorded, str):
+        return None
+    return method_by_id(recorded)
+
+
+def _recorded_set_key(render: RenderArtifact) -> str | None:
+    value = render.manifest.get("separation_set_key")
+    return value if isinstance(value, str) and value else None
+
+
+def _has_multiple_separation_sets(artifacts: ArtifactStore, source_id: str) -> bool:
+    return len(artifacts.separation_sets(source_id)) > 1
+
+
+def _qualify_colliding_labels(targets: Sequence[ExportTarget]) -> tuple[ExportTarget, ...]:
+    """Append the method label only where two methods' labels truly collide."""
+    groups: dict[str, list[ExportTarget]] = {}
+    for target in targets:
+        groups.setdefault(target.label, []).append(target)
+    colliding = {
+        label
+        for label, group in groups.items()
+        if len(group) > 1 and len({target.separation_method for target in group}) > 1
+    }
+    if not colliding:
+        return tuple(targets)
+    return tuple(
+        replace(
+            target,
+            label=f"{target.label} ({_method_label(target.separation_method)})",
+        )
+        if target.label in colliding and target.separation_method is not None
+        else target
+        for target in targets
+    )
+
+
+def _method_label(method_id: str | None) -> str:
+    descriptor = method_by_id(method_id) if method_id is not None else None
+    return descriptor.label if descriptor is not None else ""
 
 
 # ---------------------------------------------------------------------------
@@ -652,6 +816,8 @@ def _manifest(
         "target": target.key,
         "role": target.role,
         "scope": target.scope,
+        "separation_method": target.separation_method,
+        "separation_set_key": target.set_key,
         "render_key": target.render_key,
         "semitones": target.semitones,
         "format": fmt.value,

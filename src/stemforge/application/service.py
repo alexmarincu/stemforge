@@ -403,8 +403,18 @@ class WorkspaceService:
         self._export.remember_export_dir(directory)
 
     def export_targets(self, track: Track | str) -> tuple[ExportTarget, ...]:
-        """Every existing, valid export selection for one Track."""
-        return self._export.export_targets(track)
+        """Every existing, valid export selection for one Track.
+
+        The Track's selected Separation method decides which set is offered;
+        every committed Render set stays listed regardless of its method.
+        """
+        found = self._state.find(track.track_id if isinstance(track, Track) else str(track))
+        if found is None:
+            return ()
+        return self._export.export_targets(
+            found,
+            separation_method=self._separation.separation_method(found),
+        )
 
     def submit_export(
         self,
