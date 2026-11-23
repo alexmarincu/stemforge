@@ -34,7 +34,12 @@ from stemforge.ui.components.diagnostics import (
 from stemforge.ui.failure import JobFailure
 
 if TYPE_CHECKING:
-    from stemforge.application import JobView, SeparationMethodView, WorkspaceService
+    from stemforge.application import (
+        JobView,
+        SeparationAvailability,
+        SeparationMethodView,
+        WorkspaceService,
+    )
 
 JobStarted = Callable[[str, str, str | None], None]
 CancelJob = Callable[[], None]
@@ -87,7 +92,17 @@ class SeparationCard:
     def build(self, track: Track, *, busy: bool) -> None:
         self._current_track_id = track.track_id
         methods = self._service.separation_methods()
+        availability = self._service.separation_availability(track)
         selected_method = self._selected_method(track, methods)
+        selected_status = next(
+            (item for item in availability if item.method == selected_method.id),
+            None,
+        )
+        unavailable_reason = (
+            selected_status.reason
+            if selected_status is not None and not selected_status.available
+            else None
+        )
         selected = self._service.selected_separation_set(track)
         status = self._service.model_status()
         failure = self._failures.get(track.track_id)
@@ -109,8 +124,10 @@ class SeparationCard:
         offer_demucs = not selected_method.requires_model and not status.installed
         with ui.element("section").classes("sf-card").mark("separation-card"):
             ui.label(formatting.SEPARATION_TITLE).classes("sf-card-title")
-            self._method_control(track, methods, selected_method)
+            self._method_control(track, methods, selected_method, availability)
             self._method_requirement(selected_method)
+            if unavailable_reason is not None:
+                self._method_unavailable(track, unavailable_reason)
             if gate_visible:
                 self._gate(busy=busy, checksum_failure=checksum_failure)
             elif offer_demucs:
@@ -129,7 +146,7 @@ class SeparationCard:
                     ui.label(self._last_success_copy(selected.method)).classes("sf-fineprint").mark(
                         "separation-last-success"
                     )
-                if not gate_visible:
+                if not gate_visible and unavailable_reason is None:
                     self._primary(
                         track,
                         busy,
@@ -141,7 +158,7 @@ class SeparationCard:
                     "sf-separation-status"
                 ).mark("separation-status")
                 ui.label(self._not_separated_hint(selected_method.id)).classes("sf-fineprint")
-                if not gate_visible:
+                if not gate_visible and unavailable_reason is None:
                     self._primary(
                         track,
                         busy,
@@ -149,7 +166,7 @@ class SeparationCard:
                         label=formatting.SEPARATION_ACTION,
                     )
             self._error(track, busy)
-            if selected_method.id == "karaoke":
+            if selected_method.id == "karaoke" and unavailable_reason is None:
                 ui.label(formatting.SEPARATION_KARAOKE_FINEPRINT).classes("sf-fineprint").mark(
                     "separation-karaoke-fineprint"
                 )
@@ -170,14 +187,16 @@ class SeparationCard:
         track: Track,
         methods: tuple[SeparationMethodView, ...],
         selected: SeparationMethodView,
+        availability: tuple[SeparationAvailability, ...],
     ) -> None:
+        unavailable = {item.method for item in availability if not item.available}
         with ui.element("div").classes("sf-method").mark("separation-method-picker"):
             with ui.element("div").classes("sf-method-switch").mark("separation-method-control"):
                 for method in methods:
                     classes = "sf-method-option sf-control"
                     if method.id == selected.id:
                         classes += " is-active"
-                    (
+                    button = (
                         ui.button(
                             method.label,
                             on_click=lambda _=None, item=method.id: self._choose_method(
@@ -189,12 +208,29 @@ class SeparationCard:
                         .classes(classes)
                         .mark("separation-method", f"separation-method-{method.id}")
                     )
+                    if method.id in unavailable:
+                        button.set_enabled(False)
             ui.select(
                 options={method.id: method.label for method in methods},
                 value=selected.id,
                 on_change=lambda event: self._choose_method(track, str(event.value)),
             ).props("dense outlined options-dense").classes("sf-method-fallback").mark(
                 "separation-method-select"
+            )
+
+    def _method_unavailable(self, track: Track, reason: str) -> None:
+        with ui.element("div").classes("sf-notice"):
+            ui.label(formatting.separation_unavailable_copy(reason)).classes(
+                "sf-notice-action"
+            ).mark("separation-method-unavailable")
+            (
+                ui.button(
+                    formatting.SEPARATION_METHOD_USE_DEMUCS,
+                    on_click=lambda _=None: self._choose_method(track, "demucs"),
+                    color=None,
+                )
+                .props("flat no-caps size=sm")
+                .mark("separation-use-demucs")
             )
 
     @staticmethod
@@ -445,6 +481,16 @@ class SeparationCard:
                 clipboard=self._clipboard,
                 open_path=self._open_path,
             )
+            if failure.code == errors.SEPARATION_METHOD_UNSUPPORTED:
+                (
+                    ui.button(
+                        formatting.SEPARATION_METHOD_USE_DEMUCS,
+                        on_click=lambda _=None: self._choose_method(track, "demucs"),
+                        color=None,
+                    )
+                    .props("flat no-caps size=sm")
+                    .mark("separation-use-demucs")
+                )
             if failure.retryable:
                 retry = (
                     ui.button(
@@ -518,6 +564,17 @@ class SeparationCard:
 
     def _submit(self, track: Track, method: str | None = None) -> None:
         requested = method or self._service.separation_method(track)
+        availability = next(
+            (
+                item
+                for item in self._service.separation_availability(track)
+                if item.method == requested
+            ),
+            None,
+        )
+        if availability is not None and not availability.available:
+            self.build.refresh()
+            return
         self._requested_methods[track.track_id] = requested
         try:
             job_id = self._service.separate(track, method)

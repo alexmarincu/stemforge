@@ -262,6 +262,12 @@ SEPARATION_METHOD_MODEL_REQUIRED: Final = "Needs the Demucs model."
 SEPARATION_METHOD_NO_MODEL: Final = "No model or network needed."
 SEPARATION_DEMUCS_NOT_INSTALLED: Final = "Demucs is not installed."
 SEPARATION_DEMUCS_CHOOSE: Final = "Choose Demucs"
+SEPARATION_METHOD_USE_DEMUCS: Final = "Use Demucs"
+SEPARATION_METHOD_UNAVAILABLE_MONO: Final = "Karaoke needs a stereo track; this one is mono."
+SEPARATION_METHOD_UNAVAILABLE_DUAL_MONO: Final = (
+    "Karaoke needs a stereo track; this one's channels are identical."
+)
+SEPARATION_METHOD_UNAVAILABLE_DEFAULT: Final = "Karaoke needs a stereo track."
 SEPARATION_NOT_SEPARATED: Final = "Not separated · Demucs · CPU"
 SEPARATION_NOT_SEPARATED_HINT: Final = "Separate this track into four Stems and an Instrumental."
 SEPARATION_NOT_SEPARATED_KARAOKE: Final = "Not separated · Karaoke · no model required"
@@ -592,6 +598,15 @@ REASON_COPY: Final[Mapping[tuple[str, str], ErrorCopy]] = MappingProxyType(
         ),
     }
 )
+
+
+def separation_unavailable_copy(reason: str | None) -> str:
+    """The inline reason a stereo-only method cannot run on this Source."""
+    if reason == "mono":
+        return SEPARATION_METHOD_UNAVAILABLE_MONO
+    if reason == "dual_mono":
+        return SEPARATION_METHOD_UNAVAILABLE_DUAL_MONO
+    return SEPARATION_METHOD_UNAVAILABLE_DEFAULT
 
 
 def model_licence_copy(spec: ModelSpec) -> ModelLicenceCopy:
