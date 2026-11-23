@@ -674,6 +674,30 @@ def test_auto_without_the_model_chooses_karaoke_and_never_latches(tmp_path: Path
 
 
 @pytest.mark.unit
+def test_auto_selection_never_latches_but_an_explicit_demucs_request_does(
+    tmp_path: Path,
+) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    models = ModelStore(paths, spec=_tiny_spec())
+    models.install_bytes(PAYLOAD)
+    service, store = _service(tmp_path, models=models)
+    _commit_source(store)
+    track = _track()
+    assert service.separation_method(track) == "demucs"
+
+    models.delete()
+    with pytest.raises(StemForgeError):
+        service.separate(track)
+
+    assert service.pending_separation() is None
+
+    with pytest.raises(StemForgeError):
+        service.separate(track, method="demucs")
+
+    assert service.pending_separation() == (TRACK_ID, "demucs")
+
+
+@pytest.mark.unit
 def test_karaoke_never_reads_the_model_store_or_latches(tmp_path: Path) -> None:
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     models = _UnusedModelStore(paths, spec=_tiny_spec())

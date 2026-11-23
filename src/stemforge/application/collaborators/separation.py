@@ -138,7 +138,7 @@ class SeparationService:
         one post-install resubmit. A Karaoke request clears a pending Demucs
         latch, so an install cannot run a method the user moved away from.
         """
-        requested = self._resolve_request(track, method)
+        requested, automatic = self._resolve_request(track, method)
         descriptor = method_by_id(requested)
         assert descriptor is not None
         self._settings.set_separation_method(requested)
@@ -150,17 +150,34 @@ class SeparationService:
         try:
             return self._submit_separation(track, requested)
         except StemForgeError as error:
-            if error.code == errors.SEPARATION_MODEL_MISSING and descriptor.requires_model:
+            if (
+                error.code == errors.SEPARATION_MODEL_MISSING
+                and descriptor.requires_model
+                and not automatic
+            ):
                 self.remember_pending_separation(track.track_id, requested)
             raise
 
-    def _resolve_request(self, track: Track, method: str | None) -> str:
+    def _resolve_request(self, track: Track, method: str | None) -> tuple[str, bool]:
+        """Resolve a submission and whether it came from auto selection."""
         if method is None:
-            return self._resolve_method(track)
+            return self._resolve_method(track), self._is_automatic(track)
         if method_by_id(method) is None:
             _LOG.warning("unknown Separation method %r; using auto", method)
-            return auto_method_id(demucs_installed=self._models.status().installed)
-        return method
+            return (
+                auto_method_id(demucs_installed=self._models.status().installed),
+                True,
+            )
+        return method, False
+
+    def _is_automatic(self, track: Track) -> bool:
+        with self._workspace.lock:
+            if track.track_id in self._selected_methods:
+                return False
+        if self.separation_sets(track):
+            return False
+        preference = self._settings.separation_method()
+        return preference is None or method_by_id(preference) is None
 
     def _resolve_method(self, track: Track) -> str:
         with self._workspace.lock:
