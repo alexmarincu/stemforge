@@ -221,6 +221,7 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
     assert DEMUCS_METHOD.stems == ("vocals", "drums", "bass", "other")
     assert DEMUCS_METHOD.output_roles == ("vocals", "instrumental", "drums", "bass", "other")
     assert DEMUCS_METHOD.requires_model is True
+    assert DEMUCS_METHOD.stereo_only is False
     assert DEMUCS_METHOD.output_count == 5
 
     assert KARAOKE_METHOD.id == "karaoke"
@@ -229,6 +230,7 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
     assert KARAOKE_METHOD.stems == ("vocals",)
     assert KARAOKE_METHOD.output_roles == ("vocals", "instrumental")
     assert KARAOKE_METHOD.requires_model is False
+    assert KARAOKE_METHOD.stereo_only is True
     assert KARAOKE_METHOD.output_count == 2
 
     assert METHODS == {"demucs": DEMUCS_METHOD, "karaoke": KARAOKE_METHOD}

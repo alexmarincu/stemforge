@@ -46,6 +46,7 @@ class SeparationMethod:
     stems: tuple[str, ...]
     output_roles: tuple[str, ...]
     requires_model: bool
+    stereo_only: bool = False
 
     def __post_init__(self) -> None:
         if not self.id or not self.label:
@@ -78,6 +79,7 @@ KARAOKE_METHOD: Final = SeparationMethod(
     stems=("vocals",),
     output_roles=("vocals", "instrumental"),
     requires_model=False,
+    stereo_only=True,
 )
 
 METHODS: Final[MappingProxyType[str, SeparationMethod]] = MappingProxyType(

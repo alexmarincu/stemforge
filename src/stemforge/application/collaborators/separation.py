@@ -8,7 +8,11 @@ from collections.abc import Mapping
 from stemforge import errors
 from stemforge.application.identity import separation_key
 from stemforge.application.state import JobLedger, WorkspaceState
-from stemforge.application.views import SeparationMethodView, SeparationSet
+from stemforge.application.views import (
+    SeparationAvailability,
+    SeparationMethodView,
+    SeparationSet,
+)
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.methods import (
     DEFAULT_METHOD_ID,
@@ -17,7 +21,7 @@ from stemforge.domain.methods import (
     auto_method_id,
     method_by_id,
 )
-from stemforge.domain.models import JobKind, Track
+from stemforge.domain.models import JobKind, Track, stereo_unsupported_reason
 from stemforge.engines.media import MediaTool
 from stemforge.engines.separation import SeparationEngine
 from stemforge.errors import StemForgeError
@@ -60,6 +64,23 @@ class SeparationService:
                 id=descriptor.id,
                 label=descriptor.label,
                 requires_model=descriptor.requires_model,
+            )
+            for descriptor in METHODS.values()
+        )
+
+    def separation_availability(self, track: Track) -> tuple[SeparationAvailability, ...]:
+        """Whether each method can run on this Track's recorded stereo layout.
+
+        A stereo-only method is unavailable for a mono or dual-mono Source. An
+        unknown layout is not a refusal: the Job measures the canonical audio
+        before it stages anything.
+        """
+        reason = stereo_unsupported_reason(track.source.stereo_layout)
+        return tuple(
+            SeparationAvailability(
+                method=descriptor.id,
+                available=not (descriptor.stereo_only and reason is not None),
+                reason=reason if descriptor.stereo_only else None,
             )
             for descriptor in METHODS.values()
         )

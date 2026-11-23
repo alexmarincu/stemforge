@@ -56,6 +56,15 @@ def parse_stereo_layout(value: object) -> StereoLayout | None:
     return None
 
 
+def stereo_unsupported_reason(layout: StereoLayout | None) -> str | None:
+    """Return the stable refusal reason for a layout without a stereo image."""
+    if layout is StereoLayout.MONO:
+        return layout.value
+    if layout is StereoLayout.DUAL_MONO:
+        return layout.value
+    return None
+
+
 class JobKind(StrEnum):
     """Every long-running Job kind."""
 
