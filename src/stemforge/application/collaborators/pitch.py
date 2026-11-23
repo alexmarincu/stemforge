@@ -135,7 +135,7 @@ class PitchService:
                     f"the {descriptor.label} Separation set is not available for this Track"
                 )
             method = descriptor.id
-        identity = (
+        identity: tuple[str, ...] = (
             JobKind.RENDER_PITCH.value,
             track.source_id,
             resolved_scope.value,

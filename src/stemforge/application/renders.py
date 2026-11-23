@@ -54,9 +54,7 @@ def render_views(artifacts: ArtifactStore, source_id: str) -> tuple[RenderView, 
         label = semitone_label(semitones)
         other = RenderScope.STEMS if scope is RenderScope.ORIGINAL else RenderScope.ORIGINAL
         stems_collide = len(stem_methods.get(semitones, ())) > 1
-        if (semitones, other) in scope_collisions or (
-            scope is RenderScope.STEMS and stems_collide
-        ):
+        if (semitones, other) in scope_collisions or (scope is RenderScope.STEMS and stems_collide):
             label += " master" if scope is RenderScope.ORIGINAL else " stems"
         labelled.append((artifact, scope, semitones, method, label))
 

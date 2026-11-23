@@ -76,9 +76,7 @@ def _commit_separation(
     """Commit one method's stored masters and return their role -> sha256 map."""
     _commit_source(store, source_id)
     roles = (
-        ("vocals", "instrumental")
-        if method == "karaoke"
-        else ("vocals", "drums", "bass", "other")
+        ("vocals", "instrumental") if method == "karaoke" else ("vocals", "drums", "bass", "other")
     )
     staging = store.stage(f"job-separation-{method}-{source_id}-{version}")
     hashes: dict[str, str] = {}
@@ -270,9 +268,7 @@ def test_two_methods_at_one_semitone_gain_a_method_qualifier_only_on_collision(
     _commit_separation(store)
     _commit_separation(store, method="karaoke")
     _commit_render(store, SOURCE_ID, semitones=3, scope="stems", tag="demucs")
-    _commit_render(
-        store, SOURCE_ID, semitones=3, scope="stems", method="karaoke", tag="karaoke"
-    )
+    _commit_render(store, SOURCE_ID, semitones=3, scope="stems", method="karaoke", tag="karaoke")
 
     labels = sorted(item.label for item in service.pitch_sets(_track()))
 

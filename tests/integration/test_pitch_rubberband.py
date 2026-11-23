@@ -377,6 +377,29 @@ def commit_separation(
     )
 
 
+def commit_karaoke_separation(
+    store: ArtifactStore,
+    source_id: str,
+    outputs: Mapping[str, Path],
+) -> str:
+    staging = store.stage("job-karaoke-separation")
+    for role, source in outputs.items():
+        shutil.copyfile(source, staging / f"{role}.wav")
+    artifact = store.commit_separation(
+        staging,
+        source_id,
+        {
+            "schema_version": 1,
+            "kind": "separation",
+            "source_id": source_id,
+            "created_at": datetime(2026, 11, 16, 12, 0, tzinfo=UTC).isoformat(),
+            "files": [_entry(staging / f"{role}.wav", role) for role in outputs],
+        },
+        method="karaoke",
+    )
+    return artifact.set_key
+
+
 def job_context(
     job_id: str,
     *,
@@ -406,7 +429,10 @@ def render(
     scope: RenderScope,
     job_id: str,
     events: list[tuple[float, str | None, str | None]] | None = None,
+    separation_method: str | None = None,
 ) -> PitchRenderSet:
+    if separation_method is None and scope is RenderScope.STEMS:
+        separation_method = "demucs"
     return run_pitch_job(
         job_context(job_id, events=events),
         artifacts=store,
@@ -415,6 +441,7 @@ def render(
         source_id=source_id,
         semitones=semitones,
         scope=scope,
+        separation_method=separation_method,
         title="Pitch Fixture",
         artist="StemForge Tests",
     )
@@ -444,7 +471,14 @@ def test_master_and_stems_renders_have_distinct_keys_and_never_cross_satisfy(
         store, engine, media, source_id, semitones=3, scope=RenderScope.ORIGINAL, job_id="job-m"
     )
     assert (
-        find_pitch_render(store, source_id=source_id, semitones=3, scope=RenderScope.STEMS) is None
+        find_pitch_render(
+            store,
+            source_id=source_id,
+            semitones=3,
+            scope=RenderScope.STEMS,
+            separation_method="demucs",
+        )
+        is None
     )
 
     events: list[tuple[float, str | None, str | None]] = []
@@ -487,13 +521,17 @@ def test_master_and_stems_renders_have_distinct_keys_and_never_cross_satisfy(
         "Saving",
         "Done",
     } <= stages
-    assert any(detail == "stem 1 of 4" for _fraction, _stage, detail in events)
+    assert any(detail == "output 1 of 4" for _fraction, _stage, detail in events)
 
     found_master = find_pitch_render(
         store, source_id=source_id, semitones=3, scope=RenderScope.ORIGINAL
     )
     found_stems = find_pitch_render(
-        store, source_id=source_id, semitones=3, scope=RenderScope.STEMS
+        store,
+        source_id=source_id,
+        semitones=3,
+        scope=RenderScope.STEMS,
+        separation_method="demucs",
     )
     assert found_master is not None
     assert found_master.artifact.render_key == master.artifact.render_key
@@ -543,6 +581,45 @@ def test_shifted_instrumental_equals_the_sum_of_the_shifted_non_vocal_stems(
         for index in range(len(instrumental.samples))
     )
     assert worst_mix <= 1e-3
+
+
+def test_a_karaoke_render_shifts_its_stored_vocals_and_instrumental(
+    tmp_path: Path,
+    engine: RubberBandEngine,
+    media: FfmpegTool,
+    tone: Path,
+    ffmpeg_path: Path,
+) -> None:
+    store = make_store(tmp_path)
+    source_id = commit_source(store, tone)
+    set_key = commit_karaoke_separation(
+        store,
+        source_id,
+        {
+            "vocals": tone_at(ffmpeg_path, tmp_path / "karaoke-vocals.wav", frequency=220.0),
+            "instrumental": tone_at(
+                ffmpeg_path, tmp_path / "karaoke-instrumental.wav", frequency=330.0
+            ),
+        },
+    )
+
+    rendered = render(
+        store,
+        engine,
+        media,
+        source_id,
+        semitones=3,
+        scope=RenderScope.STEMS,
+        job_id="job-karaoke",
+        separation_method="karaoke",
+    )
+
+    assert sorted(rendered.masters) == ["instrumental", "vocals"]
+    assert set(rendered.previews) == {"instrumental", "vocals"}
+    assert rendered.separation_method == "karaoke"
+    assert rendered.output_roles == ("vocals", "instrumental")
+    assert rendered.artifact.manifest["separation_method"] == "karaoke"
+    assert rendered.artifact.manifest["separation_set_key"] == set_key
 
 
 def test_a_set_above_full_scale_gets_one_shared_gain_and_keeps_master_headroom(
@@ -685,6 +762,7 @@ def test_cancel_mid_render_leaves_no_visible_render_staging_or_partial(
             source_id=source_id,
             semitones=3,
             scope=RenderScope.STEMS,
+            separation_method="demucs",
         )
 
     assert cancelling.shifts == 1
@@ -692,7 +770,14 @@ def test_cancel_mid_render_leaves_no_visible_render_staging_or_partial(
     assert not (store.staging_dir / "job-cancel").exists()
     assert list(store.root.rglob("*.partial*")) == []
     assert (
-        find_pitch_render(store, source_id=source_id, semitones=3, scope=RenderScope.STEMS) is None
+        find_pitch_render(
+            store,
+            source_id=source_id,
+            semitones=3,
+            scope=RenderScope.STEMS,
+            separation_method="demucs",
+        )
+        is None
     )
 
 

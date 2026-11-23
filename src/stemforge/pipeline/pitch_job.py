@@ -290,8 +290,7 @@ def find_pitch_render(
         and (
             resolved_scope is not RenderScope.STEMS
             or separation_method is None
-            or method_id_or_default(artifact.manifest.get("separation_method"))
-            == separation_method
+            or method_id_or_default(artifact.manifest.get("separation_method")) == separation_method
         )
     ]
     if not matches:

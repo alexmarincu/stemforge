@@ -12,7 +12,6 @@ from stemforge.application.views import SEPARATION_ROLE_LABELS, PreviewTarget
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.methods import method_by_id
 from stemforge.domain.models import RenderScope, Track
-from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
 
 
 class PreviewService:
@@ -48,9 +47,9 @@ class PreviewService:
     ) -> PreviewTarget | None:
         """The preview of one member of a Render set.
 
-        A master set carries only its shifted master; a stems set carries Vocals,
-        Instrumental, Drums, Bass, and Other. The key is stable and unique across
-        versions so the single player can tell the rows apart.
+        A master set carries only its shifted master; a stems set carries exactly
+        the roles its Separation method records. The key is stable and unique
+        across versions so the single player can tell the rows apart.
         """
         view = next(
             (
@@ -67,7 +66,7 @@ class PreviewService:
                 return None
             file_role = "original_preview"
         else:
-            if role not in (*STEM_ROLES, INSTRUMENTAL_ROLE):
+            if role not in view.output_roles:
                 return None
             file_role = f"{role}_preview"
         url = self._preview_url(view.artifact.path_for(file_role))
