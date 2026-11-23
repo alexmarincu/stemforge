@@ -410,6 +410,23 @@ def test_an_auto_karaoke_selection_survives_a_later_model_install(tmp_path: Path
 
 
 @pytest.mark.unit
+def test_an_unknown_persisted_method_clamps_to_auto_and_logs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    paths.config.mkdir(parents=True, exist_ok=True)
+    (paths.config / "settings.json").write_text(
+        json.dumps({"schema_version": 1, "separation_method": "repet-sim"}),
+        encoding="utf-8",
+    )
+    service, store = _service(tmp_path)
+    _commit_source(store)
+
+    assert service.separation_method(_track()) == "karaoke"
+    assert "unknown Separation method" in caplog.text
+
+
+@pytest.mark.unit
 def test_the_persisted_preference_is_used_only_without_a_set(tmp_path: Path) -> None:
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     models = ModelStore(paths, spec=_tiny_spec())
