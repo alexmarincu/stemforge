@@ -419,6 +419,40 @@ def test_karaoke_commits_two_outputs_without_reading_the_model_store(
     assert {"Verify", "Separate", "Validate", "Gain", "Previews", "Saving", "Done"} <= stages
 
 
+def test_demucs_and_karaoke_sets_survive_side_by_side(
+    tmp_path: Path,
+    tone: Path,
+    media: FfmpegTool,
+) -> None:
+    store = make_store(tmp_path)
+    source_id = commit_source(store, tone)
+    models = make_models(store)
+    models.install_bytes(WEIGHTS)
+
+    demucs = separate(store, fake_engine("ok"), media, models, source_id, job_id="job-demucs")
+    karaoke = separate(
+        store,
+        karaoke_engine(),
+        media,
+        models,
+        source_id,
+        method="karaoke",
+        job_id="job-karaoke",
+    )
+
+    assert demucs.artifact.directory != karaoke.artifact.directory
+    assert demucs.artifact.directory.is_dir()
+    assert karaoke.artifact.directory.is_dir()
+    assert [artifact.method for artifact in store.separation_sets(source_id)] == [
+        "demucs",
+        "karaoke",
+    ]
+    assert store.find_separation(source_id, method="demucs") is not None
+    assert store.find_separation(source_id, method="karaoke") is not None
+    assert not (store.staging_dir / "job-demucs").exists()
+    assert not (store.staging_dir / "job-karaoke").exists()
+
+
 def test_re_separation_replaces_the_previous_set(
     tmp_path: Path,
     tone: Path,
