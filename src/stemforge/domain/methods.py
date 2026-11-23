@@ -17,8 +17,6 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final
 
-from stemforge.domain.roles import INSTRUMENTAL_ROLE
-
 __all__ = [
     "DEFAULT_METHOD_ID",
     "DEMUCS_METHOD",
@@ -64,7 +62,7 @@ class SeparationMethod:
             raise ValueError("Stems must be a proper subset of the output roles")
         if not isinstance(self.instrumental_is_sum, bool):
             raise ValueError("instrumental_is_sum must be a bool")
-        if INSTRUMENTAL_ROLE not in self.output_roles:
+        if "instrumental" not in self.output_roles:
             raise ValueError("every method emits an instrumental output")
         if self.instrumental_is_sum and not self.non_vocal_stems:
             raise ValueError("a summed Instrumental needs non-vocal Stems")

@@ -71,14 +71,20 @@ def _commit_separation(
     source_id: str = SOURCE_ID,
     *,
     version: str = "v1",
+    method: str = "demucs",
 ) -> dict[str, str]:
-    """Commit four stems and return their role -> sha256 map."""
+    """Commit one method's stored masters and return their role -> sha256 map."""
     _commit_source(store, source_id)
-    staging = store.stage(f"job-stems-{source_id}-{version}")
+    roles = (
+        ("vocals", "instrumental")
+        if method == "karaoke"
+        else ("vocals", "drums", "bass", "other")
+    )
+    staging = store.stage(f"job-separation-{method}-{source_id}-{version}")
     hashes: dict[str, str] = {}
     files: list[Mapping[str, object]] = []
-    for role in ("vocals", "drums", "bass", "other"):
-        data = f"{version}-{role}-audio".encode()
+    for role in roles:
+        data = f"{version}-{method}-{role}-audio".encode()
         name = f"{role}.wav"
         (staging / name).write_bytes(data)
         hashes[role] = hashlib.sha256(data).hexdigest()
@@ -93,7 +99,7 @@ def _commit_separation(
         "source_id": source_id,
         "files": files,
     }
-    store.commit_separation(staging, source_id, manifest)
+    store.commit_separation(staging, source_id, manifest, method=method)
     return hashes
 
 
@@ -106,6 +112,8 @@ def _commit_render(
     created_at: datetime | None = None,
     inputs: Mapping[str, str] | None = None,
     tag: str | None = None,
+    method: str | None = None,
+    set_key: str | None = None,
 ) -> str:
     key = f"render-{scope}-{semitones:+d}".replace("+", "p").replace("-", "m")
     if tag is not None:
@@ -120,7 +128,12 @@ def _commit_render(
         (staging / "original_preview.mp3").write_bytes(preview)
         files.append(_file_entry("original_preview.mp3", "original_preview", preview))
     else:
-        for role in ("vocals", "drums", "bass", "other", "instrumental"):
+        roles = (
+            ("vocals", "instrumental")
+            if method == "karaoke"
+            else ("vocals", "drums", "bass", "other", "instrumental")
+        )
+        for role in roles:
             data = f"render-stems-{semitones}-{role}".encode()
             (staging / f"{role}.wav").write_bytes(data)
             files.append(_file_entry(f"{role}.wav", role, data))
@@ -144,11 +157,16 @@ def _commit_render(
         manifest["inputs"] = [
             {
                 "role": role,
-                "artifact": f"separations/demucs/{role}.wav",
+                "artifact": f"separations/{method or 'demucs'}/{role}.wav",
                 "sha256": digest,
             }
             for role, digest in inputs.items()
         ]
+    if method is not None:
+        manifest["separation_method"] = method
+        manifest["separation_method_version"] = 1
+    if set_key is not None:
+        manifest["separation_set_key"] = set_key
     store.commit_render(staging, key, manifest)
     return key
 
@@ -243,6 +261,38 @@ def test_a_non_colliding_stems_set_is_not_relabelled(tmp_path: Path) -> None:
     assert item.scope is RenderScope.STEMS
 
 
+@pytest.mark.unit
+def test_two_methods_at_one_semitone_gain_a_method_qualifier_only_on_collision(
+    tmp_path: Path,
+) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store)
+    _commit_separation(store, method="karaoke")
+    _commit_render(store, SOURCE_ID, semitones=3, scope="stems", tag="demucs")
+    _commit_render(
+        store, SOURCE_ID, semitones=3, scope="stems", method="karaoke", tag="karaoke"
+    )
+
+    labels = sorted(item.label for item in service.pitch_sets(_track()))
+
+    assert labels == ["+3 stems · Demucs", "+3 stems · Karaoke"]
+
+
+@pytest.mark.unit
+def test_a_lone_karaoke_set_keeps_the_plain_stems_label(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, method="karaoke")
+    _commit_render(store, SOURCE_ID, semitones=3, scope="stems", method="karaoke")
+
+    (item,) = service.pitch_sets(_track())
+
+    assert item.label == "+3"
+    assert item.method == "karaoke"
+    assert item.output_roles == ("vocals", "instrumental")
+
+
 # ---------------------------------------------------------------------------
 # Scope lookup and set selection
 # ---------------------------------------------------------------------------
@@ -277,6 +327,26 @@ def test_stems_availability_is_reported_for_the_scope_action(tmp_path: Path) -> 
     assert service.has_separation(_track()) is False
     _commit_separation(store)
     assert service.has_separation(_track()) is True
+
+
+@pytest.mark.unit
+def test_the_stems_lookup_follows_the_selected_method(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store)
+    _commit_separation(store, method="karaoke")
+    demucs = _commit_render(
+        store, SOURCE_ID, semitones=3, scope="stems", tag="demucs", method="demucs"
+    )
+    karaoke = _commit_render(
+        store, SOURCE_ID, semitones=3, scope="stems", tag="karaoke", method="karaoke"
+    )
+    track = _track()
+
+    service.select_separation_method(track, "demucs")
+    assert service.pitch_set(track, 3, RenderScope.STEMS).render_key == demucs  # type: ignore[union-attr]
+    service.select_separation_method(track, "karaoke")
+    assert service.pitch_set(track, 3, RenderScope.STEMS).render_key == karaoke  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +435,91 @@ def test_a_master_set_is_never_based_on_an_earlier_separation(tmp_path: Path) ->
     assert item.based_on_earlier_separation is False
 
 
+@pytest.mark.unit
+def test_switching_the_selected_method_leaves_a_karaoke_render_valid(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_separation(store)
+    karaoke_hashes = _commit_separation(store, method="karaoke")
+    _commit_render(
+        store,
+        SOURCE_ID,
+        semitones=3,
+        scope="stems",
+        inputs=karaoke_hashes,
+        method="karaoke",
+    )
+    track = _track()
+
+    service.select_separation_method(track, "karaoke")
+    (karaoke_set,) = service.pitch_sets(track)
+    assert karaoke_set.based_on_earlier_separation is False
+    assert service.pitch_set(track, 3, RenderScope.STEMS) is not None
+
+    service.select_separation_method(track, "demucs")
+    (after_switch,) = service.pitch_sets(track)
+    assert after_switch.based_on_earlier_separation is False
+    assert after_switch.method == "karaoke"
+    # A Demucs stems request is not answered by the Karaoke render.
+    assert service.pitch_set(track, 3, RenderScope.STEMS) is None
+
+
+@pytest.mark.unit
+def test_replacing_the_karaoke_set_marks_only_the_karaoke_render_stale(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    demucs_hashes = _commit_separation(store)
+    _commit_render(
+        store,
+        SOURCE_ID,
+        semitones=3,
+        scope="stems",
+        inputs=demucs_hashes,
+        tag="demucs",
+    )
+    karaoke_hashes = _commit_separation(store, method="karaoke")
+    _commit_render(
+        store,
+        SOURCE_ID,
+        semitones=3,
+        scope="stems",
+        inputs=karaoke_hashes,
+        method="karaoke",
+        tag="karaoke",
+    )
+
+    _commit_separation(store, version="v2", method="karaoke")
+
+    demucs, karaoke = service.pitch_sets(_track())
+    assert demucs.method == "demucs"
+    assert demucs.based_on_earlier_separation is False
+    assert karaoke.method == "karaoke"
+    assert karaoke.based_on_earlier_separation is True
+
+
+@pytest.mark.unit
+def test_a_legacy_render_is_treated_as_demucs(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    first_hashes = _commit_separation(store)
+    legacy = _commit_render(
+        store,
+        SOURCE_ID,
+        semitones=3,
+        scope="stems",
+        inputs=first_hashes,
+    )
+
+    (view,) = service.pitch_sets(_track())
+    assert view.method == "demucs"
+    assert view.output_roles == ("vocals", "instrumental", "drums", "bass", "other")
+    assert view.based_on_earlier_separation is False
+
+    _commit_separation(store, version="v2")
+
+    (stale,) = service.pitch_sets(_track())
+    assert stale.render_key == legacy
+    assert stale.method == "demucs"
+    assert stale.based_on_earlier_separation is True
+
+
 # ---------------------------------------------------------------------------
 # Render submission
 # ---------------------------------------------------------------------------
@@ -408,41 +563,56 @@ def test_render_pitch_rejects_zero_and_stems_without_a_separation_before_submitt
 
     with pytest.raises(ValueError, match="0 semitones"):
         service.render_pitch(_track(), 0, RenderScope.ORIGINAL)
-    with pytest.raises(ValueError, match="stems are not available"):
+    with pytest.raises(ValueError, match="not available"):
         service.render_pitch(_track(), 3, RenderScope.STEMS)
 
 
 @pytest.mark.unit
-def test_a_karaoke_selection_never_renders_the_demucs_set(tmp_path: Path) -> None:
+def test_a_karaoke_render_submits_against_the_karaoke_set(tmp_path: Path) -> None:
     service, store = _service(
         tmp_path, engines=ServiceEngines(pitch=_FakePitch(), media=_FakeMedia())
     )
     _commit_separation(store)
-    staging = store.stage("job-stems-karaoke")
-    files = []
-    for role in ("vocals", "instrumental"):
-        data = f"karaoke-{role}".encode()
-        (staging / f"{role}.wav").write_bytes(data)
-        files.append(_file_entry(f"{role}.wav", role, data))
-    store.commit_separation(
-        staging,
-        SOURCE_ID,
-        {
-            "schema_version": 1,
-            "kind": "separation",
-            "source_id": SOURCE_ID,
-            "files": files,
-        },
-        method="karaoke",
-    )
+    _commit_separation(store, method="karaoke")
     track = _track()
     service.select_separation_method(track, "karaoke")
-    assert service.has_separation(track) is True
 
-    with pytest.raises(ValueError, match="Demucs"):
+    job_id = service.render_pitch(track, 3, RenderScope.STEMS)
+
+    jobs = service.runner.jobs()
+    assert [job.job_id for job in jobs] == [job_id]
+    assert jobs[0].kind.value == "render_pitch"
+
+
+@pytest.mark.unit
+def test_two_methods_at_one_semitone_submit_distinct_render_jobs(tmp_path: Path) -> None:
+    service, store = _service(
+        tmp_path, engines=ServiceEngines(pitch=_FakePitch(), media=_FakeMedia())
+    )
+    _commit_separation(store)
+    _commit_separation(store, method="karaoke")
+    track = _track()
+
+    service.select_separation_method(track, "demucs")
+    demucs_job = service.render_pitch(track, 3, RenderScope.STEMS)
+    service.select_separation_method(track, "karaoke")
+    karaoke_job = service.render_pitch(track, 3, RenderScope.STEMS)
+
+    assert demucs_job != karaoke_job
+    assert len(service.runner.jobs()) == 2
+
+
+@pytest.mark.unit
+def test_render_pitch_rejects_a_selected_method_without_a_set(tmp_path: Path) -> None:
+    service, store = _service(
+        tmp_path, engines=ServiceEngines(pitch=_FakePitch(), media=_FakeMedia())
+    )
+    _commit_separation(store)
+    track = _track()
+    service.select_separation_method(track, "karaoke")
+
+    with pytest.raises(ValueError, match="Karaoke"):
         service.render_pitch(track, 3, RenderScope.STEMS)
-
-    assert service.runner.jobs() == []
 
     assert service.runner.jobs() == []
 

@@ -187,9 +187,11 @@ class PitchSet:
     """One immutable Render set as version tabs and A/B see it.
 
     ``label`` is the tab text (``+3`` or, when both scopes exist at one
-    semitone, ``+3 master`` / ``+3 stems``). ``based_on_earlier_separation``
-    records that the set's recorded input hashes no longer match the current
-    Stems; such a set stays listed and selectable.
+    semitone, ``+3 master`` / ``+3 stems``; two methods at one semitone also
+    gain their method label). ``based_on_earlier_separation`` records that the
+    set's recorded inputs no longer match that method's current set; such a set
+    stays listed and selectable. An original-scope set has no method and one
+    output role.
     """
 
     render_key: str
@@ -198,6 +200,8 @@ class PitchSet:
     label: str
     created_at: datetime
     based_on_earlier_separation: bool = False
+    method: str | None = None
+    output_roles: tuple[str, ...] = ("original",)
 
 
 @dataclass(frozen=True, slots=True)
