@@ -5,9 +5,10 @@ later Render would ask for. Version tabs live in the Outputs card; nothing in
 this module touches an artifact, a manifest, or an engine. Every read and every
 Render goes through ``WorkspaceService``.
 
-The primary action follows the current scope: with Stems cached it renders the
-four stems and Instrumental; without them it renders the source master. A master
-set never satisfies a stems request, and the Outputs tabs keep both visible.
+The primary action follows the current scope: with the selected method's set
+cached it renders every output that method stores; without one it renders the
+source master. A master set never satisfies a stems request, and the Outputs
+tabs keep both visible.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import TYPE_CHECKING
 from nicegui import ui
 
 from stemforge import errors
+from stemforge.domain.methods import KARAOKE_METHOD
 from stemforge.domain.models import RenderScope, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.shell import PathOpener
@@ -88,6 +90,12 @@ class PitchCard:
                 self._primary(track, semitones, active_key, existing, busy)
             self._error(track, busy)
             ui.label(formatting.PITCH_TEMPO_NOTE).classes("sf-fineprint")
+            if scope is RenderScope.STEMS and (
+                self._service.separation_method(track) == KARAOKE_METHOD.id
+            ):
+                ui.label(formatting.PITCH_KARAOKE_FINEPRINT).classes("sf-fineprint").mark(
+                    "pitch-karaoke-fineprint"
+                )
 
     # -- pieces -------------------------------------------------------------
 
