@@ -244,6 +244,26 @@ def test_a_stems_render_requires_a_method(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_an_original_render_carries_no_separation_method(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+
+    rendered = run_pitch_job(
+        _context(),
+        artifacts=store,
+        pitch=_Pitch(),
+        media=_Media(),  # type: ignore[arg-type]
+        source_id=SOURCE_ID,
+        semitones=3,
+        scope=RenderScope.ORIGINAL,
+    )
+
+    assert rendered.separation_method is None
+    assert rendered.output_roles == ("original",)
+    assert "separation_method" not in rendered.artifact.manifest
+    assert "separation_set_key" not in rendered.artifact.manifest
+
+
+@pytest.mark.unit
 def test_the_render_key_separates_methods_at_the_same_semitone() -> None:
     inputs = [hashlib.sha256(b"a").hexdigest()]
 
