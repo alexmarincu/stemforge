@@ -28,6 +28,12 @@ Default five-role vocabulary. See `docs/agents/triage-labels.md`.
 
 Single-context: root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
 
+## Architecture
+
+[`ARCHITECTURE.md`](ARCHITECTURE.md) describes the current system: the package graph, the
+Job pipeline, the parent/worker boundary, deployment shapes, and crosscutting rules. The
+ADRs in `docs/adr/` record why each decision was made.
+
 ## Coding standards
 
 See `CODING_STANDARDS.md` for copy ownership, vocabulary, tests, and docs.
