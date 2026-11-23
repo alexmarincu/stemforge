@@ -32,6 +32,7 @@ from stemforge.application import (
     PitchSet,
     PreflightView,
     PreviewTarget,
+    SeparationSet,
     WorkspaceService,
 )
 from stemforge.domain.models import OriginKind, RenderScope, Track
@@ -67,11 +68,9 @@ from stemforge.ui.toast import toast
 TITLE: Final = formatting.APP_NAME
 POLL_INTERVAL_S: Final = 0.4
 RECENT_VISIBLE: Final = 3
-OUTPUT_ROLES: Final = SEPARATION_OUTPUT_ROLES
-PRIMARY_ROLES: Final = OUTPUT_ROLES[:2]
-
-
-SECONDARY_ROLES: Final = OUTPUT_ROLES[2:]
+# Render sets are Demucs-only until the method-aware Pitch path lands; a
+# committed Separation set carries its own roles in its view.
+DEMUCS_OUTPUT_ROLES: Final = SEPARATION_OUTPUT_ROLES
 
 SHELL_CSS: Final = (
     theme.TOKENS_CSS
@@ -962,6 +961,13 @@ class WorkspacePage:
         item = next((view for view in sets if view.render_key == key), None)
         return item.label if item is not None else formatting.PITCH_ORIGINAL
 
+    def _active_output_roles(self, track: Track, active_key: str) -> tuple[str, ...]:
+        """Roles the Outputs card may show for the active artifact set."""
+        if active_key != "original":
+            return DEMUCS_OUTPUT_ROLES
+        separation_sets = self.service.separation_sets(track)
+        return separation_sets[-1].output_roles if separation_sets else ()
+
     def _version_rows(self, track: Track) -> tuple[tuple[OutputRow, ...], str]:
         sets = self.service.pitch_sets(track)
         key = self._active_version(track, sets)
@@ -999,14 +1005,16 @@ class WorkspacePage:
             separation_sets = self.service.separation_sets(track)
             if not separation_sets:
                 return tuple(rows)
-            set_key = separation_sets[-1].set_key
-            for role in OUTPUT_ROLES:
+            selected = separation_sets[-1]
+            for role in selected.output_roles:
                 rows.append(
                     OutputRow(
                         key=role,
                         name=formatting.SEPARATION_ROLE_LABELS[role],
-                        badges=self._badges_for(role),
-                        preview=self.service.separation_preview_target(track, set_key, role),
+                        badges=self._badges_for(role, separation_set=selected),
+                        preview=self.service.separation_preview_target(
+                            track, selected.set_key, role
+                        ),
                         export_key=exports.get(("separation", role, None)),
                     )
                 )
@@ -1030,12 +1038,12 @@ class WorkspacePage:
                 ),
             )
         rows = []
-        for role in OUTPUT_ROLES:
+        for role in DEMUCS_OUTPUT_ROLES:
             rows.append(
                 OutputRow(
                     key=role,
                     name=formatting.SEPARATION_ROLE_LABELS[role],
-                    badges=self._badges_for(role, shift=shift),
+                    badges=self._badges_for(role, method="demucs", shift=shift),
                     preview=self.service.pitch_render_preview_target(track, item.render_key, role),
                     export_key=exports.get((RenderScope.STEMS.value, role, item.render_key)),
                 )
@@ -1043,13 +1051,25 @@ class WorkspacePage:
         return tuple(rows)
 
     @staticmethod
-    def _badges_for(role: str, *, shift: str | None = None) -> tuple[str, ...]:
+    def _badges_for(
+        role: str,
+        *,
+        separation_set: SeparationSet | None = None,
+        method: str | None = None,
+        shift: str | None = None,
+    ) -> tuple[str, ...]:
+        roles = separation_set.output_roles if separation_set is not None else DEMUCS_OUTPUT_ROLES
+        effective_method = (
+            separation_set.method if separation_set is not None else method or "demucs"
+        )
+        primary_roles = roles[:2]
+        secondary_roles = roles[2:]
         badges: list[str] = []
-        if role in PRIMARY_ROLES:
+        if role in primary_roles:
             badges.append(formatting.SEPARATION_PRIMARY_BADGE)
-        if role == "instrumental":
+        if role == "instrumental" and effective_method == "demucs":
             badges.append(formatting.SEPARATION_SUM_BADGE)
-        if role in SECONDARY_ROLES:
+        if role in secondary_roles:
             badges.append(formatting.OUTPUTS_STEM_BADGE)
         if shift is not None:
             badges.append(shift)
@@ -1202,12 +1222,13 @@ class WorkspacePage:
                     open_path=self.context.open_path,
                 )
             expanded = track.track_id in self._show_all_stems
-            visible_roles = OUTPUT_ROLES if expanded else PRIMARY_ROLES
+            active_roles = self._active_output_roles(track, active_key)
+            visible_roles = active_roles if expanded else active_roles[:2]
             for row in rows:
                 if row.key not in ("original", "master") and row.key not in visible_roles:
                     continue
                 self._output_row(track, row)
-            has_secondary = any(row.key in SECONDARY_ROLES for row in rows)
+            has_secondary = any(row.key in active_roles[2:] for row in rows)
             if has_secondary:
                 if expanded:
                     (
@@ -2483,15 +2504,21 @@ class WorkspacePage:
             return formatting.TRACK_STATUS_FAILED, "is-bad"
         latest = self._latest_render(track)
         if self.service.has_separation(track):
+            selected = self.service.separation_sets(track)[-1]
+            status = (
+                formatting.TRACK_STATUS_KARAOKE
+                if selected.method == "karaoke"
+                else formatting.TRACK_STATUS_STEMS
+            )
             if latest is not None:
                 return (
                     formatting.TRACK_STATUS_STEMS_RENDERED.format(
-                        stems=formatting.TRACK_STATUS_STEMS,
+                        stems=status,
                         label=latest.label,
                     ),
                     "is-ok",
                 )
-            return formatting.TRACK_STATUS_STEMS, "is-ok"
+            return status, "is-ok"
         if latest is not None:
             return formatting.TRACK_STATUS_RENDERED.format(label=latest.label), ""
         return formatting.TRACK_STATUS_NO_STEMS, ""
@@ -2514,6 +2541,7 @@ class WorkspacePage:
 
     def _signal_path(self, track: Track) -> None:
         has_stems = self.service.has_separation(track)
+        selected = self.service.separation_sets(track)[-1] if has_stems else None
         latest = self._latest_render(track)
         with ui.element("div").classes("sf-sigpath").mark("signal-path"):
             with ui.element("span").classes("sf-chip is-done"):
@@ -2535,9 +2563,13 @@ class WorkspacePage:
                 else:
                     ui.element("span").classes("sf-dot")
                 ui.label(formatting.SIGNAL_SEPARATION).classes("sf-chip-label")
-                ui.label(
-                    formatting.SIGNAL_SEPARATION_DONE if has_stems else formatting.SIGNAL_NOT_RUN
-                )
+                if selected is None:
+                    separation_copy = formatting.SIGNAL_NOT_RUN
+                elif selected.method == "karaoke":
+                    separation_copy = formatting.SIGNAL_SEPARATION_DONE_KARAOKE
+                else:
+                    separation_copy = formatting.SIGNAL_SEPARATION_DONE
+                ui.label(separation_copy)
             ui.icon("chevron_right", size="xs")
             with (
                 ui.element("span")
