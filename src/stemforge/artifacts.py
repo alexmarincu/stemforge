@@ -496,7 +496,6 @@ class ArtifactStore:
         staging: Path,
         source_id: str,
         manifest: Mapping[str, object],
-        *,
         method: str = DEFAULT_METHOD_ID,
     ) -> SeparationArtifact:
         """Promote a staged Separation set into its method's directory."""
@@ -712,8 +711,8 @@ class ArtifactStore:
     def find_separation(
         self,
         source_id: str,
-        *,
         method: str = DEFAULT_METHOD_ID,
+        *,
         verify_hashes: bool = False,
     ) -> SeparationArtifact | None:
         """Return one method's committed set; see :meth:`find_source` for integrity.
@@ -769,6 +768,12 @@ class ArtifactStore:
             if legacy is not None and legacy.directory.name == LEGACY_SEPARATION_DIRNAME:
                 found.append(legacy)
         return tuple(sorted(found, key=lambda artifact: (artifact.created_at, artifact.method)))
+
+    def iter_separations(
+        self, source_id: str, *, verify_hashes: bool = False
+    ) -> Iterator[SeparationArtifact]:
+        """Iterate every committed method set for one Source, oldest first."""
+        yield from self.separation_sets(source_id, verify_hashes=verify_hashes)
 
     def _read_separation(
         self,
