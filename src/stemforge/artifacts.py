@@ -317,6 +317,14 @@ class SeparationArtifact:
         return None
 
     @property
+    def set_key(self) -> str:
+        """A stable, path-safe identity for this method's committed set."""
+        digest = hashlib.sha256(
+            f"{self.source_id}:{self.method}:{self.created_at.isoformat()}".encode()
+        ).hexdigest()
+        return f"sep-{digest[:16]}"
+
+    @property
     def stems(self) -> Mapping[str, Path]:
         """The method's Stems; Instrumental is an output, not a Stem (GLOSSARY)."""
         descriptor = method_by_id(self.method)

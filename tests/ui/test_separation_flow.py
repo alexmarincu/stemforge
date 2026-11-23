@@ -697,13 +697,22 @@ async def test_without_the_model_karaoke_runs_and_shows_two_outputs(tmp_path: Pa
             await user.should_not_see("Show 3 more stems")
             await user.should_see("primary")
             await user.should_not_see("sum")
-            assert _enabled(user, "output-export-vocals") is False
-            assert _enabled(user, "output-export-instrumental") is False
+            assert _enabled(user, "output-export-vocals") is True
+            assert _enabled(user, "output-export-instrumental") is True
 
             track = harness.service.snapshot().tracks[0]
             (item,) = harness.service.separation_sets(track)
             assert item.method == "karaoke"
             assert item.output_roles == ("vocals", "instrumental")
+            export_keys = {
+                target.key
+                for target in harness.service.export_targets(track)
+                if target.scope == "separation"
+            }
+            assert export_keys == {
+                "separation:karaoke:vocals",
+                "separation:karaoke:instrumental",
+            }
     finally:
         harness.runner.stop(timeout=10)
 
@@ -1300,7 +1309,9 @@ async def test_primary_rows_are_visible_secondary_hidden_and_every_row_plays(
         assert _only(user, "elapsed").text == "0:00"
 
         export = next(
-            target for target in harness.service.export_targets(track) if target.key == "stem:drums"
+            target
+            for target in harness.service.export_targets(track)
+            if target.key == "separation:demucs:drums"
         )
         user.find(marker="output-export-drums").click()
         await asyncio.sleep(0.05)

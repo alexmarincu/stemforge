@@ -1030,13 +1030,7 @@ class WorkspacePage:
                         preview=self.service.separation_preview_target(
                             track, selected.set_key, role
                         ),
-                        # Export is Demucs-scoped until the method-aware target
-                        # keys land; never offer another method's file.
-                        export_key=(
-                            exports.get(("separation", role, None))
-                            if selected.method == "demucs"
-                            else None
-                        ),
+                        export_key=exports.get(("separation", role, None)),
                     )
                 )
             return tuple(rows)
