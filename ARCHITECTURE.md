@@ -832,24 +832,10 @@ or copy.
 
 ## 9. Architecture Decisions
 
-The ADRs are the decision log; this is only an index.
-
-| ADR | Title | Decision in one line |
-|---|---|---|
-| [0001](docs/adr/0001-canonical-audio-format.md) | Canonical audio is stereo 44.1 kHz float32 | Every Source is decoded once into stereo 44.1 kHz float32 WAV. |
-| [0002](docs/adr/0002-static-safety-gain.md) | Gain is never normalised; one static gain protects full scale | Each Artifact set records one static gain instead of normalising individual files. |
-| [0003](docs/adr/0003-serial-jobs-one-worker.md) | Jobs run serially on one background thread | Separation alone gets a Python worker process; every other engine is an adapter on the runner thread. |
-| [0004](docs/adr/0004-artifact-manifests-not-database.md) | Artifact metadata lives in filesystem manifests, not a database | Manifests are written last and promoted by one atomic rename. |
-| [0005](docs/adr/0005-localhost-server-is-trusted.md) | The native window's localhost server is trusted and unauthenticated | The app relies on the OS user boundary; the media route is read-only and cache-rooted. |
-| [0006](docs/adr/0006-cache-outlives-workspace.md) | The audio cache outlives the ephemeral Workspace | Committed Sources and Renders survive restarts; the open Workspace does not. |
-| [0007](docs/adr/0007-youtube-import-is-pinned-and-cookie-free.md) | YouTube import is pinned, in-process, and cookie-free | One public video per import; no playlists, channels, accounts, or cookies. |
-| [0008](docs/adr/0008-separation-blocks-and-30-minute-cap.md) | Separation uses bounded 8-minute blocks | A 1-second crossfade stitches blocks; local Tracks are capped at 30 minutes. |
-| [0009](docs/adr/0009-demucs-weights-are-downloaded-not-bundled.md) | Demucs weights are downloaded, never bundled | The pinned weights require consent and a SHA-256 check. |
-| [0010](docs/adr/0010-vendored-binaries-live-outside-the-frozen-payload.md) | Vendored binaries live outside the frozen payload | `vendor/` and the licence tree sit beside `_internal/` at the Bundle root. |
-| [0011](docs/adr/0011-the-linux-appimage-is-a-thin-host-dependent-wrapper.md) | The Linux AppImage is a thin, host-dependent wrapper | The tarball is primary; the AppImage relies on host GTK, WebKitGTK, and GStreamer. |
-| [0012](docs/adr/0012-recovery-discards-unfinished-work-never-finished-work.md) | Recovery discards unfinished work and never deletes finished work | Startup sweeps staging, tmp, partials, and replacement residue. |
-| [0013](docs/adr/0013-one-application-facade-per-feature-collaborators.md) | The UI keeps one application facade | Feature collaborators stay internal and are enforced by the import contracts. |
-| [0014](docs/adr/0014-comments-state-their-reason.md) | Comments state their reason in place | A citation is not a reason; the rule is enforced by a test. |
+Decisions live in [`docs/adr/`](docs/adr/): one file per decision, numbered
+`NNNN-decision-in-a-few-words.md`, with front matter `status: accepted`. Read the ADRs
+that touch the area you are changing; each records the context, the decision, and its
+consequences.
 
 ## 10. Quality Requirements
 
