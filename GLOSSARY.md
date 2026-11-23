@@ -42,7 +42,7 @@ _Avoid_: Load, add, ingest
 
 ## Instrumental
 
-The non-vocal mix of a Track, stored as a derived Artifact (the sum of the non-vocal Stems) and presented as one of the two primary Separation outputs. It is not a Stem.
+The non-vocal mix of a Track, stored as a derived Artifact and presented as one of the two primary Separation outputs. It is not a Stem.
 
 ## Job
 
@@ -50,7 +50,7 @@ A long-running local operation with observable progress and cancellation: import
 
 ## Model weights
 
-The pretrained parameters of the separation model. They are a third-party download, not part of StemForge's licensed bundle, and are not covered by its GPL-3.0 licence.
+The pretrained parameters a Separation method needs. They are a third-party download, not part of StemForge's licensed bundle, and are not covered by its GPL-3.0 licence.
 
 ## Partial
 
@@ -58,7 +58,7 @@ A file that is still being written and has not been promoted to an Artifact. Par
 
 ## Pitch shift
 
-A transformed version of a Track or Stem shifted by an integer number of semitones while preserving tempo.
+A transformed version of a Track or Separation output shifted by an integer number of semitones while preserving tempo.
 
 ## Portable build
 
@@ -74,11 +74,19 @@ In-app playback of a Track or Artifact before Export.
 
 ## Render
 
-The explicit action that produces a Pitch shift Artifact set from a Track's original audio or from all of its Stems. A Render never modifies its inputs, does not imply a Separation, and leaves earlier sets cached as independent Artifacts.
+The explicit action that produces a Pitch shift Artifact set from a Track's original audio or from a Separation's outputs. A Render never modifies its inputs, does not imply a Separation, and leaves earlier sets cached as independent Artifacts.
 
 ## Separation
 
-The local process that splits a Track into Stems using a separation model.
+The local process that splits a Track into Stems using a Separation method.
+
+## Separation method
+
+A named way of performing a Separation. It declares which Stems it produces and whether it needs Model weights.
+
+## Separation set
+
+The group of Artifacts one Separation produces from one Source with one Separation method: its Stems, Instrumental, and previews. A Source may hold one Separation set per method.
 
 ## Source
 
@@ -90,7 +98,7 @@ The shipped statement that identifies where Corresponding Source can be obtained
 
 ## Stem
 
-An isolated component of a Track produced by Separation. StemForge generates four (vocals, drums, bass, other) and presents Vocals and Instrumental as the primary outputs.
+A component of a Track produced by Separation. A method declares which Stems it produces, so a Separation may produce one or several. Vocals and Instrumental are the primary outputs of a Separation.
 
 ## Thin AppImage
 

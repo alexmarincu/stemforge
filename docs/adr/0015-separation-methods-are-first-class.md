@@ -1,0 +1,19 @@
+---
+status: accepted
+---
+
+# Separation methods are first-class, and each method keeps its own cached set
+
+v0.1.0 has one Separation method, Demucs `htdemucs`, and treats "Separation" and "the model" as the same thing. The model gate is a precondition for every Separation, so a user who declines the 84 MB download or is offline cannot separate at all; the cache holds exactly one `sources/<source_id>/stems/` directory with exactly four Stems and an Instrumental; and the manifest, render, preview, and export seams all assume that shape. Adding a second method under those assumptions would either overwrite the first method's output or require a second copy of every seam.
+
+**Decision.** A Separation method is a named way of performing a Separation; it declares the Stems it produces and whether it needs Model weights. Two methods ship: `demucs` (the existing `htdemucs` path, four Stems plus Instrumental) and `karaoke` (centre-channel extraction, one Stem `vocals` plus Instrumental, no weights and no network). Method identity is recorded in the separation manifest as `method` and `method_version`, and in the cache path as `sources/<source_id>/separations/<method>/`. The id is stable across algorithm changes; `method_version` is bumped when the algorithm or its output identity changes. A Source may hold one Separation set per method: re-running a method replaces only that method's set, and the whole Source subtree remains one cache and LRU unit. The legacy `sources/<source_id>/stems/` set is read as the Demucs set and removed only after a new Demucs set has been promoted.
+
+**Why sets coexist.** Replacing the only set on a method change silently destroys outputs the user asked for and makes comparing methods impossible. Coexistence does not add a second eviction dimension because a Source's sets share the Source's cache lifetime; it only adds the selector the card needs anyway.
+
+**Why the method is never substituted silently.** The manifest, the card, the rendered quality, and the export name must agree on which method produced the audio. Automatic fallback would make one button produce different artifacts depending on whether a download had happened. Karaoke is always selectable and becomes the effective default only when Demucs is not installed and the user has expressed no preference; the model gate gates Demucs alone.
+
+**Why the manifest schema stays at version 1.** `method` and `method_version` are additive, and an absent `method` means `demucs`, which is what every v0.1.0 set is. A schema bump would make the reader reject every existing source and render, because it requires exactly the current version, and would force a cache-wide migration to record a fact the old manifests already imply.
+
+**Considered options:** one active set per Source (rejected: loses the other method's outputs); silent fallback when weights are missing (rejected: unpredictable quality and provenance); a schema bump (rejected: invalidates the existing cache for no gain); shipping REPET-SIM or a second AI model now (rejected: a new dependency or a second weight licence and download without a clear quality win over the two methods that cover offline and best-quality use).
+
+**Consequences:** the Separation card's method selector is also the set selector; Pitch's stems scope renders every output of the selected set and records the method, so staleness is judged against that method's current set; Export qualifies Separation-derived filenames with the method only when a Source holds more than one set; a mono or dual-mono Source is refused by karaoke with `separation.method_unsupported`; the worker protocol declares the method and its output roles rather than requiring all five; and the release gate needs a no-model smoke path to prove the frozen binary needs neither weights nor a network for karaoke.
