@@ -226,6 +226,7 @@ tests exercise torch and Demucs. Bundle and installer builds live in
 | Path | What it covers |
 |---|---|
 | [`GLOSSARY.md`](GLOSSARY.md) | The shared vocabulary: Track, Stem, Instrumental, Separation, Render, Artifact, Export. |
+| [`DESIGN.md`](DESIGN.md) | The app shell's visual language: palette, typography, component patterns, layout, and the agent checklist. |
 | [`docs/adr/`](docs/adr/) | Accepted architecture decisions and their consequences. |
 | [`scripts/check.sh`](scripts/check.sh) | The local CI gate. |
 | [`packaging/linux/README.md`](packaging/linux/README.md) and [`packaging/windows/README.txt`](packaging/windows/README.txt) | Frozen Bundle, AppImage, and Windows installer builds. |
