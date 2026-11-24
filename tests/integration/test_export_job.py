@@ -217,11 +217,13 @@ def _commit_separation(
     store: ArtifactStore,
     canonical: Path,
     *,
+    method: str = "demucs",
     gain_db: float = -2.0,
 ) -> None:
-    staging = store.stage("separation-job")
+    roles = ("vocals", "instrumental") if method == "karaoke" else ALL_STEMS
+    staging = store.stage(f"separation-job-{method}")
     files = []
-    for role in ALL_STEMS:
+    for role in roles:
         target = staging / f"{role}.wav"
         shutil.copyfile(canonical, target)
         files.append(_entry(target, role))
@@ -236,6 +238,7 @@ def _commit_separation(
             "gain_db": gain_db,
             "files": files,
         },
+        method=method,
     )
 
 
@@ -537,7 +540,7 @@ def test_export_from_a_pitch_set_and_from_the_instrumental(
     by_key = {target.key: target for target in targets}
     assert "render:render-original:original" in by_key
     assert "render:render-stems:instrumental" in by_key
-    assert "instrumental" in by_key
+    assert "separation:demucs:instrumental" in by_key
 
     shifted = _export(
         store,
@@ -549,7 +552,7 @@ def test_export_from_a_pitch_set_and_from_the_instrumental(
     instrumental = _export(
         store,
         media,
-        "instrumental",
+        "separation:demucs:instrumental",
         ExportFormat.MP3_320,
         destination,
     )
@@ -567,11 +570,14 @@ def test_export_from_a_pitch_set_and_from_the_instrumental(
     assert shifted.target_key == "render:render-original:original"
     assert shifted.manifest["semitones"] == 3
     assert shifted.manifest["render_key"] == "render-original"
+    assert shifted.manifest["separation_method"] is None
 
     assert instrumental.path.name == f"{TITLE} - Instrumental.mp3"
     assert abs(_peaks(media, instrumental.path) - (source_peak - 2.0)) <= 0.1
-    assert instrumental.target_key == "instrumental"
+    assert instrumental.target_key == "separation:demucs:instrumental"
     assert instrumental.manifest["scope"] == "separation"
+    assert instrumental.manifest["separation_method"] == "demucs"
+    assert isinstance(instrumental.manifest["separation_set_key"], str)
     assert _has_attached_picture(_probe_json(ffprobe_path, instrumental.path))
 
     assert shifted_stem.path.name == f"{TITLE} - Vocals -2st.mp3"
@@ -579,6 +585,116 @@ def test_export_from_a_pitch_set_and_from_the_instrumental(
     assert shifted_stem.target_key == "render:render-stems:vocals"
     assert shifted_stem.manifest["scope"] == "stems"
     assert shifted_stem.manifest["semitones"] == -2
+    assert shifted_stem.manifest["separation_method"] == "demucs"
+    assert shifted_stem.manifest["separation_set_key"] is None
+
+
+@pytest.mark.parametrize(
+    ("fmt", "suffix", "codec", "bit_depth", "bit_rate"),
+    [
+        (ExportFormat.WAV24, ".wav", "pcm_s24le", 24, None),
+        (ExportFormat.FLAC24, ".flac", "flac", 24, None),
+        (ExportFormat.MP3_320, ".mp3", "mp3", None, 320_000),
+    ],
+)
+def test_a_karaoke_set_exports_its_two_outputs_in_every_format(
+    tmp_path: Path,
+    ffmpeg_path: Path,
+    cover_png: Path,
+    media: FfmpegTool,
+    fmt: ExportFormat,
+    suffix: str,
+    codec: str,
+    bit_depth: int | None,
+    bit_rate: int | None,
+) -> None:
+    store = _store(tmp_path)
+    canonical = _make_tone(ffmpeg_path, tmp_path / "tone.wav")
+    _commit_source(store, canonical, cover=cover_png)
+    _commit_separation(store, canonical, method="karaoke", gain_db=-6.0)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+    source_peak = _peaks(media, canonical)
+
+    targets = export_targets(
+        store,
+        source_id=SOURCE_ID,
+        title=TITLE,
+        separation_method="karaoke",
+    )
+    by_key = {target.key: target for target in targets}
+    assert set(by_key) == {
+        "master",
+        "separation:karaoke:vocals",
+        "separation:karaoke:instrumental",
+    }
+    assert by_key["separation:karaoke:vocals"].base_name == f"{TITLE} - Vocals"
+
+    for role in ("vocals", "instrumental"):
+        target = by_key[f"separation:karaoke:{role}"]
+        result = _export(store, media, target, fmt, destination)
+
+        assert result.path.name == f"{TITLE} - {role.title()}{suffix}"
+        assert result.target_key == f"separation:karaoke:{role}"
+        assert result.manifest["separation_method"] == "karaoke"
+        assert result.manifest["separation_set_key"] == target.set_key
+        info = media.probe(result.path)
+        assert info.codec == codec
+        assert info.sample_rate == 44_100
+        assert info.channels == 2
+        if bit_depth is not None:
+            assert info.bit_depth == bit_depth
+        if bit_rate is not None:
+            assert info.bit_rate == bit_rate
+        assert abs(_peaks(media, result.path) - (source_peak - 6.0)) <= 0.1
+        _assert_duration(info.duration_s)
+
+
+def test_two_sets_export_their_own_outputs_and_qualify_the_names(
+    tmp_path: Path,
+    ffmpeg_path: Path,
+    media: FfmpegTool,
+) -> None:
+    store = _store(tmp_path)
+    canonical = _make_tone(ffmpeg_path, tmp_path / "tone.wav")
+    _commit_source(store, canonical)
+    _commit_separation(store, canonical, method="demucs", gain_db=-2.0)
+    _commit_separation(store, canonical, method="karaoke", gain_db=-6.0)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+    source_peak = _peaks(media, canonical)
+
+    karaoke_targets = export_targets(
+        store,
+        source_id=SOURCE_ID,
+        title=TITLE,
+        separation_method="karaoke",
+    )
+    karaoke_vocals = next(
+        target for target in karaoke_targets if target.key == "separation:karaoke:vocals"
+    )
+    demucs_vocals = export_job.resolve_export_target(
+        store,
+        source_id=SOURCE_ID,
+        key="separation:demucs:vocals",
+    )
+    assert demucs_vocals is not None
+    assert karaoke_vocals.base_name == f"{TITLE} - Vocals (Karaoke)"
+    assert demucs_vocals.base_name == f"{TITLE} - Vocals (Demucs)"
+
+    karaoke_export = _export(store, media, karaoke_vocals, ExportFormat.WAV24, destination)
+    demucs_export = _export(store, media, demucs_vocals, ExportFormat.WAV24, destination)
+
+    assert karaoke_export.path.name == f"{TITLE} - Vocals (Karaoke).wav"
+    assert demucs_export.path.name == f"{TITLE} - Vocals (Demucs).wav"
+    assert karaoke_export.manifest["separation_method"] == "karaoke"
+    assert demucs_export.manifest["separation_method"] == "demucs"
+    assert (
+        karaoke_export.manifest["separation_set_key"]
+        != demucs_export.manifest["separation_set_key"]
+    )
+    assert abs(_peaks(media, karaoke_export.path) - (source_peak - 6.0)) <= 0.1
+    assert abs(_peaks(media, demucs_export.path) - (source_peak - 2.0)) <= 0.1
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ from stemforge import errors
 from stemforge.application.state import JobLedger, WorkspaceState
 from stemforge.application.views import ExportedFile
 from stemforge.artifacts import ArtifactStore
+from stemforge.domain.methods import DEFAULT_METHOD_ID
 from stemforge.domain.models import JobKind, JobState, Track
 from stemforge.engines.media import ExportFormat, MediaTool
 from stemforge.errors import StemForgeError
@@ -46,10 +47,15 @@ class ExportService:
     def remember_export_dir(self, directory: Path) -> None:
         self._settings.set_export_dir(directory)
 
-    def export_targets(self, track: Track | str) -> tuple[ExportTarget, ...]:
+    def export_targets(
+        self,
+        track: Track | str,
+        *,
+        separation_method: str = DEFAULT_METHOD_ID,
+    ) -> tuple[ExportTarget, ...]:
         """Every existing, valid export selection for one Track.
 
-        The master, the unshifted Stems and Instrumental, and every member of
+        The master, the selected method's Separation set, and every member of
         each committed pitch render set. Missing artifacts and invalid manifests
         are omitted rather than offered as a failing action.
         """
@@ -60,6 +66,7 @@ class ExportService:
             self._artifacts,
             source_id=found.source_id,
             title=found.title,
+            separation_method=separation_method,
         )
 
     def submit_export(

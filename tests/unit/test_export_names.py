@@ -91,6 +91,23 @@ def test_a_long_title_keeps_the_role_suffix_and_the_base_cap() -> None:
     assert base.endswith(" - Instrumental +12st")
 
 
+def test_a_method_qualifier_is_part_of_the_role_suffix() -> None:
+    assert suggest_base_name("Song", role="vocals", method_label="Karaoke") == (
+        "Song - Vocals (Karaoke)"
+    )
+    assert (
+        suggest_base_name("Song", role="instrumental", semitones=3, method_label="Demucs")
+        == "Song - Instrumental (Demucs) +3st"
+    )
+
+
+def test_a_long_title_keeps_the_method_qualifier_and_the_base_cap() -> None:
+    base = suggest_base_name("a" * 300, role="vocals", semitones=-2, method_label="Karaoke")
+
+    assert len(base) == MAX_BASE_CHARS
+    assert base.endswith(" - Vocals (Karaoke) -2st")
+
+
 def test_export_filename_adds_the_extension_and_collision_suffix() -> None:
     assert export_filename("Song", ".wav") == "Song.wav"
     assert export_filename("Song", ".flac", collision=2) == "Song (2).flac"

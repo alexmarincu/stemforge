@@ -235,13 +235,21 @@ class Harness:
         path.write_bytes(b"fake source bytes for " + name.encode())
         return path
 
-    def add_separation(self, source_id: str) -> None:
-        staging = self.artifacts.stage("ui-export-separation")
+    def add_separation(self, source_id: str, *, method: str = "demucs") -> None:
+        roles = (
+            ("vocals", "instrumental")
+            if method == "karaoke"
+            else ("vocals", "instrumental", "drums", "bass", "other")
+        )
+        staging = self.artifacts.stage(f"ui-export-separation-{method}")
         files: list[Mapping[str, object]] = []
-        for role in ("vocals", "drums", "bass", "other", "instrumental"):
-            data = f"{role}-audio".encode()
+        for role in roles:
+            data = f"{method}-{role}-audio".encode()
             (staging / f"{role}.wav").write_bytes(data)
             files.append(_file_entry(f"{role}.wav", role, data))
+            preview = f"{method}-{role}-preview".encode()
+            (staging / f"{role}_preview.mp3").write_bytes(preview)
+            files.append(_file_entry(f"{role}_preview.mp3", f"{role}_preview", preview))
         self.artifacts.commit_separation(
             staging,
             source_id,
@@ -251,36 +259,48 @@ class Harness:
                 "source_id": source_id,
                 "files": files,
             },
+            method=method,
         )
 
-    def add_render(self, source_id: str, *, semitones: int = 3, stems: bool = False) -> str:
-        key = f"render-{'stems' if stems else 'original'}-{semitones}"
+    def add_render(
+        self,
+        source_id: str,
+        *,
+        semitones: int = 3,
+        stems: bool = False,
+        method: str = "demucs",
+    ) -> str:
+        key = f"render-{method}-{'stems' if stems else 'original'}-{semitones}"
         staging = self.artifacts.stage(f"ui-export-{key}")
-        roles = ("original",) if not stems else ("vocals", "drums", "bass", "other", "instrumental")
+        if not stems:
+            roles: tuple[str, ...] = ("original",)
+        elif method == "karaoke":
+            roles = ("vocals", "instrumental")
+        else:
+            roles = ("vocals", "instrumental", "drums", "bass", "other")
         files: list[Mapping[str, object]] = []
         for role in roles:
-            data = f"render-{role}-{semitones}".encode()
+            data = f"render-{method}-{role}-{semitones}".encode()
             (staging / f"{role}.wav").write_bytes(data)
             files.append(_file_entry(f"{role}.wav", role, data))
         preview_role = "instrumental" if stems else "original"
-        preview = f"render-{preview_role}-preview-{semitones}".encode()
+        preview = f"render-{method}-{preview_role}-preview-{semitones}".encode()
         (staging / f"{preview_role}_preview.mp3").write_bytes(preview)
         files.append(_file_entry(f"{preview_role}_preview.mp3", f"{preview_role}_preview", preview))
-        self.artifacts.commit_render(
-            staging,
-            key,
-            {
-                "schema_version": 1,
-                "kind": "render",
-                "source_id": source_id,
-                "render_key": key,
-                "created_at": datetime.now(UTC).isoformat(),
-                "scope": "stems" if stems else "original",
-                "semitones": semitones,
-                "gain_db": 0.0,
-                "files": files,
-            },
-        )
+        manifest: dict[str, object] = {
+            "schema_version": 1,
+            "kind": "render",
+            "source_id": source_id,
+            "render_key": key,
+            "created_at": datetime.now(UTC).isoformat(),
+            "scope": "stems" if stems else "original",
+            "semitones": semitones,
+            "gain_db": 0.0,
+            "files": files,
+        }
+        if stems:
+            manifest["separation_method"] = method
+        self.artifacts.commit_render(staging, key, manifest)
         return key
 
 
@@ -625,8 +645,94 @@ async def test_a_separation_row_export_opens_the_sheet_on_that_stem(
         user.find(marker="output-export-drums").click()
         await asyncio.sleep(0.05)
         assert _sheet_open(workspace_page)
-        assert workspace_page._export_sheet._target_key == "stem:drums"
+        assert workspace_page._export_sheet._target_key == "separation:demucs:drums"
         assert _only(user, "export-source-label").text == "Drums"
+
+
+async def test_karaoke_rows_export_the_selected_set_with_a_qualified_name(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id, method="demucs")
+        harness.add_separation(source_id, method="karaoke")
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+        user.find(marker="separation-method-karaoke").click()
+        await asyncio.sleep(0.05)
+
+        await user.should_see(marker="output-row-vocals")
+        await user.should_see(marker="output-row-instrumental")
+        await user.should_not_see(marker="output-row-drums")
+        assert _enabled(user, "output-export-vocals") is True
+        assert _enabled(user, "output-export-instrumental") is True
+        assert _count(user, "output-export-drums") == 0
+
+        track = harness.service.snapshot().tracks[0]
+        keys = {
+            target.key
+            for target in harness.service.export_targets(track)
+            if target.scope == "separation"
+        }
+        assert keys == {"separation:karaoke:vocals", "separation:karaoke:instrumental"}
+
+        user.find(marker="output-export-vocals").click()
+        await asyncio.sleep(0.05)
+        assert _sheet_open(workspace_page)
+        assert workspace_page._export_sheet._target_key == "separation:karaoke:vocals"
+        assert _only(user, "export-source-label").text == "Vocals"
+        assert _only(user, "export-default-name").text == "Song - Vocals (Karaoke).wav"
+
+        destination = harness.root / "exports"
+        destination.mkdir()
+        harness.save_backend.results = [str(destination / "Karaoke Vocals.wav")]
+        user.find(marker="export-confirm").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        exported = destination / "Karaoke Vocals.wav"
+        assert exported.is_file()
+        assert exported.read_bytes() == b"encoded:karaoke-vocals-audio"
+        _assert_no_partial(destination)
+        await user.should_see(marker="export-success")
+
+
+async def test_the_other_methods_render_set_stays_exportable_under_karaoke(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id, method="demucs")
+        harness.add_separation(source_id, method="karaoke")
+        render_key = harness.add_render(source_id, semitones=3, stems=True)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+        user.find(marker="separation-method-karaoke").click()
+        await asyncio.sleep(0.05)
+
+        track = harness.service.snapshot().tracks[0]
+        keys = {target.key for target in harness.service.export_targets(track)}
+        assert "separation:karaoke:vocals" in keys
+        assert not any(key.startswith("separation:demucs") for key in keys)
+        assert f"render:{render_key}:drums" in keys
+        assert f"render:{render_key}:other" in keys
+
+        user.find(marker=f"output-tab-{render_key}").click()
+        await asyncio.sleep(0.05)
+        user.find(marker="output-export-vocals").click()
+        await asyncio.sleep(0.05)
+        assert _sheet_open(workspace_page)
+        assert workspace_page._export_sheet._target_key == f"render:{render_key}:vocals"
+        assert _only(user, "export-source-label").text == "Vocals +3 st"
+        assert _only(user, "export-default-name").text == "Song - Vocals (Demucs) +3st.wav"
+        user.find(marker="export-cancel").click()
+        await asyncio.sleep(0.05)
 
 
 # ---------------------------------------------------------------------------
