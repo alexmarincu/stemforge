@@ -24,7 +24,14 @@ from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
+from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
+from stemforge.domain.workspace import Workspace
+from stemforge.engines.media import (
+    CanonicalMetadata,
+    DecodeResult,
+    LevelMeasurement,
+    MediaInfo,
+)
 from stemforge.engines.separation import SeparationOutputs
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
@@ -32,7 +39,7 @@ from stemforge.jobs.runner import JobRunner
 from stemforge.models import ModelSpec, ModelStore
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
-from stemforge.ui import page
+from stemforge.ui import formatting, page
 
 pytestmark = pytest.mark.ui
 
@@ -67,14 +74,21 @@ def _tiny_spec() -> ModelSpec:
 class FakeMedia:
     """A scripted ``MediaTool`` that writes tiny stand-ins, never real audio."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        source_channels: int = CHANNELS,
+        side_peak_dbfs: float = -6.0,
+    ) -> None:
         self.duration_s = DURATION_S
+        self.source_channels = source_channels
+        self.side_peak_dbfs = side_peak_dbfs
 
     def probe(self, path: Path) -> MediaInfo:
         return MediaInfo(
             codec="pcm_f32le",
             sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
+            channels=self.source_channels,
             duration_s=self.duration_s,
             format="wav",
             tags={},
@@ -90,7 +104,7 @@ class FakeMedia:
             duration_s=self.duration_s,
             sample_rate=SAMPLE_RATE,
             channels=CHANNELS,
-            downmixed=False,
+            downmixed=self.source_channels > CHANNELS,
         )
 
     def extract_metadata(self, src: Path) -> CanonicalMetadata:
@@ -132,6 +146,12 @@ class FakeMedia:
     def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
         cancel.check()
         return -3.0
+
+    def measure_levels(
+        self, path: Path, *, cancel: CancelToken, log: logging.Logger
+    ) -> LevelMeasurement:
+        cancel.check()
+        return LevelMeasurement(peak_dbfs=-3.0, side_peak_dbfs=self.side_peak_dbfs)
 
 
 class FakeSeparation:
@@ -303,6 +323,7 @@ class Harness:
     transport: ScriptedTransport
     tiny_model: bool = True
     install_model: bool = False
+    workspace: Workspace | None = None
     paths: AppPaths = field(init=False)
     settings: SettingsStore = field(init=False)
     artifacts: ArtifactStore = field(init=False)
@@ -330,6 +351,7 @@ class Harness:
             engines=ServiceEngines(media=self.media, separation=self.separation),
             models=self.models,
             model_transport=self.transport,
+            workspace=self.workspace,
         )
         self.context = page.UiContext(service=self.service, dialogs=self.dialog)
 
@@ -899,6 +921,187 @@ async def test_progress_cancel_and_stall_use_the_injected_clock(tmp_path: Path) 
             await user.should_not_see(marker="output-row-vocals")
             assert _only(user, "separation-status").text == "Not separated · Demucs · CPU"
             assert list(harness.artifacts.staging_dir.iterdir()) == []
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+@pytest.mark.parametrize(
+    ("source_channels", "side_peak_dbfs", "reason_copy"),
+    [
+        (1, -6.0, formatting.SEPARATION_METHOD_UNAVAILABLE_MONO),
+        (2, float("-inf"), formatting.SEPARATION_METHOD_UNAVAILABLE_DUAL_MONO),
+    ],
+)
+async def test_karaoke_is_disabled_with_a_reason_and_a_demucs_action(
+    tmp_path: Path,
+    source_channels: int,
+    side_peak_dbfs: float,
+    reason_copy: str,
+) -> None:
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(source_channels=source_channels, side_peak_dbfs=side_peak_dbfs),
+        separation=FakeSeparation(),
+        dialog=FakeDialog(),
+        transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
+        install_model=True,
+    )
+    harness.settings.set_separation_method("karaoke")
+    harness.runner.start()
+    try:
+        async for user, workspace_page in _open_page(harness):
+            await _import(harness, user, workspace_page)
+            jobs_before = len(harness.runner.jobs())
+
+            assert _enabled(user, "separation-method-karaoke") is False
+            await user.should_see(marker="separation-method-unavailable")
+            assert _only(user, "separation-method-unavailable").text == reason_copy
+            await user.should_not_see(marker="separation-action")
+            await user.should_not_see(marker="separation-karaoke-fineprint")
+
+            user.find(marker="separation-use-demucs").click()
+            await asyncio.sleep(0.05)
+
+            assert "is-active" in _only(user, "separation-method-demucs").classes
+            assert _only(user, "separation-action-method").text == "Method: Demucs"
+            assert _enabled(user, "separation-action") is True
+            # The disabled Karaoke item keeps its reason; the one-click action
+            # belongs to the blocked selection.
+            assert _only(user, "separation-method-unavailable").text == reason_copy
+            await user.should_not_see(marker="separation-use-demucs")
+            assert len(harness.runner.jobs()) == jobs_before
+            assert [job for job in harness.runner.jobs() if job.kind.value == "separate"] == []
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_a_karaoke_set_on_a_mono_source_disables_separate_and_explains(
+    tmp_path: Path,
+) -> None:
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(source_channels=1),
+        separation=FakeSeparation(),
+        dialog=FakeDialog(),
+        transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
+        install_model=True,
+    )
+    harness.runner.start()
+    try:
+        async for user, workspace_page in _open_page(harness):
+            await _import(harness, user, workspace_page)
+            track = harness.service.snapshot().tracks[0]
+            harness.add_separation(track.source_id, method="karaoke")
+            with user:
+                workspace_page._detail.refresh()
+                workspace_page._tracks.refresh()
+            await asyncio.sleep(0.05)
+
+            assert "is-active" in _only(user, "separation-method-karaoke").classes
+            await user.should_see(marker="separation-method-unavailable")
+            await user.should_not_see(marker="separation-action")
+            await user.should_see(marker="separation-use-demucs")
+            assert [job for job in harness.runner.jobs() if job.kind.value == "separate"] == []
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_a_legacy_source_with_an_unknown_layout_is_not_blocked_in_the_ui(
+    tmp_path: Path,
+) -> None:
+    source = Source(
+        source_id="src-legacy",
+        origin="/music/legacy.wav",
+        origin_kind=OriginKind.FILE,
+        metadata=SourceMetadata(
+            title="Legacy",
+            duration_s=42.0,
+            sample_rate=44_100,
+            channels=2,
+        ),
+    )
+    track = Track(track_id="trk-legacy", source=source, title="Legacy")
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(),
+        separation=FakeSeparation(),
+        dialog=FakeDialog(),
+        transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
+        install_model=True,
+        workspace=Workspace([track]),
+    )
+    harness.settings.set_separation_method("karaoke")
+    harness.runner.start()
+    try:
+        async for user, _workspace_page in _open_page(harness):
+            user.find(marker="track-row-trk-legacy").click()
+            await asyncio.sleep(0.05)
+
+            assert _enabled(user, "separation-method-karaoke") is True
+            await user.should_not_see(marker="separation-method-unavailable")
+            await user.should_see(marker="separation-action")
+            assert _only(user, "separation-action-method").text == "Method: Karaoke"
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_a_legacy_karaoke_failure_explains_the_layout_and_offers_demucs(
+    tmp_path: Path,
+) -> None:
+    source = Source(
+        source_id="src-legacy",
+        origin="/music/legacy.wav",
+        origin_kind=OriginKind.FILE,
+        metadata=SourceMetadata(
+            title="Legacy",
+            duration_s=42.0,
+            sample_rate=44_100,
+            channels=2,
+        ),
+    )
+    track = Track(track_id="trk-legacy", source=source, title="Legacy")
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(side_peak_dbfs=float("-inf")),
+        separation=FakeSeparation(),
+        dialog=FakeDialog(),
+        transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
+        install_model=True,
+        workspace=Workspace([track]),
+    )
+    staging = harness.artifacts.stage("ui-legacy-source")
+    canonical = staging / "canonical.wav"
+    data = b"legacy canonical audio"
+    canonical.write_bytes(data)
+    harness.artifacts.commit_source(
+        staging,
+        "src-legacy",
+        {
+            "schema_version": 1,
+            "kind": "source",
+            "source_id": "src-legacy",
+            "metadata": {"title": "Legacy"},
+            "files": [_file_entry("canonical.wav", "canonical", data)],
+        },
+    )
+    harness.settings.set_separation_method("karaoke")
+    harness.runner.start()
+    try:
+        async for user, workspace_page in _open_page(harness):
+            user.find(marker="track-row-trk-legacy").click()
+            await asyncio.sleep(0.05)
+            user.find(marker="separation-action").click()
+            await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+            await _poll(harness, user, workspace_page)
+
+            await user.should_see(marker="separation-error")
+            await user.should_see(
+                formatting.COPY_BY_CODE[errors.SEPARATION_METHOD_UNSUPPORTED].action
+            )
+            await user.should_see(marker="separation-use-demucs")
+            assert harness.artifacts.separation_sets("src-legacy") == ()
+            assert list(harness.artifacts.staging_dir.iterdir()) == []
+            assert "astats" not in _only(user, "separation-error-code").text
     finally:
         harness.runner.stop(timeout=10)
 

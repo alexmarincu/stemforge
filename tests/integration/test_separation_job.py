@@ -79,6 +79,27 @@ def tone(ffmpeg_path: Path, tmp_path: Path) -> Path:
             "-f",
             "lavfi",
             "-i",
+            "aevalsrc=0.2*sin(2*PI*220*t)|0.2*sin(2*PI*330*t):s=44100:d=1:c=stereo",
+            "-c:a",
+            "pcm_f32le",
+            target,
+        ]
+    )
+    return target
+
+
+@pytest.fixture
+def centre(ffmpeg_path: Path, tmp_path: Path) -> Path:
+    target = tmp_path / "centre-source.wav"
+    _run(
+        [
+            ffmpeg_path,
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
             "aevalsrc=0.2*sin(2*PI*220*t)|0.2*sin(2*PI*220*t):s=44100:d=1:c=stereo",
             "-c:a",
             "pcm_f32le",
@@ -118,22 +139,30 @@ def entry(path: Path, role: str) -> dict[str, object]:
     }
 
 
-def commit_source(store: ArtifactStore, canonical: Path, source_id: str = "src-separation") -> str:
+def commit_source(
+    store: ArtifactStore,
+    canonical: Path,
+    source_id: str = "src-separation",
+    *,
+    original_channels: int | None = None,
+    stereo_layout: str | None = None,
+) -> str:
     staging = store.stage("job-source")
     target = staging / "canonical.wav"
     target.write_bytes(canonical.read_bytes())
-    store.commit_source(
-        staging,
-        source_id,
-        {
-            "schema_version": 1,
-            "kind": "source",
-            "source_id": source_id,
-            "created_at": datetime(2026, 11, 16, 12, 0, tzinfo=UTC).isoformat(),
-            "metadata": {"title": "Separation Fixture", "artist": "StemForge Tests"},
-            "files": [entry(target, "canonical")],
-        },
-    )
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "kind": "source",
+        "source_id": source_id,
+        "created_at": datetime(2026, 11, 16, 12, 0, tzinfo=UTC).isoformat(),
+        "metadata": {"title": "Separation Fixture", "artist": "StemForge Tests"},
+        "files": [entry(target, "canonical")],
+    }
+    if original_channels is not None:
+        manifest["original_channels"] = original_channels
+    if stereo_layout is not None:
+        manifest["stereo_layout"] = stereo_layout
+    store.commit_source(staging, source_id, manifest)
     return source_id
 
 
@@ -353,7 +382,7 @@ def test_karaoke_commits_two_outputs_without_reading_the_model_store(
     media: FfmpegTool,
 ) -> None:
     store = make_store(tmp_path)
-    source_id = commit_source(store, tone)
+    source_id = commit_source(store, tone, original_channels=2, stereo_layout="stereo")
     models = _UnusedModelStore(store.paths)
     events: list[tuple[float, str | None, str | None]] = []
 
@@ -417,6 +446,105 @@ def test_karaoke_commits_two_outputs_without_reading_the_model_store(
     assert fractions[-1] == 1.0
     stages = {stage for _fraction, stage, _detail in events}
     assert {"Verify", "Separate", "Validate", "Gain", "Previews", "Saving", "Done"} <= stages
+
+
+def test_karaoke_refuses_a_recorded_mono_source_before_staging(
+    tmp_path: Path,
+    tone: Path,
+    media: FfmpegTool,
+) -> None:
+    store = make_store(tmp_path)
+    source_id = commit_source(store, tone, original_channels=1, stereo_layout="mono")
+    models = _UnusedModelStore(store.paths)
+
+    with pytest.raises(StemForgeError) as raised:
+        separate(
+            store,
+            karaoke_engine(),
+            media,
+            models,
+            source_id,
+            method="karaoke",
+            job_id="job-mono",
+        )
+
+    assert raised.value.code == errors.SEPARATION_METHOD_UNSUPPORTED
+    assert raised.value.detail == "reason=mono"
+    assert raised.value.context["reason"] == "mono"
+    assert not (store.staging_dir / "job-mono").exists()
+    assert store.separation_sets(source_id) == ()
+
+
+def test_karaoke_refuses_a_legacy_dual_mono_source_after_measuring_the_side_signal(
+    tmp_path: Path,
+    centre: Path,
+    media: FfmpegTool,
+) -> None:
+    store = make_store(tmp_path)
+    source_id = commit_source(store, centre)
+    models = _UnusedModelStore(store.paths)
+
+    with pytest.raises(StemForgeError) as raised:
+        separate(
+            store,
+            karaoke_engine(),
+            media,
+            models,
+            source_id,
+            method="karaoke",
+            job_id="job-legacy",
+        )
+
+    assert raised.value.code == errors.SEPARATION_METHOD_UNSUPPORTED
+    assert raised.value.detail == "reason=dual_mono"
+    assert raised.value.context["reason"] == "dual_mono"
+    assert not (store.staging_dir / "job-legacy").exists()
+    assert store.separation_sets(source_id) == ()
+
+
+def test_karaoke_allows_a_legacy_stereo_source_after_measuring_the_side_signal(
+    tmp_path: Path,
+    tone: Path,
+    media: FfmpegTool,
+) -> None:
+    store = make_store(tmp_path)
+    source_id = commit_source(store, tone)
+
+    result = separate(
+        store,
+        karaoke_engine(),
+        media,
+        _UnusedModelStore(store.paths),
+        source_id,
+        method="karaoke",
+        job_id="job-legacy-stereo",
+    )
+
+    assert result.artifact.method == "karaoke"
+    assert store.find_separation(source_id, method="karaoke") is not None
+
+
+def test_demucs_still_runs_on_a_recorded_mono_source(
+    tmp_path: Path,
+    tone: Path,
+    media: FfmpegTool,
+) -> None:
+    store = make_store(tmp_path)
+    source_id = commit_source(store, tone, original_channels=1, stereo_layout="mono")
+    models = make_models(store)
+    models.install_bytes(WEIGHTS)
+
+    result = separate(
+        store,
+        fake_engine("ok"),
+        media,
+        models,
+        source_id,
+        job_id="job-demucs-mono",
+    )
+
+    assert result.artifact.method == "demucs"
+    assert store.find_separation(source_id, method="demucs") is not None
 
 
 def test_demucs_and_karaoke_sets_survive_side_by_side(

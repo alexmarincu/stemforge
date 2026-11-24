@@ -76,6 +76,7 @@ EXPECTED_CODES = frozenset(
         "separation.engine_error",
         "separation.protocol_mismatch",
         "separation.output_invalid",
+        "separation.method_unsupported",
         "pitch.engine_missing",
         "pitch.render_failed",
         "pitch.output_invalid",

@@ -12,7 +12,7 @@ from typing import Final
 
 from stemforge import __version__
 from stemforge.artifacts import SCHEMA_VERSION
-from stemforge.domain.models import OriginKind
+from stemforge.domain.models import OriginKind, StereoLayout
 
 __all__ = ["source_manifest"]
 
@@ -29,10 +29,14 @@ def source_manifest(
     downmixed: bool,
     metadata: Mapping[str, object],
     files: Sequence[Mapping[str, object]],
+    original_channels: int | None = None,
+    stereo_layout: StereoLayout | None = None,
     extra: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Build one schema-versioned source manifest.
 
+    ``original_channels`` and ``stereo_layout`` are additive facts at schema
+    version 1; a legacy manifest omits them and reads back as unknown.
     ``extra`` carries only the origin-specific fields (YouTube's video id,
     extractor record, and native hash); it cannot override the shared keys.
     """
@@ -50,6 +54,10 @@ def source_manifest(
         "metadata": dict(metadata),
         "files": [dict(entry) for entry in files],
     }
+    if original_channels is not None:
+        payload["original_channels"] = original_channels
+    if stereo_layout is not None:
+        payload["stereo_layout"] = stereo_layout.value
     if extra:
         reserved = payload.keys() & extra.keys()
         if reserved:

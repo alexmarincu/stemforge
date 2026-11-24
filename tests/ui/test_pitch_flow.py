@@ -22,7 +22,12 @@ from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
+from stemforge.engines.media import (
+    CanonicalMetadata,
+    DecodeResult,
+    LevelMeasurement,
+    MediaInfo,
+)
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
@@ -110,6 +115,12 @@ class FakeMedia:
     def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
         cancel.check()
         return -3.0
+
+    def measure_levels(
+        self, path: Path, *, cancel: CancelToken, log: logging.Logger
+    ) -> LevelMeasurement:
+        cancel.check()
+        return LevelMeasurement(peak_dbfs=-3.0, side_peak_dbfs=-6.0)
 
 
 class FakePitch:

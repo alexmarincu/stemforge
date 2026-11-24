@@ -26,6 +26,7 @@ from typing import Protocol, cast
 
 from stemforge import errors
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.models import StereoLayout
 from stemforge.errors import StemForgeError
 from stemforge.platform import binaries, process
 
@@ -39,8 +40,21 @@ EXPORT_MP3_BITRATE = "320k"
 PROBE_TIMEOUT_S = 60.0
 ERROR_TAIL_CHARS = 2_000
 
+# A side signal at or below this peak is digital silence for import purposes.
+# The window sits near the 16-bit noise floor: identical channels cancel to
+# -inf, while any real stereo image is far louder.
+DUAL_MONO_SIDE_PEAK_DBFS = -90.0
+
 _SOXR_LINE = re.compile(r"^\s*soxr\s+\d", re.MULTILINE)
 _PEAK_LEVEL = re.compile(r"Peak level dB:\s*(-inf|-?\d+(?:\.\d+)?)")
+_MAIN_PEAK_LEVEL = re.compile(r"\[astats@main[^\]]*\]\s*Peak level dB:\s*(-inf|-?\d+(?:\.\d+)?)")
+_SIDE_PEAK_LEVEL = re.compile(r"\[astats@side[^\]]*\]\s*Peak level dB:\s*(-inf|-?\d+(?:\.\d+)?)")
+_LEVEL_FILTER = (
+    "[0:a]asplit=2[main][side];"
+    "[main]astats@main=measure_perchannel=0:measure_overall=Peak_level[mainout];"
+    "[side]pan=stereo|c0=c0-c1|c1=c0-c1,"
+    "astats@side=measure_perchannel=0:measure_overall=Peak_level[sideout]"
+)
 _IMAGE_SUFFIXES: Mapping[str, str] = {
     "mjpeg": ".jpg",
     "jpeg": ".jpg",
@@ -102,6 +116,29 @@ class DecodeResult:
     sample_rate: int
     channels: int
     downmixed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class LevelMeasurement:
+    """One pass over a file: its peak and the peak of its left-minus-right side."""
+
+    peak_dbfs: float
+    side_peak_dbfs: float
+
+
+def classify_stereo_layout(*, original_channels: int, side_peak_dbfs: float) -> StereoLayout:
+    """Classify a Source from its original channels and decoded side peak.
+
+    A one-channel original is mono whatever the canonical file contains. A
+    two-or-more-channel original is dual-mono only when its side signal is at or
+    below :data:`DUAL_MONO_SIDE_PEAK_DBFS`; anything louder carries a stereo
+    image.
+    """
+    if original_channels == 1:
+        return StereoLayout.MONO
+    if side_peak_dbfs <= DUAL_MONO_SIDE_PEAK_DBFS:
+        return StereoLayout.DUAL_MONO
+    return StereoLayout.STEREO
 
 
 class ExportFormat(StrEnum):
@@ -252,6 +289,10 @@ class MediaTool(Protocol):
     ) -> None: ...
 
     def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float: ...
+
+    def measure_levels(
+        self, path: Path, *, cancel: CancelToken, log: logging.Logger
+    ) -> LevelMeasurement: ...
 
 
 class FfmpegTool:
@@ -633,6 +674,60 @@ class FfmpegTool:
             raise _probe_error(path, "astats reported no peak")
         return max(float("-inf") if value == "-inf" else float(value) for value in matches)
 
+    def measure_levels(
+        self,
+        path: Path,
+        *,
+        cancel: CancelToken,
+        log: logging.Logger,
+    ) -> LevelMeasurement:
+        """Measure the file's peak and its left-minus-right side peak in one pass.
+
+        Import needs both to record the Source's stereo layout, so the same
+        FFmpeg pass that finds the presentation peak also finds the side peak.
+        The canonical file is stereo, so left minus right is defined.
+        """
+        cancel.check()
+        try:
+            run = process.run_capture(
+                [
+                    str(self.ffmpeg),
+                    "-hide_banner",
+                    "-nostats",
+                    "-v",
+                    "info",
+                    "-nostdin",
+                    "-i",
+                    str(path),
+                    "-filter_complex",
+                    _LEVEL_FILTER,
+                    "-map",
+                    "[mainout]",
+                    "-f",
+                    "null",
+                    "-",
+                    "-map",
+                    "[sideout]",
+                    "-f",
+                    "null",
+                    "-",
+                ],
+                cancel_check=cancel.check,
+                on_stderr_line=lambda line: log.debug("ffmpeg: %s", line),
+            )
+        except TimeoutError as error:
+            raise _probe_error(path, "level measurement timed out") from error
+        if not run.ok:
+            raise _probe_error(path, _tail(run.stderr))
+        main = _MAIN_PEAK_LEVEL.findall(run.stderr)
+        side = _SIDE_PEAK_LEVEL.findall(run.stderr)
+        if not main or not side:
+            raise _probe_error(path, "astats reported no peak")
+        return LevelMeasurement(
+            peak_dbfs=_dbfs(main[0]),
+            side_peak_dbfs=_dbfs(side[0]),
+        )
+
     # --- internals ---------------------------------------------------------
 
     def _decode_argv(self, src: Path, partial: Path, source: MediaInfo) -> list[str]:
@@ -822,6 +917,10 @@ def _mapping(value: object) -> dict[str, object]:
 
 def _as_str(value: object) -> str:
     return value if isinstance(value, str) else ""
+
+
+def _dbfs(value: str) -> float:
+    return float("-inf") if value == "-inf" else float(value)
 
 
 def _as_int(value: object) -> int | None:

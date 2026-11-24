@@ -51,6 +51,7 @@ from .views import (
     PitchSet,
     PreviewTarget,
     RemoveOutcome,
+    SeparationAvailability,
     SeparationMethodView,
     SeparationSet,
 )
@@ -347,6 +348,10 @@ class WorkspaceService:
     def has_separation(self, track: Track) -> bool:
         """Whether the selected method has a committed set for this Track."""
         return self._separation.has_separation(track)
+
+    def separation_availability(self, track: Track) -> tuple[SeparationAvailability, ...]:
+        """The methods that may run on this Track, with a reason when one may not."""
+        return self._separation.separation_availability(track)
 
     def separation_methods(self) -> tuple[SeparationMethodView, ...]:
         """The Separation methods the card's selector offers."""

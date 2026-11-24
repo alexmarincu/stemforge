@@ -21,6 +21,7 @@ from stemforge.domain.models import (
     OriginKind,
     Source,
     SourceMetadata,
+    StereoLayout,
     Track,
 )
 from stemforge.domain.workspace import Workspace
@@ -111,7 +112,12 @@ def _commit_separation(
     store.commit_separation(staging, source_id, manifest, method=method)
 
 
-def _track(track_id: str = TRACK_ID, source_id: str = SOURCE_ID) -> Track:
+def _track(
+    track_id: str = TRACK_ID,
+    source_id: str = SOURCE_ID,
+    *,
+    layout: StereoLayout | None = None,
+) -> Track:
     source = Source(
         source_id=source_id,
         origin="/music/song.wav",
@@ -122,6 +128,8 @@ def _track(track_id: str = TRACK_ID, source_id: str = SOURCE_ID) -> Track:
             sample_rate=44_100,
             channels=2,
         ),
+        original_channels=2,
+        stereo_layout=layout,
     )
     return Track(track_id=track_id, source=source, title="Song")
 
@@ -387,6 +395,68 @@ def test_separation_methods_are_exposed_as_selector_descriptors(tmp_path: Path) 
         ("demucs", "Demucs", True),
         ("karaoke", "Karaoke", False),
     ]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("layout", "reason"),
+    [
+        (StereoLayout.MONO, "mono"),
+        (StereoLayout.DUAL_MONO, "dual_mono"),
+    ],
+)
+def test_karaoke_is_unavailable_on_a_source_without_a_stereo_image(
+    tmp_path: Path, layout: StereoLayout, reason: str
+) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+
+    availability = {
+        item.method: item for item in service.separation_availability(_track(layout=layout))
+    }
+
+    assert availability["karaoke"].available is False
+    assert availability["karaoke"].reason == reason
+    assert availability["demucs"].available is True
+    assert availability["demucs"].reason is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("layout", [StereoLayout.STEREO, None])
+def test_karaoke_stays_available_for_a_stereo_or_unknown_legacy_layout(
+    tmp_path: Path, layout: StereoLayout | None
+) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+
+    availability = {
+        item.method: item for item in service.separation_availability(_track(layout=layout))
+    }
+
+    assert availability["karaoke"].available is True
+    assert availability["karaoke"].reason is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("layout", "reason"),
+    [
+        (StereoLayout.MONO, "mono"),
+        (StereoLayout.DUAL_MONO, "dual_mono"),
+    ],
+)
+def test_separating_with_karaoke_on_an_unsupported_source_submits_no_job(
+    tmp_path: Path, layout: StereoLayout, reason: str
+) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+
+    with pytest.raises(StemForgeError) as raised:
+        service.separate(_track(layout=layout), method="karaoke")
+
+    assert raised.value.code == errors.SEPARATION_METHOD_UNSUPPORTED
+    assert raised.value.detail == f"reason={reason}"
+    assert service.jobs() == ()
 
 
 @pytest.mark.unit

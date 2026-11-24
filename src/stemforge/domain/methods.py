@@ -40,7 +40,8 @@ class SeparationMethod:
     order the UI presents them, so a caller never reconstructs it from a global
     list. ``instrumental_is_sum`` records whether the Instrumental is derived by
     summing the method's non-vocal Stems or stored directly as its own output;
-    the two shapes take different Render paths.
+    the two shapes take different Render paths. ``stereo_only`` records that the
+    method needs a genuine stereo image.
     """
 
     id: str
@@ -50,6 +51,7 @@ class SeparationMethod:
     output_roles: tuple[str, ...]
     requires_model: bool
     instrumental_is_sum: bool
+    stereo_only: bool = False
 
     def __post_init__(self) -> None:
         if not self.id or not self.label:
@@ -104,6 +106,7 @@ KARAOKE_METHOD: Final = SeparationMethod(
     output_roles=("vocals", "instrumental"),
     requires_model=False,
     instrumental_is_sum=False,
+    stereo_only=True,
 )
 
 METHODS: Final[MappingProxyType[str, SeparationMethod]] = MappingProxyType(
