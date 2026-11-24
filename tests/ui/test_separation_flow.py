@@ -975,6 +975,48 @@ async def test_karaoke_is_disabled_with_a_reason_and_a_demucs_action(
         harness.runner.stop(timeout=10)
 
 
+async def test_the_narrow_fallback_cannot_select_unavailable_karaoke(
+    tmp_path: Path,
+) -> None:
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(source_channels=1),
+        separation=FakeSeparation(),
+        dialog=FakeDialog(),
+        transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
+        install_model=True,
+    )
+    harness.settings.set_separation_method("demucs")
+    harness.runner.start()
+    try:
+        async for user, workspace_page in _open_page(harness):
+            await _import(harness, user, workspace_page)
+            track = harness.service.snapshot().tracks[0]
+            jobs_before = len(harness.runner.jobs())
+
+            # The segmented control is disabled, so a click cannot select it.
+            assert _enabled(user, "separation-method-karaoke") is False
+            user.find(marker="separation-method-karaoke").click()
+            await asyncio.sleep(0.05)
+            assert "is-active" in _only(user, "separation-method-demucs").classes
+
+            # The narrow dropdown is not disabled, so the selection path itself
+            # must refuse the unavailable method.
+            user.find(marker="separation-method-select").trigger("update:model-value", {"value": 1})
+            await asyncio.sleep(0.05)
+
+            assert "is-active" in _only(user, "separation-method-demucs").classes
+            assert _only(user, "separation-status").text == "Not separated · Demucs · CPU"
+            assert _only(user, "separation-method-unavailable").text == (
+                formatting.SEPARATION_METHOD_UNAVAILABLE_MONO
+            )
+            assert harness.service.separation_method(track) == "demucs"
+            assert len(harness.runner.jobs()) == jobs_before
+            assert [job for job in harness.runner.jobs() if job.kind.value == "separate"] == []
+    finally:
+        harness.runner.stop(timeout=10)
+
+
 async def test_a_karaoke_set_on_a_mono_source_disables_separate_and_explains(
     tmp_path: Path,
 ) -> None:

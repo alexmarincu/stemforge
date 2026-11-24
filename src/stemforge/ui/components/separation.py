@@ -259,7 +259,23 @@ class SeparationCard:
         ui.label(copy).classes("sf-fineprint").mark("separation-method-requirement")
 
     def _choose_method(self, track: Track, method_id: str) -> None:
-        """Change the view only: no settings write and no Job submission."""
+        """Change the view only: no settings write and no Job submission.
+
+        The narrow dropdown is not disabled per option, so the selection path
+        itself refuses a method the Track cannot run and keeps the reason on
+        screen.
+        """
+        available = next(
+            (
+                item.available
+                for item in self._service.separation_availability(track)
+                if item.method == method_id
+            ),
+            True,
+        )
+        if not available:
+            self.build.refresh()
+            return
         self._service.select_separation_method(track, method_id)
         if self._on_method_selected is not None:
             self._on_method_selected(track)
