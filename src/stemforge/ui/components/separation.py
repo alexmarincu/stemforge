@@ -245,7 +245,8 @@ class SeparationCard:
                         on_click=lambda _=None: self._choose_method(track, "demucs"),
                         color=None,
                     )
-                    .props("flat no-caps size=sm")
+                    .props("flat no-caps")
+                    .classes("sf-control")
                     .mark("separation-use-demucs")
                 )
 
@@ -291,7 +292,8 @@ class SeparationCard:
                     on_click=lambda _=None: self._choose_method(track, "demucs"),
                     color=None,
                 )
-                .props("flat no-caps size=sm")
+                .props("flat no-caps")
+                .classes("sf-control")
                 .mark("separation-demucs-offer-action")
             )
 
@@ -520,7 +522,8 @@ class SeparationCard:
                         on_click=lambda _=None: self._choose_method(track, "demucs"),
                         color=None,
                     )
-                    .props("flat no-caps size=sm")
+                    .props("flat no-caps")
+                    .classes("sf-control")
                     .mark("separation-use-demucs")
                 )
             if failure.retryable:

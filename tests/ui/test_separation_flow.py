@@ -494,6 +494,7 @@ async def test_the_gate_shows_size_revision_licence_and_consent(tmp_path: Path) 
             # Demucs line reveals the full gate without downloading anything.
             await user.should_see(marker="separation-demucs-offer")
             await user.should_not_see(marker="separation-gate")
+            assert "sf-control" in _only(user, "separation-demucs-offer-action").classes
             assert "download" in _only(user, "separation-demucs-offer-action").text.lower()
             user.find(marker="separation-demucs-offer-action").click()
             await asyncio.sleep(0.05)
@@ -961,6 +962,7 @@ async def test_karaoke_is_disabled_with_a_reason_and_a_demucs_action(
             assert _enabled(user, "separation-method-karaoke") is False
             await user.should_see(marker="separation-method-unavailable")
             assert _only(user, "separation-method-unavailable").text == reason_copy
+            assert "sf-control" in _only(user, "separation-use-demucs").classes
             await user.should_not_see(marker="separation-action")
             await user.should_not_see(marker="separation-karaoke-fineprint")
 
