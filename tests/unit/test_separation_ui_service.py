@@ -438,6 +438,28 @@ def test_karaoke_stays_available_for_a_stereo_or_unknown_legacy_layout(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("layout", "reason"),
+    [
+        (StereoLayout.MONO, "mono"),
+        (StereoLayout.DUAL_MONO, "dual_mono"),
+    ],
+)
+def test_separating_with_karaoke_on_an_unsupported_source_submits_no_job(
+    tmp_path: Path, layout: StereoLayout, reason: str
+) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+
+    with pytest.raises(StemForgeError) as raised:
+        service.separate(_track(layout=layout), method="karaoke")
+
+    assert raised.value.code == errors.SEPARATION_METHOD_UNSUPPORTED
+    assert raised.value.detail == f"reason={reason}"
+    assert service.jobs() == ()
+
+
+@pytest.mark.unit
 def test_without_sets_or_a_preference_auto_follows_the_model(tmp_path: Path) -> None:
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     models = ModelStore(paths, spec=_tiny_spec())

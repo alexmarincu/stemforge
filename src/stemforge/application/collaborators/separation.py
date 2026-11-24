@@ -152,16 +152,30 @@ class SeparationService:
     def separate(self, track: Track, method: str | None = None) -> str:
         """Submit one Separation Job and persist the method the user chose.
 
-        An unset method resolves to the Track's current selection. The resolved
-        method is persisted before the model gate, so an explicit Demucs request
-        survives the install. Only a model-requiring method checks the model
-        store; a missing model raises ``separation.model_missing`` and latches
-        one post-install resubmit. A Karaoke request clears a pending Demucs
-        latch, so an install cannot run a method the user moved away from.
+        An unset method resolves to the Track's current selection. A
+        stereo-only method refuses a Source whose recorded layout has no stereo
+        image, before any Job is submitted. The resolved method is persisted
+        before the model gate, so an explicit Demucs request survives the
+        install. Only a model-requiring method checks the model store; a missing
+        model raises ``separation.model_missing`` and latches one post-install
+        resubmit. A Karaoke request clears a pending Demucs latch, so an install
+        cannot run a method the user moved away from.
         """
         requested, automatic = self._resolve_request(track, method)
         descriptor = method_by_id(requested)
         assert descriptor is not None
+        reason = stereo_unsupported_reason(track.source.stereo_layout)
+        if descriptor.stereo_only and reason is not None:
+            raise StemForgeError(
+                errors.SEPARATION_METHOD_UNSUPPORTED,
+                "the source has no stereo image for centre-channel extraction",
+                detail=f"reason={reason}",
+                context={
+                    "source_id": track.source_id,
+                    "method": descriptor.id,
+                    "reason": reason,
+                },
+            )
         self._settings.set_separation_method(requested)
         with self._workspace.lock:
             self._selected_methods[track.track_id] = requested
