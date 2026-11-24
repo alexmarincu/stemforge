@@ -84,6 +84,17 @@ SHELL_CSS: Final = (
    blue primary; active tabs and A/B overrides below still win. */
 .q-btn--flat { color: var(--muted); }
 .q-btn--flat:hover { color: var(--text); }
+/* Quasar's button focus helper is the hover and focus fill; its opacity fade
+   promotes a composited layer and repaints the whole window. The non-animated
+   overlay below paints the same fill inside the button's box. Other Quasar
+   controls keep their own helper. */
+.q-btn .q-focus-helper { display: none; }
+.q-btn::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: transparent; pointer-events: none; }
+.q-btn:not(.disabled):hover::after {
+  background: color-mix(in srgb, currentColor 15%, transparent); }
+.q-btn:not(.disabled):focus-visible::after {
+  background: color-mix(in srgb, currentColor 22%, transparent); }
 /* Compact controls own their box through this class, not Quasar's size prop:
    size=sm writes an inline font-size that a stylesheet cannot override.
    Applied to controls marked ``sf-control``; other sm/dense buttons keep
