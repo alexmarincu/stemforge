@@ -252,6 +252,7 @@ def run_pitch_job(
             separation_method=descriptor.id if descriptor is not None else None,
             separation_set_key=separation.set_key if separation is not None else None,
             separation_method_version=descriptor.version if descriptor is not None else None,
+            output_roles=output_roles,
         )
         emit(preview_end, STAGE_SAVING, "writing the manifest")
         artifact = artifacts.commit_render(staging, render_key, manifest)
@@ -435,6 +436,7 @@ def _manifest(
     separation_method: str | None,
     separation_set_key: str | None,
     separation_method_version: int | None,
+    output_roles: tuple[str, ...],
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "kind": "render",
@@ -464,6 +466,7 @@ def _manifest(
         payload["separation_method"] = separation_method
         payload["separation_set_key"] = separation_set_key
         payload["separation_method_version"] = separation_method_version
+        payload["output_roles"] = list(output_roles)
     return payload
 
 

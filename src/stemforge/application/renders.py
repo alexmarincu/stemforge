@@ -132,6 +132,11 @@ def render_output_roles(
     """The roles a committed Render set carries, in presentation order."""
     if scope is RenderScope.ORIGINAL:
         return ("original",)
+    raw = artifact.manifest.get("output_roles")
+    if isinstance(raw, list):
+        recorded = tuple(item for item in raw if isinstance(item, str) and item)
+        if recorded and len(recorded) == len(raw):
+            return recorded
     descriptor = method_by_id(method) if method is not None else None
     if descriptor is not None:
         return descriptor.output_roles

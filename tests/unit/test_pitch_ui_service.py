@@ -112,6 +112,7 @@ def _commit_render(
     tag: str | None = None,
     method: str | None = None,
     set_key: str | None = None,
+    output_roles: tuple[str, ...] | None = None,
 ) -> str:
     key = f"render-{scope}-{semitones:+d}".replace("+", "p").replace("-", "m")
     if tag is not None:
@@ -165,6 +166,8 @@ def _commit_render(
         manifest["separation_method_version"] = 1
     if set_key is not None:
         manifest["separation_set_key"] = set_key
+    if output_roles is not None:
+        manifest["output_roles"] = list(output_roles)
     store.commit_render(staging, key, manifest)
     return key
 
@@ -323,6 +326,25 @@ def test_stems_availability_is_reported_for_the_scope_action(tmp_path: Path) -> 
     assert service.has_separation(_track()) is False
     _commit_separation(store)
     assert service.has_separation(_track()) is True
+
+
+@pytest.mark.unit
+def test_a_render_view_uses_its_recorded_output_roles(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, method="karaoke")
+    _commit_render(
+        store,
+        SOURCE_ID,
+        semitones=3,
+        scope="stems",
+        method="karaoke",
+        output_roles=("instrumental", "vocals"),
+    )
+
+    (item,) = service.pitch_sets(_track())
+
+    assert item.output_roles == ("instrumental", "vocals")
 
 
 @pytest.mark.unit

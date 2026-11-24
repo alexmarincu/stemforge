@@ -493,8 +493,8 @@ set.
   semitone, and a changed input produces a new set.
 - The set records one presentation gain, encodes one preview per output, writes its
   manifest last, and reuses an existing set without staging another. A stems manifest
-  records `separation_method` and `separation_set_key`; an original-scope manifest has
-  no method.
+  records `separation_method`, `separation_set_key`, and the output roles it carries; an
+  original-scope manifest has no method.
 
 Each Render set is an independent Artifact. Rendering +3 does not modify the +1 set, and
 a later Separation does not invalidate earlier Render sets; the UI marks a stems Render
