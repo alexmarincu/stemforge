@@ -113,13 +113,13 @@ class SeparationService:
 
     def select_separation_method(self, track: Track, method_id: str) -> None:
         """Change the per-Track view selection only; never persist or submit."""
+        known = self._known_method(method_id, source="selected")
         with self._workspace.lock:
-            if method_by_id(method_id) is None:
-                _LOG.warning("unknown Separation method %r; using auto", method_id)
+            if known is None:
                 self._selected_methods.pop(track.track_id, None)
                 self._auto_methods.pop(track.track_id, None)
                 return
-            self._selected_methods[track.track_id] = method_id
+            self._selected_methods[track.track_id] = known
             self._auto_methods.pop(track.track_id, None)
 
     def forget_track(self, track_id: str) -> None:
@@ -199,13 +199,22 @@ class SeparationService:
         """Resolve a submission and whether it came from auto selection."""
         if method is None:
             return self._resolve_method(track), self._is_automatic(track)
-        if method_by_id(method) is None:
-            _LOG.warning("unknown Separation method %r; using auto", method)
-            return (
-                auto_method_id(demucs_installed=self._models.status().installed),
-                True,
-            )
-        return method, False
+        known = self._known_method(method, source="requested")
+        if known is None:
+            return self._auto_method(), True
+        return known, False
+
+    def _auto_method(self) -> str:
+        return auto_method_id(demucs_installed=self._models.status().installed)
+
+    @staticmethod
+    def _known_method(value: str | None, *, source: str) -> str | None:
+        """The registered id, or ``None`` after logging that auto will be used."""
+        if value is not None and method_by_id(value) is not None:
+            return value
+        if value is not None:
+            _LOG.warning("unknown Separation method %r (%s); using auto", value, source)
+        return None
 
     def _is_automatic(self, track: Track) -> bool:
         with self._workspace.lock:
@@ -220,9 +229,9 @@ class SeparationService:
         with self._workspace.lock:
             explicit = self._selected_methods.get(track.track_id)
         if explicit is not None:
-            if method_by_id(explicit) is not None:
-                return explicit
-            _LOG.warning("unknown selected Separation method %r; using auto", explicit)
+            known = self._known_method(explicit, source="selected")
+            if known is not None:
+                return known
             with self._workspace.lock:
                 if self._selected_methods.get(track.track_id) == explicit:
                     self._selected_methods.pop(track.track_id, None)
@@ -233,14 +242,14 @@ class SeparationService:
 
         preference = self._settings.separation_method()
         if preference is not None:
-            if method_by_id(preference) is not None:
-                return preference
-            _LOG.warning("unknown persisted Separation method %r; using auto", preference)
+            known = self._known_method(preference, source="persisted")
+            if known is not None:
+                return known
         with self._workspace.lock:
             remembered = self._auto_methods.get(track.track_id)
         if remembered is not None:
             return remembered
-        resolved = auto_method_id(demucs_installed=self._models.status().installed)
+        resolved = self._auto_method()
         # Auto is resolved once per Track and then kept, so a later model
         # install cannot change the method shown under the user.
         with self._workspace.lock:
