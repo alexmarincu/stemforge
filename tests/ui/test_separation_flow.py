@@ -494,10 +494,16 @@ async def test_the_gate_shows_size_revision_licence_and_consent(tmp_path: Path) 
             # Demucs line reveals the full gate without downloading anything.
             await user.should_see(marker="separation-demucs-offer")
             await user.should_not_see(marker="separation-gate")
+            assert "sf-control" in _only(user, "separation-demucs-offer-action").classes
+            assert "download" in _only(user, "separation-demucs-offer-action").text.lower()
             user.find(marker="separation-demucs-offer-action").click()
             await asyncio.sleep(0.05)
 
+            # One click from the compact line reaches the real download control;
+            # consent still happens in the revealed gate.
             await user.should_see(marker="separation-gate")
+            await user.should_see(marker="model-download")
+            assert _enabled(user, "model-download") is True
             await user.should_see("Separation model not installed")
             await user.should_see("84 MB")
             assert "cbc8a9b1" in _only(user, "model-identity").text
@@ -956,6 +962,7 @@ async def test_karaoke_is_disabled_with_a_reason_and_a_demucs_action(
             assert _enabled(user, "separation-method-karaoke") is False
             await user.should_see(marker="separation-method-unavailable")
             assert _only(user, "separation-method-unavailable").text == reason_copy
+            assert "sf-control" in _only(user, "separation-use-demucs").classes
             await user.should_not_see(marker="separation-action")
             await user.should_not_see(marker="separation-karaoke-fineprint")
 
@@ -969,6 +976,48 @@ async def test_karaoke_is_disabled_with_a_reason_and_a_demucs_action(
             # belongs to the blocked selection.
             assert _only(user, "separation-method-unavailable").text == reason_copy
             await user.should_not_see(marker="separation-use-demucs")
+            assert len(harness.runner.jobs()) == jobs_before
+            assert [job for job in harness.runner.jobs() if job.kind.value == "separate"] == []
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_the_narrow_fallback_cannot_select_unavailable_karaoke(
+    tmp_path: Path,
+) -> None:
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(source_channels=1),
+        separation=FakeSeparation(),
+        dialog=FakeDialog(),
+        transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
+        install_model=True,
+    )
+    harness.settings.set_separation_method("demucs")
+    harness.runner.start()
+    try:
+        async for user, workspace_page in _open_page(harness):
+            await _import(harness, user, workspace_page)
+            track = harness.service.snapshot().tracks[0]
+            jobs_before = len(harness.runner.jobs())
+
+            # The segmented control is disabled, so a click cannot select it.
+            assert _enabled(user, "separation-method-karaoke") is False
+            user.find(marker="separation-method-karaoke").click()
+            await asyncio.sleep(0.05)
+            assert "is-active" in _only(user, "separation-method-demucs").classes
+
+            # The narrow dropdown is not disabled, so the selection path itself
+            # must refuse the unavailable method.
+            user.find(marker="separation-method-select").trigger("update:model-value", {"value": 1})
+            await asyncio.sleep(0.05)
+
+            assert "is-active" in _only(user, "separation-method-demucs").classes
+            assert _only(user, "separation-status").text == "Not separated · Demucs · CPU"
+            assert _only(user, "separation-method-unavailable").text == (
+                formatting.SEPARATION_METHOD_UNAVAILABLE_MONO
+            )
+            assert harness.service.separation_method(track) == "demucs"
             assert len(harness.runner.jobs()) == jobs_before
             assert [job for job in harness.runner.jobs() if job.kind.value == "separate"] == []
     finally:
@@ -1186,6 +1235,24 @@ async def test_the_selector_switches_sets_without_persisting_or_submitting(
         assert "is-active" in _only(user, "separation-method-karaoke").classes
         assert _only(user, "separation-status").text == ("Vocals + Instrumental ready · Karaoke")
         assert harness.service.settings.separation_method() is None
+
+
+async def test_each_method_description_is_visible_beside_the_selector(
+    harness: Harness,
+) -> None:
+    async for user, _workspace_page in _open_page(harness):
+        await _import(harness, user, _workspace_page)
+
+        assert (
+            _only(user, "separation-method-description-demucs").text
+            == (formatting.SEPARATION_METHOD_DESCRIPTIONS["separation-method.demucs"])
+        )
+        assert (
+            _only(user, "separation-method-description-karaoke").text
+            == (formatting.SEPARATION_METHOD_DESCRIPTIONS["separation-method.karaoke"])
+        )
+        await user.should_see("four stems plus an Instrumental")
+        await user.should_see("Vocals plus an Instrumental")
 
 
 async def test_a_selected_method_without_a_set_shows_its_empty_state(

@@ -33,7 +33,7 @@ from stemforge.application import (
     PreviewTarget,
     WorkspaceService,
 )
-from stemforge.domain.methods import method_by_id
+from stemforge.domain.methods import KARAOKE_METHOD, method_by_id
 from stemforge.domain.models import OriginKind, RenderScope, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import (
@@ -310,14 +310,16 @@ SHELL_CSS: Final = (
 .sf-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .sf-player { display: none; }
 .sf-separation-status { font-size: 11.5px; color: var(--muted); margin: 2px 0 6px; }
-.sf-method { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px;
-  container-type: inline-size; }
+.sf-method { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  margin: 2px 0 4px; container-type: inline-size; }
 .sf-method-switch { display: inline-flex; align-items: center; gap: 2px; padding: 2px;
   background: var(--well); border: 1px solid var(--line); border-radius: 999px; }
 .sf-method-switch .q-btn { border-radius: 999px; }
 .sf-method-switch .q-btn.is-active { background: var(--accent-soft); color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent-line); }
 .sf-method-fallback { display: none; min-width: 160px; }
+.sf-method-notes { flex-basis: 100%; display: flex; flex-direction: column; gap: 1px; }
+.sf-method-description { font-size: 10px; color: var(--dim); line-height: 1.4; }
 @container (max-width: 320px) {
   .sf-method-switch { display: none; }
   .sf-method-fallback { display: block; }
@@ -2554,7 +2556,7 @@ class WorkspacePage:
             assert selected is not None
             status = (
                 formatting.TRACK_STATUS_KARAOKE
-                if selected.method == "karaoke"
+                if selected.method == KARAOKE_METHOD.id
                 else formatting.TRACK_STATUS_STEMS
             )
             if latest is not None:
@@ -2612,7 +2614,7 @@ class WorkspacePage:
                 ui.label(formatting.SIGNAL_SEPARATION).classes("sf-chip-label")
                 if selected is None:
                     separation_copy = formatting.SIGNAL_NOT_RUN
-                elif selected.method == "karaoke":
+                elif selected.method == KARAOKE_METHOD.id:
                     separation_copy = formatting.SIGNAL_SEPARATION_DONE_KARAOKE
                 else:
                     separation_copy = formatting.SIGNAL_SEPARATION_DONE

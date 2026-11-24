@@ -256,3 +256,10 @@ def test_the_level_adjusted_badge_is_quiet_and_exact() -> None:
     assert formatting.level_adjusted_label(0.0) is None
     assert formatting.level_adjusted_label(-1.5) == "level adjusted \u22121.5 dB"
     assert formatting.level_adjusted_label(-6.0) == "level adjusted \u22126.0 dB"
+
+
+def test_every_separation_method_has_visible_description_copy() -> None:
+    from stemforge.domain.methods import METHODS
+
+    for method in METHODS.values():
+        assert formatting.SEPARATION_METHOD_DESCRIPTIONS[method.description_key]

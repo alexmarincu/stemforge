@@ -15,13 +15,15 @@ resubmits a previously requested Separation exactly once.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
-from dataclasses import replace
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Final
 
 from nicegui import ui
 
 from stemforge import errors
+from stemforge.domain.methods import DEFAULT_METHOD_ID, DEMUCS_METHOD, KARAOKE_METHOD
 from stemforge.domain.models import Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.shell import PathOpener
@@ -44,6 +46,39 @@ if TYPE_CHECKING:
 JobStarted = Callable[[str, str, str | None], None]
 CancelJob = Callable[[], None]
 MethodSelected = Callable[[Track], None]
+
+
+@dataclass(frozen=True, slots=True)
+class _MethodCopy:
+    """The status sentences that differ between Separation methods."""
+
+    done: str
+    not_separated: str
+    not_separated_hint: str
+    last_success: str
+
+
+_DEMUCS_COPY: Final = _MethodCopy(
+    done=formatting.SEPARATION_DONE,
+    not_separated=formatting.SEPARATION_NOT_SEPARATED,
+    not_separated_hint=formatting.SEPARATION_NOT_SEPARATED_HINT,
+    last_success=formatting.SEPARATION_LAST_SUCCESS,
+)
+_METHOD_COPY: Final[Mapping[str, _MethodCopy]] = MappingProxyType(
+    {
+        KARAOKE_METHOD.id: _MethodCopy(
+            done=formatting.SEPARATION_DONE_KARAOKE,
+            not_separated=formatting.SEPARATION_NOT_SEPARATED_KARAOKE,
+            not_separated_hint=formatting.SEPARATION_NOT_SEPARATED_HINT_KARAOKE,
+            last_success=formatting.SEPARATION_LAST_SUCCESS_KARAOKE,
+        ),
+    }
+)
+
+
+def _copy_for(method: str) -> _MethodCopy:
+    """A method's status copy, defaulting to the Demucs wording."""
+    return _METHOD_COPY.get(method, _DEMUCS_COPY)
 
 
 class SeparationCard:
@@ -101,7 +136,7 @@ class SeparationCard:
             if selected_status is not None and not selected_status.available
             else None
         )
-        karaoke_status = by_method.get("karaoke")
+        karaoke_status = by_method.get(KARAOKE_METHOD.id)
         karaoke_reason = (
             karaoke_status.reason
             if karaoke_status is not None and not karaoke_status.available
@@ -141,15 +176,15 @@ class SeparationCard:
             if self._running():
                 self._running_block()
                 if selected is not None:
-                    ui.label(self._last_success_copy(selected.method)).classes("sf-fineprint").mark(
+                    ui.label(_copy_for(selected.method).last_success).classes("sf-fineprint").mark(
                         "separation-last-success"
                     )
             elif selected is not None:
-                ui.label(self._done_copy(selected.method)).classes("sf-separation-status").mark(
+                ui.label(_copy_for(selected.method).done).classes("sf-separation-status").mark(
                     "separation-status"
                 )
                 if gate_visible or failure is not None:
-                    ui.label(self._last_success_copy(selected.method)).classes("sf-fineprint").mark(
+                    ui.label(_copy_for(selected.method).last_success).classes("sf-fineprint").mark(
                         "separation-last-success"
                     )
                 if not gate_visible and blocked_reason is None:
@@ -160,10 +195,11 @@ class SeparationCard:
                         label=formatting.SEPARATION_AGAIN,
                     )
             else:
-                ui.label(self._not_separated_copy(selected_method.id)).classes(
-                    "sf-separation-status"
-                ).mark("separation-status")
-                ui.label(self._not_separated_hint(selected_method.id)).classes("sf-fineprint")
+                copy = _copy_for(selected_method.id)
+                ui.label(copy.not_separated).classes("sf-separation-status").mark(
+                    "separation-status"
+                )
+                ui.label(copy.not_separated_hint).classes("sf-fineprint")
                 if not gate_visible and blocked_reason is None:
                     self._primary(
                         track,
@@ -172,11 +208,11 @@ class SeparationCard:
                         label=formatting.SEPARATION_ACTION,
                     )
             self._error(track, busy)
-            if selected_method.id == "karaoke" and blocked_reason is None:
+            if selected_method.id == KARAOKE_METHOD.id and blocked_reason is None:
                 ui.label(formatting.SEPARATION_KARAOKE_FINEPRINT).classes("sf-fineprint").mark(
                     "separation-karaoke-fineprint"
                 )
-            if not gate_visible and selected is not None and selected.method == "demucs":
+            if not gate_visible and selected is not None and selected.method == DEMUCS_METHOD.id:
                 ui.label(formatting.SEPARATION_PRIMARY_NOTE).classes("sf-fineprint")
 
     def _selected_method(
@@ -223,6 +259,16 @@ class SeparationCard:
             ).props("dense outlined options-dense").classes("sf-method-fallback").mark(
                 "separation-method-select"
             )
+            with (
+                ui.element("div").classes("sf-method-notes").mark("separation-method-descriptions")
+            ):
+                for method in methods:
+                    ui.label(
+                        formatting.SEPARATION_METHOD_DESCRIPTIONS[method.description_key]
+                    ).classes("sf-method-description").mark(
+                        "separation-method-description",
+                        f"separation-method-description-{method.id}",
+                    )
 
     def _method_unavailable(self, track: Track, reason: str, *, offer_demucs: bool) -> None:
         with ui.element("div").classes("sf-notice"):
@@ -233,10 +279,11 @@ class SeparationCard:
                 (
                     ui.button(
                         formatting.SEPARATION_METHOD_USE_DEMUCS,
-                        on_click=lambda _=None: self._choose_method(track, "demucs"),
+                        on_click=lambda _=None: self._choose_method(track, DEMUCS_METHOD.id),
                         color=None,
                     )
-                    .props("flat no-caps size=sm")
+                    .props("flat no-caps")
+                    .classes("sf-control")
                     .mark("separation-use-demucs")
                 )
 
@@ -250,7 +297,23 @@ class SeparationCard:
         ui.label(copy).classes("sf-fineprint").mark("separation-method-requirement")
 
     def _choose_method(self, track: Track, method_id: str) -> None:
-        """Change the view only: no settings write and no Job submission."""
+        """Change the view only: no settings write and no Job submission.
+
+        The narrow dropdown is not disabled per option, so the selection path
+        itself refuses a method the Track cannot run and keeps the reason on
+        screen.
+        """
+        available = next(
+            (
+                item.available
+                for item in self._service.separation_availability(track)
+                if item.method == method_id
+            ),
+            True,
+        )
+        if not available:
+            self.build.refresh()
+            return
         self._service.select_separation_method(track, method_id)
         if self._on_method_selected is not None:
             self._on_method_selected(track)
@@ -263,36 +326,13 @@ class SeparationCard:
             (
                 ui.button(
                     formatting.SEPARATION_DEMUCS_CHOOSE,
-                    on_click=lambda _=None: self._choose_method(track, "demucs"),
+                    on_click=lambda _=None: self._choose_method(track, DEMUCS_METHOD.id),
                     color=None,
                 )
-                .props("flat no-caps size=sm")
+                .props("flat no-caps")
+                .classes("sf-control")
                 .mark("separation-demucs-offer-action")
             )
-
-    @staticmethod
-    def _done_copy(method: str) -> str:
-        if method == "karaoke":
-            return formatting.SEPARATION_DONE_KARAOKE
-        return formatting.SEPARATION_DONE
-
-    @staticmethod
-    def _not_separated_copy(method: str) -> str:
-        if method == "karaoke":
-            return formatting.SEPARATION_NOT_SEPARATED_KARAOKE
-        return formatting.SEPARATION_NOT_SEPARATED
-
-    @staticmethod
-    def _not_separated_hint(method: str) -> str:
-        if method == "karaoke":
-            return formatting.SEPARATION_NOT_SEPARATED_HINT_KARAOKE
-        return formatting.SEPARATION_NOT_SEPARATED_HINT
-
-    @staticmethod
-    def _last_success_copy(method: str) -> str:
-        if method == "karaoke":
-            return formatting.SEPARATION_LAST_SUCCESS_KARAOKE
-        return formatting.SEPARATION_LAST_SUCCESS
 
     # -- model gate ---------------------------------------------------------
 
@@ -492,10 +532,11 @@ class SeparationCard:
                 (
                     ui.button(
                         formatting.SEPARATION_METHOD_USE_DEMUCS,
-                        on_click=lambda _=None: self._choose_method(track, "demucs"),
+                        on_click=lambda _=None: self._choose_method(track, DEMUCS_METHOD.id),
                         color=None,
                     )
-                    .props("flat no-caps size=sm")
+                    .props("flat no-caps")
+                    .classes("sf-control")
                     .mark("separation-use-demucs")
                 )
             if failure.retryable:
@@ -652,7 +693,7 @@ class SeparationCard:
         if failure.code == errors.SEPARATION_MODEL_MISSING:
             self._service.remember_pending_separation(
                 track_id,
-                self._requested_methods.get(track_id, "demucs"),
+                self._requested_methods.get(track_id, DEFAULT_METHOD_ID),
             )
         if track_id == self._current_track_id:
             self.build.refresh()

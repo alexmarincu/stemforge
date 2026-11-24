@@ -400,6 +400,31 @@ def test_another_methods_render_sets_stay_listed_with_collision_only_qualifiers(
     )
 
 
+def test_an_unknown_render_method_is_read_as_demucs(tmp_path: Path) -> None:
+    service, store, _, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store, method="demucs")
+    render = _commit_render(
+        store,
+        "render-unknown-method",
+        scope="stems",
+        semitones=2,
+        roles=DEMUCS_ROLES,
+        gain_db=-3.0,
+        minute=4,
+        separation_method="repet-sim",
+    )
+    track = _add_track(store, workspace)
+
+    targets = service.export_targets(track)
+    rendered = [target for target in targets if target.scope == "stems"]
+
+    assert [target.key for target in rendered] == [
+        f"render:{render}:{role}" for role in DEMUCS_ROLES
+    ]
+    assert {target.separation_method for target in rendered} == {"demucs"}
+
+
 @pytest.mark.parametrize("method", ["demucs", "karaoke"])
 def test_one_separation_set_keeps_unqualified_labels_and_names(tmp_path: Path, method: str) -> None:
     service, store, _, workspace = _service(tmp_path)

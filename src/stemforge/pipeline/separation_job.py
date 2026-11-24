@@ -36,7 +36,12 @@ from stemforge.artifacts import (
     require_free_space,
 )
 from stemforge.domain.cancellation import CancelToken
-from stemforge.domain.methods import DEFAULT_METHOD_ID, SeparationMethod, method_by_id
+from stemforge.domain.methods import (
+    DEFAULT_METHOD_ID,
+    SeparationMethod,
+    method_by_id,
+    require_method,
+)
 from stemforge.domain.models import StereoLayout, parse_stereo_layout, stereo_unsupported_reason
 from stemforge.domain.roles import INSTRUMENTAL_ROLE
 from stemforge.engines.media import (
@@ -149,7 +154,7 @@ def run_separation_job(
     staging directory is created. A method without weights never reads the model
     store. A cancel or any failure discards ``staging/<job_id>/``.
     """
-    descriptor = _method_descriptor(method)
+    descriptor = require_method(method)
     cancel = ctx.cancel
     log = ctx.log
     emit = _context_progress(ctx)
@@ -398,13 +403,6 @@ def block_plan(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return payload
-
-
-def _method_descriptor(method: str) -> SeparationMethod:
-    descriptor = method_by_id(method)
-    if descriptor is None:
-        raise ValueError(f"unknown Separation method: {method!r}")
-    return descriptor
 
 
 def _unsupported_layout_reason(

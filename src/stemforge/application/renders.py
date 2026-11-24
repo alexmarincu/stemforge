@@ -45,16 +45,11 @@ def render_views(artifacts: ArtifactStore, source_id: str) -> tuple[RenderView, 
     parsed.sort(key=lambda item: (item[0].created_at, item[0].render_key))
 
     scope_collisions = {(semitones, scope) for _, scope, semitones, _ in parsed}
-    stem_methods: dict[int, set[str]] = {}
-    for _artifact, scope, semitones, method in parsed:
-        if scope is RenderScope.STEMS and method is not None:
-            stem_methods.setdefault(semitones, set()).add(method)
     labelled: list[tuple[RenderArtifact, RenderScope, int, str | None, str]] = []
     for artifact, scope, semitones, method in parsed:
         label = semitone_label(semitones)
         other = RenderScope.STEMS if scope is RenderScope.ORIGINAL else RenderScope.ORIGINAL
-        stems_collide = len(stem_methods.get(semitones, ())) > 1
-        if (semitones, other) in scope_collisions or (scope is RenderScope.STEMS and stems_collide):
+        if (semitones, other) in scope_collisions:
             label += " master" if scope is RenderScope.ORIGINAL else " stems"
         labelled.append((artifact, scope, semitones, method, label))
 

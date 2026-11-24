@@ -33,7 +33,12 @@ from stemforge.artifacts import (
     free_space_requirement,
     require_free_space,
 )
-from stemforge.domain.methods import SeparationMethod, method_by_id, method_id_or_default
+from stemforge.domain.methods import (
+    SeparationMethod,
+    method_by_id,
+    method_id_or_default,
+    require_method,
+)
 from stemforge.domain.models import RenderScope
 from stemforge.domain.roles import INSTRUMENTAL_ROLE
 from stemforge.engines.media import CANONICAL_CHANNELS, CANONICAL_SAMPLE_RATE, MediaTool
@@ -342,9 +347,7 @@ def _resolve_method_set(
         return None, None
     if separation_method is None:
         raise ValueError("a stems render needs a Separation method")
-    descriptor = method_by_id(separation_method)
-    if descriptor is None:
-        raise ValueError(f"unknown Separation method: {separation_method!r}")
+    descriptor = require_method(separation_method)
     separation = artifacts.find_separation(source_id, method=descriptor.id, verify_hashes=True)
     if separation is None:
         raise ValueError(

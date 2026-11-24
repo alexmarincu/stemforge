@@ -212,11 +212,12 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
         auto_method_id,
         method_by_id,
     )
-    from stemforge.worker_protocol import METHOD_OUTPUT_ROLES
+    from stemforge.worker_protocol import METHOD_OUTPUT_ROLES, METHOD_VERSIONS
 
     assert DEFAULT_METHOD_ID == "demucs"
     assert DEMUCS_METHOD.id == "demucs"
     assert DEMUCS_METHOD.label == "Demucs"
+    assert DEMUCS_METHOD.description_key == "separation-method.demucs"
     assert DEMUCS_METHOD.version == 1
     assert DEMUCS_METHOD.stems == ("vocals", "drums", "bass", "other")
     assert DEMUCS_METHOD.output_roles == ("vocals", "instrumental", "drums", "bass", "other")
@@ -227,6 +228,7 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
 
     assert KARAOKE_METHOD.id == "karaoke"
     assert KARAOKE_METHOD.label == "Karaoke"
+    assert KARAOKE_METHOD.description_key == "separation-method.karaoke"
     assert KARAOKE_METHOD.version == 1
     assert KARAOKE_METHOD.stems == ("vocals",)
     assert KARAOKE_METHOD.output_roles == ("vocals", "instrumental")
@@ -243,6 +245,16 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
 
     # The worker cannot import the domain, so it carries this one copy.
     assert {method.id: method.output_roles for method in METHODS.values()} == METHOD_OUTPUT_ROLES
+    assert {method.id: method.version for method in METHODS.values()} == METHOD_VERSIONS
+
+
+@pytest.mark.unit
+def test_require_method_returns_the_descriptor_or_refuses_an_unknown_id() -> None:
+    from stemforge.domain.methods import KARAOKE_METHOD, require_method
+
+    assert require_method("karaoke") is KARAOKE_METHOD
+    with pytest.raises(ValueError, match="unknown Separation method"):
+        require_method("unknown")
 
 
 @pytest.mark.unit
@@ -260,6 +272,7 @@ def test_a_method_declares_how_its_instrumental_is_produced() -> None:
         SeparationMethod(
             id="broken",
             label="Broken",
+            description_key="separation-method.broken",
             version=1,
             stems=("vocals",),
             output_roles=("vocals", "instrumental"),
@@ -270,6 +283,7 @@ def test_a_method_declares_how_its_instrumental_is_produced() -> None:
         SeparationMethod(
             id="broken",
             label="Broken",
+            description_key="separation-method.broken",
             version=1,
             stems=("vocals",),
             output_roles=("vocals", "drums"),

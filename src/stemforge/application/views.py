@@ -182,12 +182,12 @@ class LicenceFiles:
 class PitchSet:
     """One immutable Render set as version tabs and A/B see it.
 
-    ``label`` is the tab text (``+3`` or, when both scopes exist at one
-    semitone, ``+3 master`` / ``+3 stems``; two methods at one semitone also
-    gain their method label). ``based_on_earlier_separation`` records that the
-    set's recorded inputs no longer match that method's current set; such a set
-    stays listed and selectable. An original-scope set has no method and one
-    output role.
+    ``label`` is the tab text: ``+3``; ``+3 master`` / ``+3 stems`` when both
+    scopes exist at one semitone; and ``+3 · Demucs`` when two methods collide,
+    with both qualifiers present when both collision kinds do.
+    ``based_on_earlier_separation`` records that the set's recorded inputs no
+    longer match that method's current set; such a set stays listed and
+    selectable. An original-scope set has no method and one output role.
     """
 
     render_key: str
@@ -204,12 +204,14 @@ class PitchSet:
 class SeparationMethodView:
     """One Separation method as the card's selector sees it.
 
-    The descriptor owns the stable id and label and whether choosing it
-    requires Model weights; the card never reconstructs a method from its id.
+    The descriptor owns the stable id, label, description key, and whether
+    choosing it requires Model weights; the card never reconstructs a method
+    from its id, and the description prose lives with the UI copy.
     """
 
     id: str
     label: str
+    description_key: str
     requires_model: bool
 
 

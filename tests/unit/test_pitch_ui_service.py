@@ -113,6 +113,7 @@ def _commit_render(
     method: str | None = None,
     set_key: str | None = None,
     output_roles: tuple[str, ...] | None = None,
+    method_version: int = 1,
 ) -> str:
     key = f"render-{scope}-{semitones:+d}".replace("+", "p").replace("-", "m")
     if tag is not None:
@@ -163,7 +164,7 @@ def _commit_render(
         ]
     if method is not None:
         manifest["separation_method"] = method
-        manifest["separation_method_version"] = 1
+        manifest["separation_method_version"] = method_version
     if set_key is not None:
         manifest["separation_set_key"] = set_key
     if output_roles is not None:
@@ -275,7 +276,22 @@ def test_two_methods_at_one_semitone_gain_a_method_qualifier_only_on_collision(
 
     labels = sorted(item.label for item in service.pitch_sets(_track()))
 
-    assert labels == ["+3 stems · Demucs", "+3 stems · Karaoke"]
+    assert labels == ["+3 · Demucs", "+3 · Karaoke"]
+
+
+@pytest.mark.unit
+def test_a_method_and_scope_collision_keeps_both_qualifiers(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store)
+    _commit_separation(store, method="karaoke")
+    _commit_render(store, SOURCE_ID, semitones=3, scope="original", tag="master")
+    _commit_render(store, SOURCE_ID, semitones=3, scope="stems", tag="demucs")
+    _commit_render(store, SOURCE_ID, semitones=3, scope="stems", method="karaoke", tag="karaoke")
+
+    labels = sorted(item.label for item in service.pitch_sets(_track()))
+
+    assert labels == ["+3 master", "+3 stems · Demucs", "+3 stems · Karaoke"]
 
 
 @pytest.mark.unit
@@ -439,6 +455,25 @@ def test_old_stems_sets_stay_listed_but_are_marked_and_not_offered_for_the_new_s
     selected = service.pitch_set(_track(), 3, RenderScope.STEMS)
     assert selected is not None
     assert selected.render_key == new
+
+
+@pytest.mark.unit
+def test_a_render_from_another_method_version_is_stale(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    inputs = _commit_separation(store, version="v1")
+    _commit_render(
+        store,
+        SOURCE_ID,
+        semitones=3,
+        scope="stems",
+        inputs=inputs,
+        method="demucs",
+        method_version=2,
+    )
+
+    (item,) = service.pitch_sets(_track())
+
+    assert item.based_on_earlier_separation is True
 
 
 @pytest.mark.unit

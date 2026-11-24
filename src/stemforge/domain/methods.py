@@ -1,14 +1,15 @@
 """The Separation method registry (GLOSSARY: Separation method).
 
 A method declares the Stems it produces and whether it needs Model weights. It
-is the single source of a method's stable id, label, method version, output
-roles in presentation order, and output count; a Separation set is validated
-and rendered from its method rather than from a fixed five-role list.
+is the single source of a method's stable id, label, description key, method
+version, output roles in presentation order, and output count; a Separation set
+is validated and rendered from its method rather than from a fixed five-role
+list.
 
 This module stays stdlib-only. The worker process cannot import ``domain``
 (import-linter), so :mod:`stemforge.worker_protocol` carries the same
-``method id -> output roles`` mapping and a contract test keeps the two
-identical.
+``method id -> output roles`` and ``method id -> version`` mappings and a
+contract test keeps the copies identical.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ __all__ = [
     "auto_method_id",
     "method_by_id",
     "method_id_or_default",
+    "require_method",
 ]
 
 DEFAULT_METHOD_ID: Final = "demucs"
@@ -46,6 +48,7 @@ class SeparationMethod:
 
     id: str
     label: str
+    description_key: str
     version: int
     stems: tuple[str, ...]
     output_roles: tuple[str, ...]
@@ -56,6 +59,8 @@ class SeparationMethod:
     def __post_init__(self) -> None:
         if not self.id or not self.label:
             raise ValueError("a Separation method needs a non-empty id and label")
+        if not self.description_key:
+            raise ValueError("a Separation method needs a non-empty description key")
         if self.version < 1:
             raise ValueError("a Separation method version must be positive")
         if not self.output_roles or len(set(self.output_roles)) != len(self.output_roles):
@@ -91,6 +96,7 @@ class SeparationMethod:
 DEMUCS_METHOD: Final = SeparationMethod(
     id="demucs",
     label="Demucs",
+    description_key="separation-method.demucs",
     version=1,
     stems=("vocals", "drums", "bass", "other"),
     output_roles=("vocals", "instrumental", "drums", "bass", "other"),
@@ -101,6 +107,7 @@ DEMUCS_METHOD: Final = SeparationMethod(
 KARAOKE_METHOD: Final = SeparationMethod(
     id="karaoke",
     label="Karaoke",
+    description_key="separation-method.karaoke",
     version=1,
     stems=("vocals",),
     output_roles=("vocals", "instrumental"),
@@ -120,6 +127,14 @@ METHODS: Final[MappingProxyType[str, SeparationMethod]] = MappingProxyType(
 def method_by_id(method_id: str) -> SeparationMethod | None:
     """Return the registered method, or ``None`` for an unknown id."""
     return METHODS.get(method_id)
+
+
+def require_method(method_id: str) -> SeparationMethod:
+    """Return the registered method, refusing an id the registry does not know."""
+    descriptor = method_by_id(method_id)
+    if descriptor is None:
+        raise ValueError(f"unknown Separation method: {method_id!r}")
+    return descriptor
 
 
 def auto_method_id(*, demucs_installed: bool) -> str:

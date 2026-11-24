@@ -37,7 +37,12 @@ from stemforge.artifacts import (
     require_free_space,
 )
 from stemforge.domain.cancellation import CancelToken
-from stemforge.domain.methods import DEFAULT_METHOD_ID, SeparationMethod, method_by_id
+from stemforge.domain.methods import (
+    DEFAULT_METHOD_ID,
+    SeparationMethod,
+    method_by_id,
+    method_id_or_default,
+)
 from stemforge.domain.models import RenderScope
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
 from stemforge.engines.media import (
@@ -574,12 +579,7 @@ def _render_separation_method(
     """The method a stems Render set came from; a legacy set is Demucs."""
     if scope is not RenderScope.STEMS:
         return None
-    recorded = render.manifest.get("separation_method", DEFAULT_METHOD_ID)
-    if recorded is None:
-        recorded = DEFAULT_METHOD_ID
-    if not isinstance(recorded, str):
-        return None
-    return method_by_id(recorded)
+    return method_by_id(method_id_or_default(render.manifest.get("separation_method")))
 
 
 def _recorded_set_key(render: RenderArtifact) -> str | None:

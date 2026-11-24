@@ -720,8 +720,8 @@ async def test_version_tabs_qualify_the_method_only_on_a_collision(harness: Harn
         )
         await _refresh(harness, user, workspace_page)
 
-        assert _only(user, f"output-tab-{demucs}").text == "+3 stems · Demucs"
-        assert _only(user, f"output-tab-{karaoke}").text == "+3 stems · Karaoke"
+        assert _only(user, f"output-tab-{demucs}").text == "+3 · Demucs"
+        assert _only(user, f"output-tab-{karaoke}").text == "+3 · Karaoke"
 
         lone = harness.add_render(
             source_id, semitones=4, scope="stems", tag="karaoke", method="karaoke"

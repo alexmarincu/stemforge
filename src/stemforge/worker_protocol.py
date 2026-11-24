@@ -68,12 +68,19 @@ WORKER_OUTPUT_NAMES: Final[tuple[str, ...]] = (*STEM_NAMES, INSTRUMENTAL_NAME)
 WORKER_OUTPUTS: Final[frozenset[str]] = frozenset(WORKER_OUTPUT_NAMES)
 
 # The worker cannot import ``stemforge.domain``; this mapping is its copy of
-# the method registry's output roles, kept identical by a contract test. The
-# order is presentation order.
+# the method registry's output roles and versions, kept identical by a contract
+# test. The role order is presentation order.
 METHOD_OUTPUT_ROLES: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType(
     {
         "demucs": ("vocals", "instrumental", "drums", "bass", "other"),
         "karaoke": ("vocals", "instrumental"),
+    }
+)
+
+METHOD_VERSIONS: Final[MappingProxyType[str, int]] = MappingProxyType(
+    {
+        "demucs": 1,
+        "karaoke": 1,
     }
 )
 

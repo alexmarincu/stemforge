@@ -23,6 +23,7 @@ from stemforge.worker_protocol import (
     EVENT_HELLO,
     EVENT_OUTPUT,
     METHOD_OUTPUT_ROLES,
+    METHOD_VERSIONS,
     WorkerEvent,
     parse_event,
 )
@@ -218,6 +219,7 @@ def test_karaoke_writes_vocals_from_the_centre_and_instrumental_from_the_side(
     done = next(event for event in events if event.event == EVENT_DONE)
 
     assert hello.method == "karaoke"
+    assert hello.engine_version == str(METHOD_VERSIONS["karaoke"])
     assert hello.declared_outputs == METHOD_OUTPUT_ROLES["karaoke"]
     assert {event.stem for event in outputs} == set(METHOD_OUTPUT_ROLES["karaoke"])
     assert done.outputs == METHOD_OUTPUT_ROLES["karaoke"]
