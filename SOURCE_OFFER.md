@@ -72,6 +72,7 @@ and build-only packages are marked; they are not part of the frozen app.
 | `pygobject` | 3.50.2 | `LGPL-2.1-or-later` | runtime | https://pypi.org/project/pygobject/3.50.2/#files |
 | `pyinstaller` | 6.22.3 | `GPL-2.0-or-later WITH Bootloader-exception` | build | https://pypi.org/project/pyinstaller/6.22.3/#files |
 | `pyinstaller-hooks-contrib` | 2026.10 | `GPL-2.0-or-later AND Apache-2.0` | build | https://pypi.org/project/pyinstaller-hooks-contrib/2026.10/#files |
+| `python-xlib` | 0.33 | `LGPLv2+` | development | https://pypi.org/project/python-xlib/0.33/#files |
 | `tqdm` | 4.70.1 | `MPL-2.0 AND MIT` | runtime | https://pypi.org/project/tqdm/4.70.1/#files |
 
 ## FFmpeg build configuration
