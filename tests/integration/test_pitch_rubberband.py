@@ -521,7 +521,7 @@ def test_master_and_stems_renders_have_distinct_keys_and_never_cross_satisfy(
         "Saving",
         "Done",
     } <= stages
-    assert any(detail == "output 1 of 4" for _fraction, _stage, detail in events)
+    assert any(detail == "stem 1 of 4" for _fraction, _stage, detail in events)
 
     found_master = find_pitch_render(
         store, source_id=source_id, semitones=3, scope=RenderScope.ORIGINAL

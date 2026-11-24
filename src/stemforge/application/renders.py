@@ -161,7 +161,7 @@ def recorded_input_hashes(manifest: Mapping[str, object]) -> dict[str, str]:
 def based_on_earlier_separation(
     artifact: RenderArtifact,
     separation: SeparationArtifact | None,
-    method: str | None,
+    method: str | None = None,
 ) -> bool:
     """Whether a stems set no longer matches its own method's current set.
 

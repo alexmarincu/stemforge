@@ -174,7 +174,15 @@ def run_pitch_job(
             cancel.check()
             start = index / total * SHIFT_SHARE
             span = SHIFT_SHARE / total
-            detail = f"output {index + 1} of {total}" if resolved_scope is RenderScope.STEMS else ""
+            if resolved_scope is RenderScope.STEMS:
+                unit = (
+                    "stem"
+                    if descriptor is not None and descriptor.instrumental_is_sum
+                    else "output"
+                )
+                detail = f"{unit} {index + 1} of {total}"
+            else:
+                detail = ""
             destination = staging / f"{item.role}.wav"
             pitch.shift(
                 item.path,
