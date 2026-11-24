@@ -12,7 +12,6 @@ from stemforge.pipeline.export_job import ExportTarget as ExportTarget
 
 from .service import ServiceEngines, WorkspaceService
 from .views import (
-    SEPARATION_OUTPUT_ROLES,
     ExportedFile,
     JobKindValue,
     JobView,
@@ -28,7 +27,6 @@ from .views import (
 )
 
 __all__ = [
-    "SEPARATION_OUTPUT_ROLES",
     "ExportFormat",
     "ExportTarget",
     "ExportedFile",

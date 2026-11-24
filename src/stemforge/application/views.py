@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Final, Protocol
 
 from stemforge.artifacts import RemoveReport
-from stemforge.domain.methods import DEMUCS_METHOD
 from stemforge.domain.models import RenderScope, Track
 from stemforge.domain.roles import INSTRUMENTAL_ROLE
 from stemforge.engines.media import ExportFormat
@@ -28,9 +27,6 @@ SEPARATION_ROLE_LABELS: Final[Mapping[str, str]] = {
     "bass": "Bass",
     "other": "Other",
 }
-
-# Demucs presentation order; a committed set carries its own roles instead.
-SEPARATION_OUTPUT_ROLES: Final[tuple[str, ...]] = DEMUCS_METHOD.output_roles
 
 
 class PreflightCheckView(Protocol):

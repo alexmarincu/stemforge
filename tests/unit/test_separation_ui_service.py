@@ -25,6 +25,7 @@ from stemforge.domain.models import (
     Track,
 )
 from stemforge.domain.workspace import Workspace
+from stemforge.engines.media import LevelMeasurement, MediaInfo
 from stemforge.errors import StemForgeError
 from stemforge.jobs.runner import JobRunner
 from stemforge.models import ModelSpec, ModelStore
@@ -142,6 +143,73 @@ class _FakeMedia:
     """Only used as an injected placeholder; no Job runs in these tests."""
 
 
+class _KaraokeEngine:
+    """A worker stand-in that lives entirely inside the Karaoke contract."""
+
+    def separate(
+        self,
+        canonical: Path,
+        out_dir: Path,
+        *,
+        method: str,
+        expected_outputs: tuple[str, ...],
+        model_path: Path | None,
+        expected_duration_s: float,
+        progress: object,
+        cancel: object,
+        log: object,
+        threads: int | None = None,
+        model_revision: str = "",
+        env: object = None,
+        timeout_s: float | None = None,
+        on_spawn: object = None,
+    ) -> object:
+        from stemforge.engines.separation import SeparationOutputs
+
+        del canonical, expected_duration_s, threads, model_revision, env, timeout_s, on_spawn
+        assert method == "karaoke"
+        assert model_path is None
+        assert tuple(expected_outputs) == ("vocals", "instrumental")
+        outputs = {}
+        for role in expected_outputs:
+            path = Path(out_dir) / f"{role}.wav"
+            path.write_bytes(f"{role}-audio".encode())
+            outputs[role] = path
+        if callable(progress):
+            progress(1.0, "Separate", "")
+        return SeparationOutputs(outputs=outputs)
+
+
+class _JobMedia:
+    """The minimal real-Job media seam: probe, peak, and preview encode."""
+
+    def probe(self, path: Path) -> MediaInfo:
+        del path
+        return MediaInfo("pcm_f32le", 44_100, 2, 1.0, "wav", {})
+
+    def measure_levels(self, path: Path, *, cancel: object, log: object) -> LevelMeasurement:
+        del path, cancel, log
+        return LevelMeasurement(peak_dbfs=-6.0, side_peak_dbfs=-12.0)
+
+    def peak_dbfs(self, path: Path, *, cancel: object, log: object) -> float:
+        del path, cancel, log
+        return -6.0
+
+    def encode_preview(
+        self,
+        src: Path,
+        dst: Path,
+        *,
+        gain_db: float,
+        title: str,
+        artist: str,
+        cancel: object,
+        log: object,
+    ) -> None:
+        del src, gain_db, title, artist, cancel, log
+        Path(dst).write_bytes(b"preview")
+
+
 class _UnusedModelStore(ModelStore):
     """A model store that fails the test if a Karaoke request reads it."""
 
@@ -149,6 +217,9 @@ class _UnusedModelStore(ModelStore):
         raise AssertionError("Karaoke read the model store")
 
     def status(self) -> object:
+        raise AssertionError("Karaoke read the model store")
+
+    def verify(self) -> object:
         raise AssertionError("Karaoke read the model store")
 
     def is_installed(self) -> bool:
@@ -164,6 +235,7 @@ def _service(
     *,
     models: ModelStore | None = None,
     workspace: Workspace | None = None,
+    engines: ServiceEngines | None = None,
 ) -> tuple[WorkspaceService, ArtifactStore]:
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     settings = SettingsStore(paths)
@@ -174,7 +246,11 @@ def _service(
         paths=paths,
         artifacts=store,
         runner=JobRunner(paths=paths),
-        engines=ServiceEngines(separation=_FakeSeparation(), media=_FakeMedia()),
+        engines=(
+            engines
+            if engines is not None
+            else ServiceEngines(separation=_FakeSeparation(), media=_FakeMedia())
+        ),
         models=model_store,
         workspace=workspace,
     )
@@ -802,6 +878,41 @@ def test_karaoke_never_reads_the_model_store_or_latches(tmp_path: Path) -> None:
 
     assert [job.job_id for job in service.runner.jobs()] == [job_id]
     assert service.pending_separation_track_id() is None
+
+
+@pytest.mark.unit
+def test_a_karaoke_job_runs_to_completion_without_the_model_store(tmp_path: Path) -> None:
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    models = _UnusedModelStore(paths, spec=_tiny_spec())
+    service, store = _service(
+        tmp_path,
+        models=models,
+        engines=ServiceEngines(separation=_KaraokeEngine(), media=_JobMedia()),
+    )
+    _commit_source(store)
+    track = _track(layout=StereoLayout.STEREO)
+
+    service.runner.start()
+    try:
+        job_id = service.separate(track, method="karaoke")
+        assert service.runner.wait_idle(timeout=10) is True
+        snapshot = service.runner.snapshot(job_id)
+    finally:
+        service.runner.stop()
+
+    assert snapshot.state.value == "succeeded", snapshot.error_detail
+    assert [job.kind.value for job in service.runner.jobs()] == ["separate"]
+    artifact = store.find_separation(SOURCE_ID, method="karaoke")
+    assert artifact is not None
+    assert artifact.method == "karaoke"
+    assert tuple(entry.role for entry in artifact.files) == (
+        "vocals",
+        "vocals_preview",
+        "instrumental",
+        "instrumental_preview",
+    )
+    assert store.find_separation(SOURCE_ID, method="demucs") is None
+    assert not (paths.models / "htdemucs").exists()
 
 
 @pytest.mark.unit
