@@ -84,7 +84,9 @@ BROWSER_URL: Final = "http://127.0.0.1:8080"
 LOCKERS: Final = ("i3lock", "swaylock", "xsecurelock", "xfce4-screensaver")
 WHITE_FLOOR: Final = 240
 WHITE_FRACTION: Final = 0.95
-CLK_TCK: Final = os.sysconf("SC_CLK_TCK")
+# The sampler reads /proc and runs only on Linux; Windows lacks sysconf, and the
+# module still has to import there so its parsers can be tested.
+CLK_TCK: Final = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
 SEED_SECONDS: Final = 1.0
 SEED_RATE: Final = 44100
 

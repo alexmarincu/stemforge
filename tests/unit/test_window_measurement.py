@@ -6,7 +6,6 @@ helpers that decide what the numbers mean.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -42,14 +41,14 @@ def test_proc_stat_survives_a_command_name_with_spaces_and_parentheses() -> None
 
 
 def test_cpu_percent_is_percent_of_one_core() -> None:
-    ticks = os.sysconf("SC_CLK_TCK")
+    ticks = measure.CLK_TCK
 
     assert measure.cpu_percent((0, 0), (ticks, 0), 1.0) == pytest.approx(100.0)
     assert measure.cpu_percent((0, 0), (ticks, ticks), 2.0) == pytest.approx(100.0)
 
 
 def test_a_restarted_process_does_not_produce_negative_cpu() -> None:
-    ticks = os.sysconf("SC_CLK_TCK")
+    ticks = measure.CLK_TCK
 
     assert measure.cpu_percent((ticks, ticks), (0, 0), 1.0) == 0.0
 
