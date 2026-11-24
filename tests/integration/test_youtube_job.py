@@ -292,6 +292,8 @@ def test_a_youtube_import_commits_a_source_track_and_recent_file(
     assert manifest["origin"] == manifest["origin_url"]
     assert manifest["video_id"] == VIDEO_ID
     assert manifest["downmixed"] is False
+    assert manifest["original_channels"] == 2
+    assert manifest["stereo_layout"] == "dual_mono"
     assert manifest["content_hash"] == manifest["native_sha256"]
     assert manifest["native_bytes"] > 0
     assert manifest["format_id"] == "251"
@@ -337,6 +339,8 @@ def test_a_youtube_import_commits_a_source_track_and_recent_file(
     assert track.source.origin == f"https://www.youtube.com/watch?v={VIDEO_ID}"
     assert track.source.canonical_path is not None
     assert track.source.canonical_path.is_file()
+    assert track.source.original_channels == 2
+    assert track.source.stereo_layout == "dual_mono"
 
     recent = harness.service.recent_files()
     assert len(recent) == 1
@@ -351,6 +355,47 @@ def test_a_youtube_import_commits_a_source_track_and_recent_file(
     assert list((harness.paths.cache / "staging").iterdir()) == []
     assert not (harness.paths.cache / "yt-dlp" / job_id).exists()
     assert len(StubYoutubeDL.constructed) == 2
+
+
+def test_a_youtube_import_records_a_real_stereo_layout(
+    tmp_path: Path, ffmpeg: Path, stub_harness: Harness
+) -> None:
+    harness = stub_harness
+    source = tmp_path / "wide-stereo.wav"
+    result = subprocess.run(
+        [
+            str(ffmpeg),
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "aevalsrc=sin(2*PI*440*t)|sin(2*PI*660*t):s=44100:d=3:c=stereo",
+            "-c:a",
+            "pcm_s16le",
+            str(source),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    StubYoutubeDL.source_wav = source
+
+    job_id = harness.service.submit_youtube(URL)
+    assert harness.runner.wait_idle(timeout=120) is True
+    assert harness.runner.snapshot(job_id).state is JobState.SUCCEEDED
+
+    source_id = f"yt-{VIDEO_ID}"
+    manifest = json.loads(
+        (harness.paths.cache / "sources" / source_id / "source.json").read_text(encoding="utf-8")
+    )
+    assert manifest["original_channels"] == 2
+    assert manifest["stereo_layout"] == "stereo"
+    track = harness.service.snapshot().tracks[0]
+    assert track.source.stereo_layout == "stereo"
 
 
 def test_a_valid_native_file_repairs_missing_derived_files_locally(

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -34,12 +35,15 @@ from stemforge.artifacts import (
     free_space_requirement,
     require_free_space,
 )
+from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.methods import DEFAULT_METHOD_ID, SeparationMethod, method_by_id
+from stemforge.domain.models import StereoLayout, parse_stereo_layout, stereo_unsupported_reason
 from stemforge.domain.roles import INSTRUMENTAL_ROLE
 from stemforge.engines.media import (
     CANONICAL_CHANNELS,
     CANONICAL_CODEC,
     CANONICAL_SAMPLE_RATE,
+    DUAL_MONO_SIDE_PEAK_DBFS,
     DURATION_TOLERANCE_S,
     MediaTool,
 )
@@ -158,6 +162,26 @@ def run_separation_job(
     canonical = source.canonical_path
     if canonical is None:
         raise ValueError(f"source has no canonical audio: {source_id}")
+
+    if descriptor.stereo_only:
+        reason = _unsupported_layout_reason(
+            source.manifest,
+            canonical,
+            media=media,
+            cancel=cancel,
+            log=log,
+        )
+        if reason is not None:
+            raise StemForgeError(
+                errors.SEPARATION_METHOD_UNSUPPORTED,
+                "the source has no stereo image for centre-channel extraction",
+                detail=f"reason={reason}",
+                context={
+                    "source_id": source_id,
+                    "method": descriptor.id,
+                    "reason": reason,
+                },
+            )
 
     status = None
     spec = None
@@ -381,6 +405,30 @@ def _method_descriptor(method: str) -> SeparationMethod:
     if descriptor is None:
         raise ValueError(f"unknown Separation method: {method!r}")
     return descriptor
+
+
+def _unsupported_layout_reason(
+    manifest: Mapping[str, object],
+    canonical: Path,
+    *,
+    media: MediaTool,
+    cancel: CancelToken,
+    log: logging.Logger,
+) -> str | None:
+    """Refuse a stereo-only method on a Source without a stereo image.
+
+    A recorded layout is authoritative. A legacy Source has none, so the
+    canonical side signal is measured here, before anything is staged or any
+    cache entry is reserved.
+    """
+    recorded = parse_stereo_layout(manifest.get("stereo_layout"))
+    reason = stereo_unsupported_reason(recorded)
+    if reason is not None or recorded is not None:
+        return reason
+    levels = media.measure_levels(canonical, cancel=cancel, log=log)
+    if levels.side_peak_dbfs <= DUAL_MONO_SIDE_PEAK_DBFS:
+        return StereoLayout.DUAL_MONO.value
+    return None
 
 
 def engine_block_seconds(engine: object) -> float:

@@ -28,6 +28,7 @@ from stemforge.engines.media import (
     CanonicalMetadata,
     DecodeResult,
     FfmpegTool,
+    LevelMeasurement,
     MediaInfo,
     MediaTool,
 )
@@ -50,8 +51,18 @@ def ffmpeg() -> Path:
         pytest.fail(f"ffmpeg is required for this layer and was not found: {error}")
 
 
-def _make_wav(ffmpeg: Path, target: Path, *, duration: float, rate: int, channels: int) -> Path:
-    if channels == 1:
+def _make_wav(
+    ffmpeg: Path,
+    target: Path,
+    *,
+    duration: float,
+    rate: int,
+    channels: int,
+    expression: str | None = None,
+) -> Path:
+    if expression is not None:
+        layout = "mono" if channels == 1 else "stereo" if channels == 2 else f"{channels}c"
+    elif channels == 1:
         expression = "sin(2*PI*440*t)"
         layout = "mono"
     elif channels == 2:
@@ -110,6 +121,25 @@ def six_channel_wav(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> P
         duration=3.0,
         rate=48_000,
         channels=6,
+    )
+
+
+@pytest.fixture(scope="session")
+def mono_wav(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
+    root = tmp_path_factory.mktemp("import-mono-fixtures")
+    return _make_wav(ffmpeg, root / "mono.wav", duration=3.0, rate=44_100, channels=1)
+
+
+@pytest.fixture(scope="session")
+def wide_stereo_wav(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
+    root = tmp_path_factory.mktemp("import-stereo-fixtures")
+    return _make_wav(
+        ffmpeg,
+        root / "wide-stereo.wav",
+        duration=3.0,
+        rate=44_100,
+        channels=2,
+        expression="sin(2*PI*440*t)|sin(2*PI*660*t)",
     )
 
 
@@ -247,6 +277,71 @@ def test_a_six_channel_source_records_the_downmix_and_keeps_stereo_canonical(
     track = harness.service.snapshot().tracks[0]
     assert track.source.downmixed is True
     assert track.source.metadata.channels == 2
+
+
+def test_import_records_the_original_channels_and_stereo_layout(
+    mono_wav: Path,
+    three_second_wav: Path,
+    wide_stereo_wav: Path,
+    real_harness: Harness,
+) -> None:
+    harness = real_harness
+    expected = {
+        mono_wav: (1, "mono"),
+        three_second_wav: (2, "dual_mono"),
+        wide_stereo_wav: (2, "stereo"),
+    }
+    imported: dict[str, Path] = {}
+    for source in expected:
+        job_id = harness.service.import_local(source)
+        assert harness.runner.wait_idle(timeout=120) is True
+        snapshot = harness.runner.snapshot(job_id)
+        assert snapshot.state is JobState.SUCCEEDED, snapshot
+        imported[snapshot.result_keys["source_id"]] = source
+
+    tracks = {track.source_id: track for track in harness.service.snapshot().tracks}
+    for source_id, source in imported.items():
+        channels, layout = expected[source]
+        manifest = json.loads(
+            (harness.paths.cache / "sources" / source_id / "source.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert manifest["original_channels"] == channels
+        assert manifest["stereo_layout"] == layout
+        track = tracks[source_id]
+        assert track.source.original_channels == channels
+        assert track.source.stereo_layout == layout
+        assert track.source.metadata.channels == 2
+
+
+def test_import_measures_the_peak_and_side_peak_in_one_pass(
+    tmp_path: Path, wide_stereo_wav: Path
+) -> None:
+    class CountingMedia(FfmpegTool):
+        def __init__(self) -> None:
+            super().__init__()
+            self.measure_calls = 0
+            self.peak_calls = 0
+
+        def measure_levels(
+            self, path: Path, *, cancel: CancelToken, log: logging.Logger
+        ) -> LevelMeasurement:
+            self.measure_calls += 1
+            return super().measure_levels(path, cancel=cancel, log=log)
+
+        def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
+            self.peak_calls += 1
+            return super().peak_dbfs(path, cancel=cancel, log=log)
+
+    tool = CountingMedia()
+    with Harness(tmp_path / "home", media=tool) as harness:
+        job_id = harness.service.import_local(wide_stereo_wav)
+        assert harness.runner.wait_idle(timeout=120) is True
+        assert harness.runner.snapshot(job_id).state is JobState.SUCCEEDED
+
+    assert tool.measure_calls == 1
+    assert tool.peak_calls == 0
 
 
 def test_an_import_reserves_room_evicts_a_stale_set_and_protects_the_live_track(

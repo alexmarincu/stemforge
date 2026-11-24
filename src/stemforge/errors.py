@@ -37,6 +37,7 @@ SEPARATION_WORKER_CRASHED: Final = "separation.worker_crashed"
 SEPARATION_ENGINE_ERROR: Final = "separation.engine_error"
 SEPARATION_PROTOCOL_MISMATCH: Final = "separation.protocol_mismatch"
 SEPARATION_OUTPUT_INVALID: Final = "separation.output_invalid"
+SEPARATION_METHOD_UNSUPPORTED: Final = "separation.method_unsupported"
 
 # pitch.*
 PITCH_ENGINE_MISSING: Final = "pitch.engine_missing"
@@ -103,6 +104,7 @@ ALL_CODES: Final[frozenset[str]] = frozenset(
         SEPARATION_ENGINE_ERROR,
         SEPARATION_PROTOCOL_MISMATCH,
         SEPARATION_OUTPUT_INVALID,
+        SEPARATION_METHOD_UNSUPPORTED,
         PITCH_ENGINE_MISSING,
         PITCH_RENDER_FAILED,
         PITCH_OUTPUT_INVALID,

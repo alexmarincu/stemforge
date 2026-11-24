@@ -29,6 +29,7 @@ from stemforge.engines.media import (
     CanonicalMetadata,
     DecodeResult,
     ExportFormat,
+    LevelMeasurement,
     MediaInfo,
 )
 from stemforge.errors import StemForgeError
@@ -155,6 +156,12 @@ class FakeMedia:
         del path, log
         cancel.check()
         return -3.0
+
+    def measure_levels(
+        self, path: Path, *, cancel: CancelToken, log: logging.Logger
+    ) -> LevelMeasurement:
+        cancel.check()
+        return LevelMeasurement(peak_dbfs=-3.0, side_peak_dbfs=-6.0)
 
 
 class FakeOpenDialog:

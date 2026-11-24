@@ -31,6 +31,7 @@ EXPECTED_ERROR_CODES = frozenset(
         "separation.engine_error",
         "separation.protocol_mismatch",
         "separation.output_invalid",
+        "separation.method_unsupported",
         "pitch.engine_missing",
         "pitch.render_failed",
         "pitch.output_invalid",
@@ -81,6 +82,16 @@ def test_reason_specific_copy_is_also_bounded() -> None:
         assert copy.headline, (code, reason)
         assert len(copy.headline) <= formatting.MAX_HEADLINE_LENGTH, (code, reason)
         assert copy.action.strip(), (code, reason)
+
+
+@pytest.mark.unit
+@pytest.mark.unit
+@pytest.mark.parametrize(("reason", "word"), [("mono", "mono"), ("dual_mono", "dual-mono")])
+def test_an_unsupported_method_names_the_layout_and_selects_demucs(reason: str, word: str) -> None:
+    copy = formatting.copy_for(errors.SEPARATION_METHOD_UNSUPPORTED, reason)
+
+    assert word in copy.headline.lower()
+    assert "demucs" in copy.action.lower()
 
 
 @pytest.mark.unit

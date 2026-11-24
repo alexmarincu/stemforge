@@ -31,6 +31,44 @@ class RenderScope(StrEnum):
     STEMS = "stems"
 
 
+class StereoLayout(StrEnum):
+    """The channel arrangement a Source was imported with.
+
+    ``dual_mono`` is a stereo file whose left and right channels are identical,
+    so it carries no stereo image. A Source imported before this fact existed
+    has no layout at all; callers treat that as unknown rather than guessing.
+    """
+
+    STEREO = "stereo"
+    MONO = "mono"
+    DUAL_MONO = "dual_mono"
+
+
+def parse_stereo_layout(value: object) -> StereoLayout | None:
+    """Parse a recorded layout, treating a missing or unknown value as unknown."""
+    if isinstance(value, StereoLayout):
+        return value
+    if isinstance(value, str):
+        try:
+            return StereoLayout(value)
+        except ValueError:
+            return None
+    return None
+
+
+def stereo_unsupported_reason(layout: StereoLayout | None) -> str | None:
+    """Return the stable refusal reason for a layout without a stereo image.
+
+    Equality rather than identity keeps a value that arrived as its recorded
+    string (a hand-built record, a test double) on the same path.
+    """
+    if layout == StereoLayout.MONO:
+        return StereoLayout.MONO.value
+    if layout == StereoLayout.DUAL_MONO:
+        return StereoLayout.DUAL_MONO.value
+    return None
+
+
 class JobKind(StrEnum):
     """Every long-running Job kind."""
 
@@ -86,6 +124,8 @@ class Source:
     origin_kind: OriginKind
     metadata: SourceMetadata
     downmixed: bool = False
+    original_channels: int | None = None
+    stereo_layout: StereoLayout | None = None
     gain_db: float = 0.0
     native_path: Path | None = None
     canonical_path: Path | None = None

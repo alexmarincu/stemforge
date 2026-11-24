@@ -214,6 +214,20 @@ class SeparationMethodView:
 
 
 @dataclass(frozen=True, slots=True)
+class SeparationAvailability:
+    """Whether one Separation method can run on a Track, and why not.
+
+    ``reason`` is the stable token (``mono`` or ``dual_mono``) the card maps to
+    copy; it is ``None`` when the method is available or the Source's layout is
+    unknown, which leaves the decision to the Job.
+    """
+
+    method: str
+    available: bool
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SeparationSet:
     """One committed Separation set as the Separation card sees it.
 

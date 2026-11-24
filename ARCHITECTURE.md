@@ -373,8 +373,10 @@ Details that matter to the rest of the system:
 - The Source id is a BLAKE2b digest of the bytes, so a re-import reuses the cache and
   refreshes its LRU marker.
 - The canonical WAV is `pcm_f32le`, 44 100 Hz, two channels. Mono is duplicated to
-  dual-mono, multichannel is downmixed (`downmixed: true`), and the native file is kept so
-  recovery can repair a missing canonical or preview.
+  dual-mono, multichannel is downmixed (`downmixed: true`), and `source.json` records the
+  original channel count and stereo layout (`stereo`, `mono`, or `dual_mono`) so a
+  centre-channel method can refuse a Source with no stereo image. The native file is kept
+  so recovery can repair a missing canonical or preview.
 - Preview is MP3 192 kbit/s with the presentation gain; the float32 master is never
   attenuated. `source.json` is written last and promoted with one rename, and the
   free-space estimate adds a 1.2 Job headroom plus a 1 GiB floor; the gate requires
@@ -403,6 +405,10 @@ before the model gate and submits it. The full gate appears only when Demucs is 
 and absent; Karaoke selected with Demucs absent shows a compact line that selects Demucs
 and reveals the gate, never a second consent path. `has_separation` means the selected
 method has a committed set, so Outputs, the rail, and Pitch follow the selected set.
+Karaoke is stereo-only: the card disables it with an inline reason when the Source is mono
+or dual-mono, and the Job re-checks the recorded layout (or measures a legacy Source's
+side signal) before staging. An unsupported Karaoke Job fails with
+`separation.method_unsupported` and commits no set.
 
 ```mermaid
 sequenceDiagram

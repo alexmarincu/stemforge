@@ -100,6 +100,10 @@ The shipped statement that identifies where Corresponding Source can be obtained
 
 A component of a Track produced by Separation. A method declares which Stems it produces, so a Separation may produce one or several. Vocals and Instrumental are the primary outputs of a Separation.
 
+## Stereo layout
+
+The channel arrangement a Source was imported with: `stereo`, `mono`, or `dual_mono` (two identical channels, so no stereo image). A Source imported before StemForge recorded the layout has an unknown layout, and each Separation method decides availability when its Job runs.
+
 ## Thin AppImage
 
 The single-file Linux Bundle that relies on the host's GTK, WebKitGTK, and GStreamer for its native window and Preview instead of carrying them. It is not self-contained, and it is not the primary Linux artifact.

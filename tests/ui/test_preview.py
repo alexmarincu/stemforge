@@ -23,7 +23,12 @@ from nicegui.testing.user_simulation import user_simulation
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
+from stemforge.engines.media import (
+    CanonicalMetadata,
+    DecodeResult,
+    LevelMeasurement,
+    MediaInfo,
+)
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform import preflight
@@ -106,6 +111,12 @@ class FakeMedia:
     def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
         cancel.check()
         return self.peak_dbfs_value
+
+    def measure_levels(
+        self, path: Path, *, cancel: CancelToken, log: logging.Logger
+    ) -> LevelMeasurement:
+        cancel.check()
+        return LevelMeasurement(peak_dbfs=self.peak_dbfs_value, side_peak_dbfs=-6.0)
 
 
 class FakeDialog:
