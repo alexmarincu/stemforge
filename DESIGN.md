@@ -57,7 +57,7 @@ progress bars, switches, and focus rings inherit the amber accent instead of Qua
 | `--line-hover` | `#55647a` | Interactive outline on hover |
 | `--text` | `#e6e9ef` | Primary text |
 | `--muted` | `#98a2b3` | Secondary text and the resting ink of a flat control |
-| `--dim` | `#6c7686` | Tertiary metadata and uppercase labels |
+| `--dim` | `#7f8a9b` | Tertiary metadata and uppercase labels |
 | `--accent` | `#f2a65a` | Amber: primary action, active tab, selection, and progress |
 | `--accent-soft` | `rgba(242, 166, 90, 0.12)` | Tinted fill for an active control or row |
 | `--accent-line` | `rgba(242, 166, 90, 0.4)` | Accent border and inset ring |
@@ -141,11 +141,12 @@ surface colour.
 
 ### Known exceptions
 
-`--dim` on the shell surfaces measures roughly 3.6:1 to 4.2:1, below the 4.5:1 AA threshold for
-normal text. It is used at 9–11.5 px for metadata, uppercase labels, and fineprint. The shipped pair
-is recorded here as a known exception, not as an intentional low-contrast style: use `--muted` for
-anything a user must read, and fix the dim pairs in a dedicated accessibility change rather than
-presenting the current ratio as a rule.
+`--dim` clears 4.5:1 against each shell surface it is drawn on — `bg`, `rail`, `panel`, `panel2`,
+and `well` — and stays darker than `muted`, so the three-level text hierarchy survives. One shipped
+state still falls below AA: a missing or off recent row fades the whole row to 0.55 opacity, which
+leaves its 10 px metadata at about 2.5:1 on the rail. The fade marks the Source as unavailable and
+the row can still be clicked to retry the Import, so it is recorded here rather than presented as an
+intentional low-contrast style.
 
 ## 3. Typography Rules
 
@@ -252,10 +253,10 @@ version tab with a formatting-row look.
 gap, 10 px bottom margin. `sf-card-title` is the uppercase 10.5 px label; inside a head it loses its
 own bottom margin.
 
-**States.** Cards are static. They do not lift on hover, and the shell's own cards do not carry a
-shadow. Dialog cards are Quasar `q-card`s and currently inherit Quasar's default shadow; that is an
-unresolved inconsistency, not an elevation rule. A card's state is expressed by its contents: a
-notice, a progress bar, or an active row inside it.
+**States.** Cards are static. They do not lift on hover, and no card carries a shadow: Quasar's
+`q-card` shadow is reset on an `sf-card` dialog, so a dialog reads as the same flat surface as the
+shell. A card's state is expressed by its contents: a notice, a progress bar, or an active row
+inside it.
 
 **Classes.** `sf-card`, `sf-card-head`, `sf-card-title`; the detail card also uses `sf-detail` for
 its 18 px vertical rhythm and `sf-two-up` for a side-by-side pair.
@@ -297,12 +298,11 @@ second line of metadata.
 **Anatomy.** `sf-output-row` is a 40 px-minimum flex row with a one-pixel top `line` separator; the
 first row has no separator. The main column wraps a 12.5 px name, a badge cluster, and, when needed,
 a repair line. The duration is 10.5 px mono dim. The play and export controls are compact round icon
-buttons. They use Quasar's `size=sm` rather than `sf-control--icon`, so their geometry is Quasar's,
-not the shared 32 px compact box; do not copy that as the pattern.
+buttons on the shared `sf-control--icon` box: 32 px square, with no Quasar inline sizing.
 
-**States.** The stylesheet defines `is-active` and `is-playing`, both a `panel2` background with an
-8 px radius. The page applies only `is-playing`; `is-active` is dormant because the version tab is
-the authority for which Artifact set is displayed. `is-unavailable` moves the name to `bad-dim` and
+**States.** A playing row carries `is-playing`: a `panel2` background with an 8 px radius. The
+version tab is the authority for which Artifact set is displayed, so there is no separate row
+selection state. `is-unavailable` moves the name to `bad-dim` and
 shows `sf-output-repair`, which names the repair in `warn` and offers the matching action. A
 not-yet-separated Track shows `sf-placeholder`, a dashed `line2` row.
 
@@ -312,9 +312,9 @@ not-yet-separated Track shows `sf-placeholder`, a dashed `line2` row.
 **Do.** Show the two primary outputs and the Original first; reveal the secondary Stems behind Show
 all. Give every unavailable row a repair that says what will fix it.
 
-**Don't.** Do not apply an `is-active` row state; the dormant rule in `SHELL_CSS` is not a pattern
-to copy, and the active tab already says which version is on screen. Do not use a spinner or a
-generic failure icon for unavailable; the named repair is the state.
+**Don't.** Do not add a second row-highlight state: the version tab already says which version is on
+screen, and `is-playing` is the only state the stylesheet paints. Do not use a spinner or a generic
+failure icon for unavailable; the named repair is the state.
 
 ### Transport and A/B
 
@@ -510,12 +510,12 @@ interactive control or a selected row, and `line-hover` for the hover outline of
 surface when the region is a card (`panel`), a hovered or selected row (`panel2`), or a field inside
 a card (`well`). Use the rail surface for chrome and bottom bars, not for content cards.
 
-There is no drop shadow on the shell's own surfaces. The only shadows there are rings: the inset
-`accent-line` on the active A/B side, the `accent-deep` inset in the selected format radio, and
-Quasar's focus ring. Dialog cards currently inherit Quasar's `q-card` shadow; treat that as debt,
-not as elevation. Do not add elevation to a card, a dialog, or a bar. The near-black palette has
-little room for a shadow to read, and a shadow on a dense row makes the row look detached from its
-list.
+There is no drop shadow on the shell's own surfaces or on a dialog. The only shadows there are
+rings: the inset `accent-line` on the active A/B side, the `accent-deep` inset in the selected format
+radio, and Quasar's focus ring. Quasar's `q-card` shadow is reset on dialog cards, so a dialog is
+flat like every other surface. Do not add elevation to a card, a dialog, or a bar. The near-black
+palette has little room for a shadow to read, and a shadow on a dense row makes the row look
+detached from its list.
 
 ## 7. Do's and Don'ts
 

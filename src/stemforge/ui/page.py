@@ -203,6 +203,9 @@ SHELL_CSS: Final = (
   flex-wrap: wrap; gap: 6px; }
 .sf-card { border: 1px solid var(--line); border-radius: var(--radius);
   background: var(--panel); padding: 16px; }
+/* Quasar gives every q-card a drop shadow; the shell is flat, so a dialog
+   card cancels it while section cards never had one. */
+.q-card.sf-card { box-shadow: none; }
 .sf-youtube-modal { width: min(560px, 94vw); }
 .sf-card-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
   color: var(--dim); font-weight: 600; margin-bottom: 10px; }
@@ -290,7 +293,6 @@ SHELL_CSS: Final = (
 .sf-output-row { display: flex; align-items: center; gap: 9px; min-height: 40px;
   padding: 4px 0; border-top: 1px solid var(--line); }
 .sf-output-row:first-of-type { border-top: 0; }
-.sf-output-row.is-active { background: var(--panel2); border-radius: 8px; }
 .sf-output-row.is-playing { background: var(--panel2); border-radius: 8px; }
 .sf-output-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px;
   flex-wrap: wrap; }
@@ -1359,7 +1361,8 @@ class WorkspacePage:
                     on_click=lambda _=None, item=row: self._toggle_row(track, item),
                     color=None,
                 )
-                .props("flat dense round size=sm")
+                .props("flat dense round")
+                .classes("sf-control sf-control--icon")
                 .mark("output-play", f"output-play-{row.key}")
             )
             self._apply_play_enabled(play, available=not unavailable)
@@ -1386,7 +1389,8 @@ class WorkspacePage:
                     ),
                     color=None,
                 )
-                .props("flat dense round size=sm")
+                .props("flat dense round")
+                .classes("sf-control sf-control--icon")
                 .mark("output-export", f"output-export-{row.key}")
             )
             export.set_enabled(not self._busy() and row.export_key is not None)

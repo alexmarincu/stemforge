@@ -12,9 +12,29 @@ pytestmark = pytest.mark.unit
 
 
 def _rule(css: str, selector: str) -> str:
-    match = re.search(rf"{re.escape(selector)}\s*\{{([^}}]*)\}}", css)
+    match = re.search(rf"^{re.escape(selector)}\s*\{{([^}}]*)\}}", css, re.MULTILINE)
     assert match is not None, f"missing rule for {selector}"
     return match.group(1)
+
+
+def _srgb_channel(value: int) -> float:
+    channel = value / 255
+    return channel / 12.92 if channel <= 0.03928 else ((channel + 0.055) / 1.055) ** 2.4
+
+
+def _luminance(colour: str) -> float:
+    """WCAG relative luminance for a six-digit hex token."""
+    match = re.fullmatch(r"#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})", colour)
+    assert match is not None, f"{colour} is not a six-digit hex colour"
+    red, green, blue = (int(part, 16) for part in match.groups())
+    return (
+        0.2126 * _srgb_channel(red) + 0.7152 * _srgb_channel(green) + 0.0722 * _srgb_channel(blue)
+    )
+
+
+def _contrast_ratio(first: str, second: str) -> float:
+    lighter, darker = sorted((_luminance(first), _luminance(second)), reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
 
 
 def test_quasar_palette_replaces_the_blue_defaults() -> None:
@@ -27,6 +47,23 @@ def test_quasar_palette_replaces_the_blue_defaults() -> None:
     assert theme.QUASAR_COLORS["positive"] == theme.GOOD
     assert theme.QUASAR_COLORS["negative"] == theme.BAD
     assert theme.QUASAR_COLORS["ink"] == theme.INK
+
+
+def test_dim_reaches_wcag_aa_on_every_shell_surface() -> None:
+    """``--dim`` is normal-size text, so each surface it sits on must clear AA.
+
+    The token carries metadata and fineprint at 9-11.5 px on the canvas, the
+    rail, cards, selected rows, and wells; a single failing pair reintroduces
+    the accessibility defect the palette is meant to avoid.
+    """
+    for surface in ("BG", "RAIL", "PANEL", "PANEL2", "WELL"):
+        ratio = _contrast_ratio(theme.DIM, getattr(theme, surface))
+        assert ratio >= 4.5, f"--dim on {surface}: {ratio:.2f}:1"
+
+
+def test_dim_stays_the_third_text_level() -> None:
+    """Text outranks muted, which outranks dim, so the hierarchy reads in order."""
+    assert _luminance(theme.TEXT) > _luminance(theme.MUTED) > _luminance(theme.DIM)
 
 
 def test_shell_colours_are_tokens_not_scattered_literals() -> None:
@@ -89,6 +126,24 @@ def test_compact_controls_share_one_box() -> None:
     assert "font-size: var(--control-primary-font)" in primary
     assert "font-weight: 600" in primary
     assert "px" not in primary
+
+
+def test_dialog_cards_reset_quasar_elevation() -> None:
+    """``q-card`` carries a Quasar shadow; an ``sf-card`` dialog must stay flat.
+
+    The reset is scoped to the dialog card so the shell's ``section.sf-card``
+    surfaces keep their border-only rule.
+    """
+    dialog = _rule(page.SHELL_CSS, ".q-card.sf-card")
+    assert "box-shadow: none" in dialog
+    assert "box-shadow" not in _rule(page.SHELL_CSS, ".sf-card")
+
+
+def test_output_row_css_has_no_dormant_active_state() -> None:
+    """``is-playing`` is the only row highlight; the version tab owns the rest."""
+    assert ".sf-output-row.is-playing" in page.SHELL_CSS
+    assert ".sf-output-row.is-unavailable" in page.SHELL_CSS
+    assert ".sf-output-row.is-active" not in page.SHELL_CSS
 
 
 def test_brand_assets_are_available_as_data_urls() -> None:

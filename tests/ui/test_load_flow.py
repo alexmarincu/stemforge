@@ -617,6 +617,9 @@ async def test_remove_confirms_cache_deletion_and_never_touches_the_source(
 
         user.find(marker="remove-track").click()
         await user.should_see(marker="remove-dialog")
+        card = _only(user, "remove-dialog")
+        assert card.tag == "q-card"
+        assert "sf-card" in card.classes
         await user.should_see("deletes its cached audio")
         await user.should_see("The file on disk is not touched.")
         user.find(marker="confirm-remove").click()
