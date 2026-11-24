@@ -217,6 +217,7 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
     assert DEFAULT_METHOD_ID == "demucs"
     assert DEMUCS_METHOD.id == "demucs"
     assert DEMUCS_METHOD.label == "Demucs"
+    assert DEMUCS_METHOD.description_key == "separation-method.demucs"
     assert DEMUCS_METHOD.version == 1
     assert DEMUCS_METHOD.stems == ("vocals", "drums", "bass", "other")
     assert DEMUCS_METHOD.output_roles == ("vocals", "instrumental", "drums", "bass", "other")
@@ -227,6 +228,7 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
 
     assert KARAOKE_METHOD.id == "karaoke"
     assert KARAOKE_METHOD.label == "Karaoke"
+    assert KARAOKE_METHOD.description_key == "separation-method.karaoke"
     assert KARAOKE_METHOD.version == 1
     assert KARAOKE_METHOD.stems == ("vocals",)
     assert KARAOKE_METHOD.output_roles == ("vocals", "instrumental")
@@ -260,6 +262,7 @@ def test_a_method_declares_how_its_instrumental_is_produced() -> None:
         SeparationMethod(
             id="broken",
             label="Broken",
+            description_key="separation-method.broken",
             version=1,
             stems=("vocals",),
             output_roles=("vocals", "instrumental"),
@@ -270,6 +273,7 @@ def test_a_method_declares_how_its_instrumental_is_produced() -> None:
         SeparationMethod(
             id="broken",
             label="Broken",
+            description_key="separation-method.broken",
             version=1,
             stems=("vocals",),
             output_roles=("vocals", "drums"),

@@ -204,12 +204,14 @@ class PitchSet:
 class SeparationMethodView:
     """One Separation method as the card's selector sees it.
 
-    The descriptor owns the stable id and label and whether choosing it
-    requires Model weights; the card never reconstructs a method from its id.
+    The descriptor owns the stable id, label, description key, and whether
+    choosing it requires Model weights; the card never reconstructs a method
+    from its id, and the description prose lives with the UI copy.
     """
 
     id: str
     label: str
+    description_key: str
     requires_model: bool
 
 

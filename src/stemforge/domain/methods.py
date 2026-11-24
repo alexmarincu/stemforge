@@ -1,9 +1,10 @@
 """The Separation method registry (GLOSSARY: Separation method).
 
 A method declares the Stems it produces and whether it needs Model weights. It
-is the single source of a method's stable id, label, method version, output
-roles in presentation order, and output count; a Separation set is validated
-and rendered from its method rather than from a fixed five-role list.
+is the single source of a method's stable id, label, description key, method
+version, output roles in presentation order, and output count; a Separation set
+is validated and rendered from its method rather than from a fixed five-role
+list.
 
 This module stays stdlib-only. The worker process cannot import ``domain``
 (import-linter), so :mod:`stemforge.worker_protocol` carries the same
@@ -46,6 +47,7 @@ class SeparationMethod:
 
     id: str
     label: str
+    description_key: str
     version: int
     stems: tuple[str, ...]
     output_roles: tuple[str, ...]
@@ -56,6 +58,8 @@ class SeparationMethod:
     def __post_init__(self) -> None:
         if not self.id or not self.label:
             raise ValueError("a Separation method needs a non-empty id and label")
+        if not self.description_key:
+            raise ValueError("a Separation method needs a non-empty description key")
         if self.version < 1:
             raise ValueError("a Separation method version must be positive")
         if not self.output_roles or len(set(self.output_roles)) != len(self.output_roles):
@@ -91,6 +95,7 @@ class SeparationMethod:
 DEMUCS_METHOD: Final = SeparationMethod(
     id="demucs",
     label="Demucs",
+    description_key="separation-method.demucs",
     version=1,
     stems=("vocals", "drums", "bass", "other"),
     output_roles=("vocals", "instrumental", "drums", "bass", "other"),
@@ -101,6 +106,7 @@ DEMUCS_METHOD: Final = SeparationMethod(
 KARAOKE_METHOD: Final = SeparationMethod(
     id="karaoke",
     label="Karaoke",
+    description_key="separation-method.karaoke",
     version=1,
     stems=("vocals",),
     output_roles=("vocals", "instrumental"),

@@ -269,6 +269,17 @@ SEPARATION_METHOD_UNAVAILABLE_DUAL_MONO: Final = (
     "Karaoke needs a stereo track; this one's channels are identical."
 )
 SEPARATION_METHOD_UNAVAILABLE_DEFAULT: Final = "Karaoke needs a stereo track."
+SEPARATION_METHOD_DESCRIPTIONS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "separation-method.demucs": (
+            "Demucs: four stems plus an Instrumental; the cleanest separation."
+        ),
+        "separation-method.karaoke": (
+            "Karaoke: Vocals plus an Instrumental from the centre channel; "
+            "fast and offline, with some bleed."
+        ),
+    }
+)
 SEPARATION_NOT_SEPARATED: Final = "Not separated · Demucs · CPU"
 SEPARATION_NOT_SEPARATED_HINT: Final = "Separate this track into four Stems and an Instrumental."
 SEPARATION_NOT_SEPARATED_KARAOKE: Final = "Not separated · Karaoke · no model required"

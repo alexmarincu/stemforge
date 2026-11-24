@@ -63,6 +63,7 @@ class SeparationService:
             SeparationMethodView(
                 id=descriptor.id,
                 label=descriptor.label,
+                description_key=descriptor.description_key,
                 requires_model=descriptor.requires_model,
             )
             for descriptor in METHODS.values()

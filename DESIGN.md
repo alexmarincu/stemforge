@@ -236,9 +236,10 @@ colour and text, and the dashed outline plus the appended label still carry the 
 
 **Method switch.** `sf-method-switch` is the Separation card's two-item method selector: a `well`
 track holding pill-radius flat buttons, with the selected option using the active-tab fill and ring.
-`sf-method-fallback` is the `ui.select` shown in place of the switch when the card is narrower than
-320 px. `sf-demucs-offer` is a dashed `line2` row that reveals the model gate; it is not a second
-gate and never carries a download action of its own.
+`sf-method-fallback` is the `ui.select` shown in place of the switch when the selector's container is
+narrower than 320 px. `sf-method-notes` holds one `sf-method-description` fineprint per method, so a
+user sees what each method produces before choosing. `sf-demucs-offer` is a dashed `line2` row that
+reveals the model gate; it is not a second gate and never carries a download action of its own.
 
 **Do.** Keep the pill vocabulary for short status nouns and version labels. Let the label carry the
 state in words as well as colour.

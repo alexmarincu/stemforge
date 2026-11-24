@@ -467,9 +467,11 @@ def test_separation_methods_are_exposed_as_selector_descriptors(tmp_path: Path) 
 
     methods = service.separation_methods()
 
-    assert [(item.id, item.label, item.requires_model) for item in methods] == [
-        ("demucs", "Demucs", True),
-        ("karaoke", "Karaoke", False),
+    assert [
+        (item.id, item.label, item.description_key, item.requires_model) for item in methods
+    ] == [
+        ("demucs", "Demucs", "separation-method.demucs", True),
+        ("karaoke", "Karaoke", "separation-method.karaoke", False),
     ]
 
 

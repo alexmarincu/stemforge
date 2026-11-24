@@ -223,6 +223,15 @@ class SeparationCard:
             ).props("dense outlined options-dense").classes("sf-method-fallback").mark(
                 "separation-method-select"
             )
+            with ui.element("div").classes("sf-method-notes").mark(
+                "separation-method-descriptions"
+            ):
+                for method in methods:
+                    ui.label(
+                        formatting.SEPARATION_METHOD_DESCRIPTIONS[method.description_key]
+                    ).classes("sf-method-description").mark(
+                        "separation-method-description", f"separation-method-description-{method.id}"
+                    )
 
     def _method_unavailable(self, track: Track, reason: str, *, offer_demucs: bool) -> None:
         with ui.element("div").classes("sf-notice"):

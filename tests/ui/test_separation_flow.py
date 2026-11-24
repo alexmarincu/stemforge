@@ -1188,6 +1188,22 @@ async def test_the_selector_switches_sets_without_persisting_or_submitting(
         assert harness.service.settings.separation_method() is None
 
 
+async def test_each_method_description_is_visible_beside_the_selector(
+    harness: Harness,
+) -> None:
+    async for user, _workspace_page in _open_page(harness):
+        await _import(harness, user, _workspace_page)
+
+        assert _only(user, "separation-method-description-demucs").text == (
+            formatting.SEPARATION_METHOD_DESCRIPTIONS["separation-method.demucs"]
+        )
+        assert _only(user, "separation-method-description-karaoke").text == (
+            formatting.SEPARATION_METHOD_DESCRIPTIONS["separation-method.karaoke"]
+        )
+        await user.should_see("four stems plus an Instrumental")
+        await user.should_see("Vocals plus an Instrumental")
+
+
 async def test_a_selected_method_without_a_set_shows_its_empty_state(
     harness: Harness,
 ) -> None:
