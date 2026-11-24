@@ -26,7 +26,7 @@ esac
 # directly so `run.sh --self-test` (and the AppImage extraction check) is exact.
 for argument in "$@"; do
     case "$argument" in
-        --self-test | --smoke-test | --smoke-separation | --preflight | --worker | \
+        --self-test | --smoke-test | --smoke-separation | --smoke-karaoke | --preflight | --worker | \
             --import | --install-model | --report | --help | -h)
             exec "$here/StemForge" "$@"
             ;;

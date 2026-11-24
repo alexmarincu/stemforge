@@ -177,6 +177,19 @@ def test_separation_jobs_cache_the_model_lock(workflow: dict[str, Any]) -> None:
         assert model_lock in text
 
 
+def test_release_runs_the_no_model_karaoke_gate(workflow: dict[str, Any]) -> None:
+    linux_text = yaml.safe_dump(workflow["jobs"]["linux"])
+    windows_text = yaml.safe_dump(workflow["jobs"]["windows"])
+    assert "--smoke-karaoke" in linux_text
+    assert "-WithKaraoke" in windows_text
+    # Linux proves the empty model store before the weight install.
+    linux_steps = workflow["jobs"]["linux"]["steps"]
+    names = [step.get("name") for step in linux_steps]
+    assert names.index("Prove the no-model Karaoke path") < names.index(
+        "Install the pinned model into the temporary STEMFORGE_HOME"
+    )
+
+
 def test_windows_steps_cannot_hang_the_whole_job(workflow: dict[str, Any]) -> None:
     steps = {step.get("name"): step for step in workflow["jobs"]["windows"]["steps"]}
     for name in (

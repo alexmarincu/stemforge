@@ -186,6 +186,11 @@ jobs:
         run: |
           bundle="dist/StemForge-${VERSION}-linux-x86_64"
           "$bundle/StemForge" --preflight --json --report build/reports/preflight.json
+      - name: Prove the no-model Karaoke path
+        run: |
+          bundle="dist/StemForge-${VERSION}-linux-x86_64"
+          mkdir -p build/reports
+          "$bundle/StemForge" --smoke-karaoke --report build/reports/smoke-karaoke.json
       - name: Install the pinned model into the temporary STEMFORGE_HOME
         run: |
           bundle="dist/StemForge-${VERSION}-linux-x86_64"
@@ -313,6 +318,7 @@ jobs:
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass `
             -File packaging/windows/smoke-test.ps1 `
+            -WithKaraoke `
             -WithSeparation `
             -HomePath (Join-Path $env:GITHUB_WORKSPACE 'build\smoke-home') `
             -KeepHome

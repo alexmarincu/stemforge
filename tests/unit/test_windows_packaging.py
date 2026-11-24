@@ -229,17 +229,30 @@ def test_package_script_builds_zip_and_setup_from_one_tree_with_hashes() -> None
 def test_smoke_script_runs_every_frozen_flag_and_uses_a_temporary_home() -> None:
     text = _text(SMOKE_PS1)
 
-    for flag in ("--self-test", "--smoke-test", "--preflight", "--smoke-separation"):
+    for flag in (
+        "--self-test",
+        "--smoke-test",
+        "--preflight",
+        "--smoke-separation",
+        "--smoke-karaoke",
+    ):
         assert flag in text
+    assert "WithKaraoke" in text
     assert "--install-model" in text
     assert "--accept-model-licence" in text
     assert "STEMFORGE_HOME" in text
     assert "GetTempPath" in text
     assert "wall_seconds" in text
     assert "separation.rss" in text
+    assert "karaoke.rss" in text
     assert "--report" in text
     assert "AllowedExitCodes" in text
     assert "Remove-Item -Recurse" in text
+    # The no-model gate runs before the weight install, so an offline run
+    # proves the frozen Karaoke path without touching the model store.
+    assert text.index("Invoke-FrozenCheck 'smoke-karaoke'") < text.index(
+        "$installCode = Invoke-FrozenProcess"
+    )
 
 
 def test_vendor_script_builds_rubber_band_and_libsndfile_from_pinned_sources() -> None:
@@ -292,6 +305,7 @@ def test_windows_workflow_is_manual_35_minutes_and_off_pull_requests() -> None:
     assert "packaging/windows/build.ps1" in text
     assert "packaging/windows/smoke-test.ps1" in text
     assert "packaging/windows/package.ps1" in text
+    assert "-WithKaraoke" in text
     assert "hashFiles(" in text
     assert "packaging/vendor.lock.json" in text
     assert "actions/upload-artifact@v7" in text
@@ -316,6 +330,8 @@ def test_windows_readme_names_the_data_path_smartscreen_and_webview2() -> None:
     assert "WebView2" in text
     assert "SHA256SUMS" in text
     assert "STEMFORGE_HOME" in text
+    assert "--smoke-karaoke" in text
+    assert "--smoke-separation" in text
 
 
 # --- Version resource and SHA256SUMS ---------------------------------------

@@ -115,11 +115,14 @@ def run_karaoke(
     *,
     seconds: float = 1.0,
     stdin: int | None = None,
+    env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, dict[str, str]]:
     source = tmp_path / "source.wav"
     write_stereo_wav(source, seconds=seconds)
     out = tmp_path / "out"
-    env = shadow_environment(tmp_path, watch_stdin=stdin is not None)
+    resolved = (
+        env if env is not None else shadow_environment(tmp_path, watch_stdin=stdin is not None)
+    )
     process = subprocess.run(
         [
             sys.executable,
@@ -138,10 +141,59 @@ def run_karaoke(
         text=True,
         timeout=120,
         check=False,
-        env=env,
+        env=resolved,
         stdin=stdin,
     )
-    return process, source, out, env
+    return process, source, out, resolved
+
+
+SITECUSTOMIZE = """\
+import os
+import socket
+import sys
+
+_LOOPBACK_HOSTS = {"::1", "127.0.0.1", "localhost"}
+
+
+def _is_loopback(address):
+    if isinstance(address, (bytes, str)):
+        return True
+    if not isinstance(address, tuple) or not address:
+        return False
+    host = address[0]
+    if not isinstance(host, str):
+        return False
+    return host in _LOOPBACK_HOSTS or host.startswith("127.")
+
+
+def _guard(original):
+    def connect(self, address, *args, **kwargs):
+        if not _is_loopback(address):
+            raise RuntimeError(f"non-loopback network access: {address!r}")
+        return original(self, address, *args, **kwargs)
+
+    return connect
+
+
+socket.socket.connect = _guard(socket.socket.connect)
+socket.socket.connect_ex = _guard(socket.socket.connect_ex)
+
+
+class _BlockedHeavyImport:
+    def find_spec(self, fullname, path=None, target=None):
+        root = fullname.split(".", 1)[0]
+        if root in {"demucs", "torch"}:
+            raise RuntimeError(f"{root} imported on the Karaoke path")
+        return None
+
+
+sys.meta_path.insert(0, _BlockedHeavyImport())
+
+_marker = os.environ.get("STEMFORGE_GUARD_MARKER")
+if _marker:
+    with open(_marker, "w", encoding="utf-8") as _handle:
+        _handle.write("guarded\\n")
+"""
 
 
 def events_from(process: subprocess.CompletedProcess[str]) -> list[WorkerEvent]:
@@ -204,6 +256,33 @@ def test_karaoke_writes_vocals_from_the_centre_and_instrumental_from_the_side(
 
     # The no-model promise: the worker never created a model store.
     assert not (Path(env["STEMFORGE_HOME"]) / "models").exists()
+
+
+@pytest.mark.unit
+def test_karaoke_succeeds_under_a_zero_network_no_heavy_stack_guard(tmp_path: Path) -> None:
+    """The worker neither connects nor imports torch or Demucs."""
+    harness = tmp_path / "harness"
+    harness.mkdir()
+    (harness / "sitecustomize.py").write_text(SITECUSTOMIZE, encoding="utf-8")
+    marker = tmp_path / "guard-loaded"
+    env = shadow_environment(tmp_path)
+    env["PYTHONPATH"] = f"{harness}{os.pathsep}{env['PYTHONPATH']}"
+    env["STEMFORGE_GUARD_MARKER"] = str(marker)
+
+    process, _source, out, _env = run_karaoke(tmp_path, env=env)
+
+    assert marker.read_text(encoding="utf-8") == "guarded\n"
+    assert process.returncode == 0, process.stderr
+    assert {path.name for path in out.glob("*.wav")} == {"vocals.wav", "instrumental.wav"}
+    assert not list(out.glob("*.partial*"))
+    vocals_channels, vocals_rate, vocals = read_float_wav(out / "vocals.wav")
+    instrumental_channels, instrumental_rate, instrumental = read_float_wav(
+        out / "instrumental.wav"
+    )
+    assert (vocals_channels, vocals_rate) == (CHANNELS, SAMPLE_RATE)
+    assert (instrumental_channels, instrumental_rate) == (CHANNELS, SAMPLE_RATE)
+    assert max(abs(value) for value in vocals) > 0
+    assert max(abs(value) for value in instrumental) > 0
 
 
 @pytest.mark.unit

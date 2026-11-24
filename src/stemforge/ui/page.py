@@ -27,7 +27,6 @@ from nicegui.events import NativeEventArguments
 
 from stemforge import __version__, errors
 from stemforge.application import (
-    SEPARATION_OUTPUT_ROLES,
     JobView,
     PitchSet,
     PreflightView,
@@ -68,8 +67,6 @@ from stemforge.ui.toast import toast
 TITLE: Final = formatting.APP_NAME
 POLL_INTERVAL_S: Final = 0.4
 RECENT_VISIBLE: Final = 3
-# The legacy Demucs order; committed Separation and Render views carry their own.
-DEMUCS_OUTPUT_ROLES: Final = SEPARATION_OUTPUT_ROLES
 
 SHELL_CSS: Final = (
     theme.TOKENS_CSS

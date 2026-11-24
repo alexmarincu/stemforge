@@ -2,11 +2,11 @@
 
 The frozen-build contract requires ``freeze_support()`` to be the
 first statement in the main guard, and the heavy stack (NiceGUI, torch, Demucs) to
-stay out of this module's imports. ``--self-test``, ``--smoke-test``, and
-``--smoke-separation`` live in :mod:`stemforge.smoke`; ``--preflight`` runs the
-startup checks and never opens a window; ``--import`` and ``--install-model`` run
-one Job headlessly. A normal launch takes the single-instance lock before the
-preflight report, then opens the native workspace window.
+stay out of this module's imports. ``--self-test``, ``--smoke-test``,
+``--smoke-separation``, and ``--smoke-karaoke`` live in :mod:`stemforge.smoke`;
+``--preflight`` runs the startup checks and never opens a window; ``--import`` and
+``--install-model`` run one Job headlessly. A normal launch takes the single-instance
+lock before the preflight report, then opens the native workspace window.
 """
 
 from __future__ import annotations
@@ -47,6 +47,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--smoke-separation",
         action="store_true",
         help="run a one-second separation through the worker, then exit",
+    )
+    parser.add_argument(
+        "--smoke-karaoke",
+        action="store_true",
+        help="run a one-second centre-channel separation without model weights, then exit",
     )
     parser.add_argument(
         "--preflight",
@@ -594,17 +599,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_install_model(args, paths)
     if args.diagnostics or (
         args.report is not None
-        and not (args.self_test or args.smoke_test or args.smoke_separation or args.preflight)
+        and not (
+            args.self_test
+            or args.smoke_test
+            or args.smoke_separation
+            or args.smoke_karaoke
+            or args.preflight
+        )
     ):
         return _run_diagnostics(paths, args)
 
-    if args.self_test or args.smoke_test or args.smoke_separation:
+    if args.self_test or args.smoke_test or args.smoke_separation or args.smoke_karaoke:
         from stemforge import smoke
 
         if args.self_test:
             return smoke.self_test(report=args.report)
         if args.smoke_test:
             return smoke.smoke_test(report=args.report)
+        if args.smoke_karaoke:
+            return smoke.smoke_karaoke(report=args.report)
         return smoke.smoke_separation(report=args.report)
 
     if args.preflight:

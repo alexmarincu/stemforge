@@ -151,7 +151,7 @@ def estimate_separation_bytes(duration_s: float, *, outputs: int) -> int:
 
 
 def estimate_render_bytes(duration_s: float, *, outputs: int = 1) -> int:
-    """One original or five stem outputs, each a WAV plus preview."""
+    """A Render set's WAVs plus previews, including the 1.2 job headroom."""
     minutes = _minutes(duration_s)
     if outputs < 1:
         raise ValueError("outputs must be positive")

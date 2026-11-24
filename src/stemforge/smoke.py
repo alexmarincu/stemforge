@@ -1,4 +1,4 @@
-"""The frozen-build test flags: ``--self-test``, ``--smoke-test``, ``--smoke-separation``.
+"""The frozen-build test flags: ``--self-test``, ``--smoke-test``, and the smokes.
 
 Each flag builds a JSON report, prints it to stdout, optionally
 writes it to ``--report <path>``, and returns the exit code: ``0`` when every
@@ -10,7 +10,9 @@ torch build *if* torch is installed. ``--smoke-test`` runs the same checks, then
 boots the NiceGUI server headlessly and polls ``/`` for HTTP 200.
 ``--smoke-separation`` runs a one-second synthetic source through the real
 Separation worker using the installed weights; it never downloads, and it is not
-part of ``--smoke-test``.
+part of ``--smoke-test``. ``--smoke-karaoke`` runs the same worker on a
+centre-only synthetic source with an empty model root; it needs no weights, no
+network, and no FFmpeg, and proves the no-model release path.
 """
 
 from __future__ import annotations
@@ -44,6 +46,12 @@ SMOKE_TIMEOUT_SECONDS: Final = 30.0
 SMOKE_SEPARATION_TIMEOUT_SECONDS: Final = 60.0
 SMOKE_SEPARATION_RSS_BYTES: Final = 2 * 1024 * 1024 * 1024
 SMOKE_SEPARATION_SECONDS: Final = 1.0
+SMOKE_KARAOKE_TIMEOUT_SECONDS: Final = 30.0
+SMOKE_KARAOKE_RSS_BYTES: Final = 1024 * 1024 * 1024
+# Centre-only input leaves the side channel at zero; a small tolerance keeps
+# the check about the method's behaviour rather than float bit patterns.
+SMOKE_KARAOKE_VOCALS_MIN_PEAK: Final = 0.01
+SMOKE_KARAOKE_INSTRUMENTAL_MAX_PEAK: Final = 1e-4
 REQUIRE_VENDOR_ENV_VAR: Final = "STEMFORGE_REQUIRE_VENDOR"
 SERVER_SHUTDOWN_TIMEOUT_SECONDS: Final = 10.0
 
@@ -477,6 +485,21 @@ def smoke_separation(*, report: Path | None = None) -> int:
     return 0 if result["ok"] and written else 1
 
 
+def smoke_karaoke(*, report: Path | None = None) -> int:
+    """``--smoke-karaoke``: a real one-second centre-channel separation.
+
+    The worker gets an empty model root, no model path, and no FFmpeg: Karaoke
+    needs no weights, no network, and no vendor media tools. This flag is kept
+    out of ``--smoke-test``; the release and nightly gates call it explicitly.
+    """
+    try:
+        result = _run_smoke_karaoke()
+    except Exception as exc:
+        result = _error_report("smoke-karaoke", exc)
+    written = _emit(result, report)
+    return 0 if result["ok"] and written else 1
+
+
 def _run_smoke_separation() -> Report:
     from stemforge.domain.cancellation import CancelToken
     from stemforge.engines.separation import WorkerSeparationEngine
@@ -646,11 +669,171 @@ def _run_smoke_separation() -> Report:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _smoke_worker_environment(paths: AppPaths, *, threads: int) -> dict[str, str]:
+def _run_smoke_karaoke() -> Report:
+    from stemforge.domain.cancellation import CancelToken
+    from stemforge.engines.separation import WorkerSeparationEngine
+    from stemforge.worker_protocol import METHOD_OUTPUT_ROLES
+
+    checks: list[Check] = []
+    paths = _check_paths(checks)
+    output_roles = METHOD_OUTPUT_ROLES["karaoke"]
+    cache_tmp = paths.cache / "tmp"
+    cache_tmp.mkdir(mode=0o700, parents=True, exist_ok=True)
+    tmp_root = tempfile.mkdtemp(prefix="smoke-karaoke-", dir=cache_tmp)
+    tmp = Path(tmp_root)
+    source = tmp / "source.wav"
+    out_dir = tmp / "karaoke"
+    model_root = tmp / "models"
+    model_root.mkdir()
+    _write_smoke_wav(source)
+    threads = max(1, (os.cpu_count() or 2) // 2)
+    sampler = _ChildRssSampler()
+    engine = WorkerSeparationEngine()
+    progress: list[float] = []
+    started = time.monotonic()
+    import shutil
+
+    report: Report = {
+        "schema": REPORT_SCHEMA,
+        "check": "smoke-karaoke",
+        "app": "stemforge",
+        "version": __version__,
+        "frozen": resources.is_frozen(),
+        "platform": sys.platform,
+        "model_required": False,
+        "model_path": None,
+        "threads": threads,
+    }
+    try:
+        try:
+            outputs = engine.separate(
+                source,
+                out_dir,
+                method="karaoke",
+                expected_outputs=output_roles,
+                model_path=None,
+                expected_duration_s=SMOKE_SEPARATION_SECONDS,
+                threads=threads,
+                env=_smoke_worker_environment(paths, threads=threads, model_root=model_root),
+                progress=lambda fraction, _stage, _detail: progress.append(fraction),
+                cancel=CancelToken(),
+                log=logging.getLogger("stemforge.smoke"),
+                timeout_s=SMOKE_KARAOKE_TIMEOUT_SECONDS,
+                on_spawn=sampler.start,
+            )
+            wall_seconds = time.monotonic() - started
+        except Exception as exc:
+            wall_seconds = time.monotonic() - started
+            sampler.stop()
+            code = getattr(exc, "code", "")
+            detail = getattr(exc, "detail", None) or str(exc)
+            _check(
+                checks,
+                "karaoke.worker",
+                "failed",
+                (
+                    f"{code or type(exc).__name__}: {detail}. "
+                    "Karaoke needs no model or network; check that the cache is writable."
+                ),
+            )
+            report["wall_seconds"] = round(wall_seconds, 3)
+            report["checks"] = checks
+            return _finalize(report)
+        peak_rss = sampler.stop()
+
+        _check(
+            checks,
+            "karaoke.worker",
+            "ok",
+            f"two outputs in {wall_seconds:.2f} s",
+        )
+        problems: list[str] = []
+        if len(outputs.outputs) != 2 or set(outputs.outputs) != set(output_roles):
+            problems.append(f"outputs={sorted(outputs.outputs)}")
+        for role in output_roles:
+            path = outputs.path_for(role)
+            if path is None or not path.is_file():
+                problems.append(f"{role}=missing")
+                continue
+            facts = _wav_facts(path)
+            if facts is None:
+                problems.append(f"{role}=unreadable")
+                continue
+            tag, channels, rate, duration = facts
+            if tag != 3 or channels != 2 or rate != 44_100:
+                problems.append(f"{role}={rate}Hz/{channels}ch/tag{tag}")
+            elif abs(duration - SMOKE_SEPARATION_SECONDS) > 0.050:
+                problems.append(f"{role}=duration {duration:.3f}s")
+        _check(
+            checks,
+            "karaoke.outputs",
+            "failed" if problems else "ok",
+            ", ".join(problems) if problems else "two float32 44.1 kHz stereo outputs",
+        )
+        vocals = outputs.path_for("vocals")
+        instrumental = outputs.path_for("instrumental")
+        vocals_peak = _wav_peak_abs(vocals) if vocals is not None else None
+        instrumental_peak = _wav_peak_abs(instrumental) if instrumental is not None else None
+        _check(
+            checks,
+            "karaoke.vocals",
+            "ok"
+            if vocals_peak is not None and vocals_peak >= SMOKE_KARAOKE_VOCALS_MIN_PEAK
+            else "failed",
+            "missing" if vocals_peak is None else f"peak {vocals_peak:.3f}",
+        )
+        _check(
+            checks,
+            "karaoke.instrumental",
+            "ok"
+            if instrumental_peak is not None
+            and instrumental_peak <= SMOKE_KARAOKE_INSTRUMENTAL_MAX_PEAK
+            else "failed",
+            "missing"
+            if instrumental_peak is None
+            else f"peak {instrumental_peak:.3f} after centre removal",
+        )
+        _check(
+            checks,
+            "karaoke.time",
+            "ok" if wall_seconds < SMOKE_KARAOKE_TIMEOUT_SECONDS else "failed",
+            f"{wall_seconds:.2f} s (limit {SMOKE_KARAOKE_TIMEOUT_SECONDS:g} s)",
+        )
+        rss = peak_rss or 0
+        _check(
+            checks,
+            "karaoke.rss",
+            "ok" if 0 < rss < SMOKE_KARAOKE_RSS_BYTES else "failed",
+            f"{rss / (1024 * 1024):.0f} MiB (limit {SMOKE_KARAOKE_RSS_BYTES // (1024 * 1024)} MiB)",
+        )
+        _check(
+            checks,
+            "karaoke.progress",
+            "ok" if progress and max(progress) <= 1.0 and progress[-1] > 0 else "failed",
+            f"{len(progress)} events, last {progress[-1]:.3f}"
+            if progress
+            else "no progress events",
+        )
+        report.update(
+            {
+                "wall_seconds": round(wall_seconds, 3),
+                "peak_rss_bytes": rss,
+                "outputs": list(output_roles),
+                "checks": checks,
+            }
+        )
+        return _finalize(report)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _smoke_worker_environment(
+    paths: AppPaths, *, threads: int, model_root: Path | None = None
+) -> dict[str, str]:
     environment = dict(os.environ)
     environment.update(
         {
-            "HF_HOME": str(paths.models),
+            "HF_HOME": str(model_root or paths.models),
             "HF_HUB_OFFLINE": "1",
             "OMP_NUM_THREADS": str(threads),
             "MKL_NUM_THREADS": str(threads),
@@ -706,6 +889,31 @@ def _wav_facts(path: Path) -> tuple[int, int, int, float] | None:
             tag, channels, rate = fmt
             frames = size // max(1, channels * 4)
             return tag, channels, rate, frames / rate if rate else 0.0
+        offset += 8 + size + (size & 1)
+    return None
+
+
+def _wav_peak_abs(path: Path) -> float | None:
+    """The largest absolute float32 sample, or ``None`` when unreadable."""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        return None
+    offset = 12
+    while offset + 8 <= len(data):
+        chunk_id = data[offset : offset + 4]
+        size = struct.unpack("<I", data[offset + 4 : offset + 8])[0]
+        body = data[offset + 8 : offset + 8 + size]
+        if chunk_id == b"fmt " and len(body) >= 16:
+            tag = struct.unpack_from("<H", body, 0)[0]
+            if tag != 3:
+                return None
+        elif chunk_id == b"data":
+            values = array.array("f")
+            values.frombytes(body[: len(body) - (len(body) % 4)])
+            return max((abs(value) for value in values), default=0.0)
         offset += 8 + size + (size & 1)
     return None
 

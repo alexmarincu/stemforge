@@ -73,7 +73,11 @@ These commands exit without opening a window. Exit codes are authoritative; add
     StemForge.exe --preflight
     StemForge.exe --self-test
     StemForge.exe --smoke-test
+    StemForge.exe --smoke-karaoke
     StemForge.exe --smoke-separation
+
+--smoke-karaoke runs the centre-channel method without model weights and without
+the network. --smoke-separation needs the pinned model installed (see above).
 
 --preflight exit 5 means WebView2 or .NET Framework 4.8 is missing. Exit 6 means
 the data folder is not writable. Exit 8 means a bundled tool is missing or
