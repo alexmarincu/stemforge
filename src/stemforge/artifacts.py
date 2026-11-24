@@ -69,7 +69,7 @@ from typing import Final, cast
 from uuid import uuid4
 
 from stemforge import errors
-from stemforge.domain.methods import DEFAULT_METHOD_ID, SeparationMethod, method_by_id
+from stemforge.domain.methods import DEFAULT_METHOD_ID, method_by_id, require_method
 from stemforge.errors import StemForgeError
 from stemforge.platform.paths import AppPaths
 from stemforge.platform.storage import DEFAULT_CACHE_CAP_BYTES
@@ -508,7 +508,7 @@ class ArtifactStore:
     ) -> SeparationArtifact:
         """Promote a staged Separation set into its method's directory."""
         _validate_identity(source_id, "source id")
-        descriptor = _method_descriptor(method)
+        descriptor = require_method(method)
         staging = self._validated_staging(staging)
         payload = _normalize_payload(
             manifest, kind=SEPARATION_KIND, identity_field="source_id", identity=source_id
@@ -1688,13 +1688,6 @@ def _manifest_source_id(path: Path) -> str | None:
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
-
-
-def _method_descriptor(method: str) -> SeparationMethod:
-    descriptor = method_by_id(method)
-    if descriptor is None:
-        raise ValueError(f"unknown Separation method: {method!r}")
-    return descriptor
 
 
 def _manifest_method(payload: Mapping[str, object]) -> str:

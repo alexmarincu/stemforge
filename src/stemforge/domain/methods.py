@@ -27,6 +27,7 @@ __all__ = [
     "auto_method_id",
     "method_by_id",
     "method_id_or_default",
+    "require_method",
 ]
 
 DEFAULT_METHOD_ID: Final = "demucs"
@@ -126,6 +127,14 @@ METHODS: Final[MappingProxyType[str, SeparationMethod]] = MappingProxyType(
 def method_by_id(method_id: str) -> SeparationMethod | None:
     """Return the registered method, or ``None`` for an unknown id."""
     return METHODS.get(method_id)
+
+
+def require_method(method_id: str) -> SeparationMethod:
+    """Return the registered method, refusing an id the registry does not know."""
+    descriptor = method_by_id(method_id)
+    if descriptor is None:
+        raise ValueError(f"unknown Separation method: {method_id!r}")
+    return descriptor
 
 
 def auto_method_id(*, demucs_installed: bool) -> str:

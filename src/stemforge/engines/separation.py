@@ -32,7 +32,7 @@ from typing import Final, Protocol
 
 from stemforge import errors
 from stemforge.domain.cancellation import CancelToken
-from stemforge.domain.methods import SeparationMethod, method_by_id
+from stemforge.domain.methods import require_method
 from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.platform import binaries, process
 from stemforge.worker_protocol import (
@@ -183,7 +183,7 @@ class WorkerSeparationEngine:
         model_revision: str = "",
     ) -> list[str]:
         """Build the worker argv (exposed for the Job log and tests)."""
-        descriptor = _method_descriptor(method)
+        descriptor = require_method(method)
         base = (
             list(self._argv) if self._argv is not None else binaries.worker_command(["separation"])
         )
@@ -248,7 +248,7 @@ class WorkerSeparationEngine:
     ) -> SeparationOutputs:
         """Run one separation and return exactly the requested output paths."""
         cancel.check()
-        descriptor = _method_descriptor(method)
+        descriptor = require_method(method)
         declared_roles = tuple(expected_outputs)
         if not declared_roles or len(set(declared_roles)) != len(declared_roles):
             raise ValueError("expected_outputs must be a non-empty unique sequence")
@@ -553,13 +553,6 @@ def _title(stage: str | None) -> str:
     if not stage:
         return ""
     return stage.replace("_", " ").title()
-
-
-def _method_descriptor(method: str) -> SeparationMethod:
-    descriptor = method_by_id(method)
-    if descriptor is None:
-        raise ValueError(f"unknown Separation method: {method!r}")
-    return descriptor
 
 
 def _resolved_threads(threads: int | None) -> int:

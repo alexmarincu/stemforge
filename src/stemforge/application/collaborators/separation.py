@@ -20,6 +20,7 @@ from stemforge.domain.methods import (
     METHODS,
     auto_method_id,
     method_by_id,
+    require_method,
 )
 from stemforge.domain.models import JobKind, Track, stereo_unsupported_reason
 from stemforge.engines.media import MediaTool
@@ -317,8 +318,7 @@ class SeparationService:
     def remember_pending_separation(self, track_id: str, method: str = DEFAULT_METHOD_ID) -> None:
         if not track_id:
             raise ValueError("track id must not be empty")
-        if method_by_id(method) is None:
-            raise ValueError(f"unknown Separation method: {method!r}")
+        require_method(method)
         with self._workspace.lock:
             if self._pending is None:
                 self._pending = (track_id, method)

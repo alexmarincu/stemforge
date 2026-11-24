@@ -9,7 +9,7 @@ from stemforge.application.renders import render_views
 from stemforge.application.state import JobLedger
 from stemforge.application.views import PitchSet
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.methods import DEMUCS_METHOD, method_by_id
+from stemforge.domain.methods import DEMUCS_METHOD, require_method
 from stemforge.domain.models import JobKind, RenderScope, Track
 from stemforge.engines.media import MediaTool
 from stemforge.engines.pitch import (
@@ -127,9 +127,7 @@ class PitchService:
             )
         method: str | None = None
         if resolved_scope is RenderScope.STEMS:
-            descriptor = method_by_id(separation_method)
-            if descriptor is None:
-                raise ValueError(f"unknown Separation method: {separation_method!r}")
+            descriptor = require_method(separation_method)
             if self._artifacts.find_separation(track.source_id, method=descriptor.id) is None:
                 raise ValueError(
                     f"the {descriptor.label} Separation set is not available for this Track"

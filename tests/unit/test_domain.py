@@ -248,6 +248,15 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
 
 
 @pytest.mark.unit
+def test_require_method_returns_the_descriptor_or_refuses_an_unknown_id() -> None:
+    from stemforge.domain.methods import KARAOKE_METHOD, require_method
+
+    assert require_method("karaoke") is KARAOKE_METHOD
+    with pytest.raises(ValueError, match="unknown Separation method"):
+        require_method("unknown")
+
+
+@pytest.mark.unit
 def test_a_method_declares_how_its_instrumental_is_produced() -> None:
     from stemforge.domain.methods import DEMUCS_METHOD, KARAOKE_METHOD, SeparationMethod
 
