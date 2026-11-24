@@ -16,6 +16,7 @@ import pytest
 
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
+from stemforge.domain.methods import require_method
 from stemforge.domain.models import (
     OriginKind,
     RenderScope,
@@ -113,7 +114,7 @@ def _commit_render(
     method: str | None = None,
     set_key: str | None = None,
     output_roles: tuple[str, ...] | None = None,
-    method_version: int = 1,
+    method_version: int | None = None,
 ) -> str:
     key = f"render-{scope}-{semitones:+d}".replace("+", "p").replace("-", "m")
     if tag is not None:
@@ -164,7 +165,9 @@ def _commit_render(
         ]
     if method is not None:
         manifest["separation_method"] = method
-        manifest["separation_method_version"] = method_version
+        manifest["separation_method_version"] = (
+            require_method(method).version if method_version is None else method_version
+        )
     if set_key is not None:
         manifest["separation_set_key"] = set_key
     if output_roles is not None:

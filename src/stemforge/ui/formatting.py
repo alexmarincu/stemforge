@@ -274,7 +274,7 @@ SEPARATION_METHOD_DESCRIPTIONS: Final[Mapping[str, str]] = MappingProxyType(
             "Demucs: four stems plus an Instrumental; the cleanest separation."
         ),
         "separation-method.karaoke": (
-            "Karaoke: Vocals plus an Instrumental from the centre channel; "
+            "Karaoke: Vocals and an Instrumental from the centre of a stereo mix; "
             "fast and offline, with some bleed."
         ),
     }
@@ -290,8 +290,8 @@ SEPARATION_AGAIN: Final = "Separate again"
 SEPARATION_DONE: Final = "4 stems + Instrumental ready · Demucs"
 SEPARATION_DONE_KARAOKE: Final = "Vocals + Instrumental ready · Karaoke"
 SEPARATION_KARAOKE_FINEPRINT: Final = (
-    "Karaoke removes the centre channel. Some bleed and a thinner mix are expected; "
-    "Demucs gives the cleanest stems."
+    "Karaoke lifts the centre of a stereo mix into Vocals; centred instruments can "
+    "bleed in. Demucs gives the cleanest stems."
 )
 SEPARATION_PRIMARY_NOTE: Final = (
     "Vocals and Instrumental are primary. Drums, bass, and other stay behind Show 3 more stems."

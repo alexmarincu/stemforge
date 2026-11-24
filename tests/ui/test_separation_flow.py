@@ -687,8 +687,8 @@ async def test_without_the_model_karaoke_runs_and_shows_two_outputs(tmp_path: Pa
             )
             assert _only(user, "separation-action-method").text == "Method: Karaoke"
             assert _only(user, "separation-karaoke-fineprint").text == (
-                "Karaoke removes the centre channel. Some bleed and a thinner mix are "
-                "expected; Demucs gives the cleanest stems."
+                "Karaoke lifts the centre of a stereo mix into Vocals; centred instruments "
+                "can bleed in. Demucs gives the cleanest stems."
             )
             assert "Vocals + Instrumental" in _only(user, f"track-meta-{track_id}").text
             assert "4 stems" not in _only(user, f"track-meta-{track_id}").text
@@ -1200,8 +1200,8 @@ async def test_the_selector_switches_sets_without_persisting_or_submitting(
         assert "Vocals + Instrumental" in _only(user, f"track-meta-{track_id}").text
         assert "4 stems" not in _only(user, f"track-meta-{track_id}").text
         assert _only(user, "separation-karaoke-fineprint").text == (
-            "Karaoke removes the centre channel. Some bleed and a thinner mix are "
-            "expected; Demucs gives the cleanest stems."
+            "Karaoke lifts the centre of a stereo mix into Vocals; centred instruments "
+            "can bleed in. Demucs gives the cleanest stems."
         )
         await user.should_see(marker="output-row-vocals")
         await user.should_see(marker="output-row-instrumental")
@@ -1252,7 +1252,7 @@ async def test_each_method_description_is_visible_beside_the_selector(
             == (formatting.SEPARATION_METHOD_DESCRIPTIONS["separation-method.karaoke"])
         )
         await user.should_see("four stems plus an Instrumental")
-        await user.should_see("Vocals plus an Instrumental")
+        await user.should_see("Vocals and an Instrumental")
 
 
 async def test_a_selected_method_without_a_set_shows_its_empty_state(

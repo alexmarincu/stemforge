@@ -1,4 +1,4 @@
-"""The real Karaoke worker: centre extraction, two WAVs, no heavyweight imports.
+"""The real Karaoke worker: masked centre extraction, two WAVs, no heavyweight imports.
 
 The worker runs as a real subprocess. Shadow packages on ``PYTHONPATH`` raise if
 torch or Demucs is imported, so the no-model path is enforced structurally rather
@@ -38,6 +38,11 @@ CENTRE_HZ = 440.0
 SIDE_HZ = 660.0
 CENTRE_AMPLITUDE = 0.2
 SIDE_AMPLITUDE = 0.1
+BASS_HZ = 60.0
+PRESENCE_HZ = 1_000.0
+BASS_AMPLITUDE = 0.3
+PRESENCE_AMPLITUDE = 0.1
+EDGE_SAMPLES = 2_048
 
 
 def write_stereo_wav(path: Path, *, seconds: float = 1.0) -> None:
@@ -49,6 +54,23 @@ def write_stereo_wav(path: Path, *, seconds: float = 1.0) -> None:
         side = SIDE_AMPLITUDE * math.sin(2.0 * math.pi * SIDE_HZ * frame / SAMPLE_RATE)
         samples.append(centre + side)
         samples.append(centre - side)
+    _write_float_wav(path, samples, frames)
+
+
+def write_centre_wav(path: Path, *, seconds: float = 1.0) -> None:
+    """A two-tone centre mix: bass and a vocal-band presence tone."""
+    frames = round(seconds * SAMPLE_RATE)
+    samples = array("f")
+    for frame in range(frames):
+        value = BASS_AMPLITUDE * math.sin(
+            2.0 * math.pi * BASS_HZ * frame / SAMPLE_RATE
+        ) + PRESENCE_AMPLITUDE * math.sin(2.0 * math.pi * PRESENCE_HZ * frame / SAMPLE_RATE)
+        samples.append(value)
+        samples.append(value)
+    _write_float_wav(path, samples, frames)
+
+
+def _write_float_wav(path: Path, samples: array[float], frames: int) -> None:
     data = samples.tobytes()
     header = bytearray(56)
     header[0:4] = b"RIFF"
@@ -111,15 +133,36 @@ def shadow_environment(tmp_path: Path, *, watch_stdin: bool = False) -> dict[str
     return env
 
 
+def tone_level(samples: tuple[float, ...], channel: int, frequency: float) -> float:
+    """The amplitude of one tone in the interior of one channel, via a Hann DFT."""
+    start = EDGE_SAMPLES
+    count = len(samples) // CHANNELS - 2 * EDGE_SAMPLES
+    total = 0.0
+    real = 0.0
+    imaginary = 0.0
+    for index in range(count):
+        window = 0.5 - 0.5 * math.cos(2.0 * math.pi * index / max(1, count - 1))
+        value = samples[CHANNELS * (start + index) + channel]
+        angle = 2.0 * math.pi * frequency * index / SAMPLE_RATE
+        real += window * value * math.cos(angle)
+        imaginary -= window * value * math.sin(angle)
+        total += window
+    return 2.0 * math.hypot(real, imaginary) / total
+
+
 def run_karaoke(
     tmp_path: Path,
     *,
     seconds: float = 1.0,
     stdin: int | None = None,
     env: dict[str, str] | None = None,
+    centre_only: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, dict[str, str]]:
     source = tmp_path / "source.wav"
-    write_stereo_wav(source, seconds=seconds)
+    if centre_only:
+        write_centre_wav(source, seconds=seconds)
+    else:
+        write_stereo_wav(source, seconds=seconds)
     out = tmp_path / "out"
     resolved = (
         env if env is not None else shadow_environment(tmp_path, watch_stdin=stdin is not None)
@@ -207,7 +250,7 @@ def events_from(process: subprocess.CompletedProcess[str]) -> list[WorkerEvent]:
 
 
 @pytest.mark.unit
-def test_karaoke_writes_vocals_from_the_centre_and_instrumental_from_the_side(
+def test_karaoke_writes_the_masked_centre_and_the_residual_without_the_side(
     tmp_path: Path,
 ) -> None:
     process, _source, out, env = run_karaoke(tmp_path)
@@ -234,9 +277,22 @@ def test_karaoke_writes_vocals_from_the_centre_and_instrumental_from_the_side(
     frames = round(SAMPLE_RATE * 1.0)
     assert len(vocals) == len(instrumental) == frames * CHANNELS
 
+    # Instrumental is the exact residual, so the set reconstructs the input at
+    # every sample, edges included.
+    for frame in range(frames):
+        expected_centre = CENTRE_AMPLITUDE * math.sin(
+            2.0 * math.pi * CENTRE_HZ * frame / SAMPLE_RATE
+        )
+        expected_side = SIDE_AMPLITUDE * math.sin(2.0 * math.pi * SIDE_HZ * frame / SAMPLE_RATE)
+        for channel in range(CHANNELS):
+            mixed = expected_centre + expected_side * (1 if channel == 0 else -1)
+            index = CHANNELS * frame + channel
+            assert abs(vocals[index] + instrumental[index] - mixed) <= 1e-5
+
+    # The first and last window are a fallback edge; the interior is the mask.
     worst_vocals = 0.0
     worst_instrumental = 0.0
-    for frame in range(frames):
+    for frame in range(EDGE_SAMPLES, frames - EDGE_SAMPLES):
         expected_centre = CENTRE_AMPLITUDE * math.sin(
             2.0 * math.pi * CENTRE_HZ * frame / SAMPLE_RATE
         )
@@ -251,13 +307,30 @@ def test_karaoke_writes_vocals_from_the_centre_and_instrumental_from_the_side(
         worst_instrumental = max(
             worst_instrumental,
             abs(left_side - expected_side),
-            abs(right_side - expected_side),
+            abs(right_side + expected_side),
         )
-    assert worst_vocals <= 1e-4
-    assert worst_instrumental <= 1e-4
+    assert worst_vocals <= 1e-3
+    assert worst_instrumental <= 1e-3
 
     # The no-model promise: the worker never created a model store.
     assert not (Path(env["STEMFORGE_HOME"]) / "models").exists()
+
+
+@pytest.mark.unit
+def test_karaoke_keeps_the_bass_out_of_vocals_and_the_presence_tone_in(
+    tmp_path: Path,
+) -> None:
+    """A centre bass must leave Vocals: the old mid downmix kept the whole mix."""
+    process, _source, out, _env = run_karaoke(tmp_path, centre_only=True)
+
+    assert process.returncode == 0, process.stderr
+    _channels, _rate, vocals = read_float_wav(out / "vocals.wav")
+    _channels, _rate, instrumental = read_float_wav(out / "instrumental.wav")
+    for channel in range(CHANNELS):
+        assert tone_level(vocals, channel, PRESENCE_HZ) > PRESENCE_AMPLITUDE * 0.95
+        assert tone_level(vocals, channel, BASS_HZ) < BASS_AMPLITUDE * 0.01
+        assert tone_level(instrumental, channel, BASS_HZ) > BASS_AMPLITUDE * 0.95
+        assert tone_level(instrumental, channel, PRESENCE_HZ) < PRESENCE_AMPLITUDE * 0.01
 
 
 @pytest.mark.unit

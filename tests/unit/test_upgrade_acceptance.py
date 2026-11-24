@@ -17,6 +17,7 @@ import pytest
 
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
+from stemforge.domain.methods import require_method
 from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
 from stemforge.domain.workspace import Workspace
 from stemforge.jobs.runner import JobRunner
@@ -140,7 +141,7 @@ def _commit_set(
         identity=SOURCE_ID,
     )
     manifest["method"] = method
-    manifest["method_version"] = 1
+    manifest["method_version"] = require_method(method).version
     manifest["created_at"] = (BASE_TIME + created_delta).isoformat()
     store.commit_separation(staging, SOURCE_ID, manifest, method=method)
 

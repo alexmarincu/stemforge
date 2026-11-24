@@ -22,6 +22,7 @@ from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.methods import require_method
 from stemforge.engines.media import (
     CanonicalMetadata,
     DecodeResult,
@@ -337,7 +338,7 @@ class Harness:
             ]
         if method is not None:
             manifest["separation_method"] = method
-            manifest["separation_method_version"] = 1
+            manifest["separation_method_version"] = require_method(method).version
         self.artifacts.commit_render(staging, key, manifest)
         return key
 
