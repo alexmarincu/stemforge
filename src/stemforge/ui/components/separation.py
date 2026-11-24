@@ -176,17 +176,17 @@ class SeparationCard:
             if self._running():
                 self._running_block()
                 if selected is not None:
-                    ui.label(_copy_for(selected.method).last_success).classes(
-                        "sf-fineprint"
-                    ).mark("separation-last-success")
+                    ui.label(_copy_for(selected.method).last_success).classes("sf-fineprint").mark(
+                        "separation-last-success"
+                    )
             elif selected is not None:
                 ui.label(_copy_for(selected.method).done).classes("sf-separation-status").mark(
                     "separation-status"
                 )
                 if gate_visible or failure is not None:
-                    ui.label(_copy_for(selected.method).last_success).classes(
-                        "sf-fineprint"
-                    ).mark("separation-last-success")
+                    ui.label(_copy_for(selected.method).last_success).classes("sf-fineprint").mark(
+                        "separation-last-success"
+                    )
                 if not gate_visible and blocked_reason is None:
                     self._primary(
                         track,
@@ -259,8 +259,8 @@ class SeparationCard:
             ).props("dense outlined options-dense").classes("sf-method-fallback").mark(
                 "separation-method-select"
             )
-            with ui.element("div").classes("sf-method-notes").mark(
-                "separation-method-descriptions"
+            with (
+                ui.element("div").classes("sf-method-notes").mark("separation-method-descriptions")
             ):
                 for method in methods:
                     ui.label(
