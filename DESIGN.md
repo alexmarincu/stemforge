@@ -554,9 +554,15 @@ This is a desktop window, not a responsive website. The window opens at 1280 by 
 by 700 floor; it is resizable between them and larger. The shell does not reflow for a phone, has no
 mobile breakpoints, no hamburger menu, and no touch-specific layout.
 
-There is one breakpoint: at 1149.98 px and below, the rail steps from 292 px to 260 px and
-`sf-two-up` collapses from two columns to one. That keeps the main pane usable at the 1024 px floor.
-Above the breakpoint, the detail remains capped at 980 px rather than stretching to the far edge.
+There are two breakpoints. The window breakpoint is 1149.98 px: at or below it, the rail steps from
+292 px to 260 px and `sf-two-up` collapses from two columns to one. That keeps the main pane usable
+at the 1024 px floor. Above the breakpoint, the detail remains capped at 980 px rather than stretching
+to the far edge.
+
+The Separation card adds one card-level container breakpoint. When the method selector's own inline
+size is 320 px or less, the segmented `sf-method-switch` is replaced by the compact
+`sf-method-fallback` dropdown. The container query changes only that control; it does not reflow the
+shell or the card grid.
 
 Content scrolls inside its region. The rail's Track list and Recent list scroll independently; the
 main pane scrolls in `sf-scroll`; the Job bar and the rail footer stay put; document dialogs scroll
