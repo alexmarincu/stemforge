@@ -374,7 +374,7 @@ def test_both_method_sets_are_listed_oldest_first_with_their_roles(tmp_path: Pat
     assert demucs.method == "demucs"
     assert demucs.output_roles == ("vocals", "instrumental", "drums", "bass", "other")
     assert karaoke.method == "karaoke"
-    assert karaoke.method_version == 3
+    assert karaoke.method_version == 4
     assert karaoke.label == "Karaoke"
     assert karaoke.output_roles == ("vocals", "instrumental")
     assert karaoke.stem_roles == ("vocals",)

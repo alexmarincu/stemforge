@@ -17,9 +17,9 @@ in memory.
 Karaoke isolates the centre with numpy only. Each STFT bin keeps the content
 whose two channels agree in magnitude and phase, weighted by that agreement; the
 mask is limited to the vocal band so bass and kick stay in the Instrumental. A
-second, repeating-background pass estimates the loop the accompaniment plays and
-removes that loop from the centre, so a repeated backing no longer arrives with
-the vocals; a vocal that repeats exactly with the loop shares its fate. Vocals
+second, repeating-background pass estimates the loop the accompaniment plays.
+Where the loop dominates a bin, its contribution is subtracted; where a clearer
+foreground leads it, the centre mask keeps the vocal at its natural level. Vocals
 are the masked centre, Instrumental is the exact residual (``mix - vocals``), so
 the two always sum back to the source. It streams the canonical source in bounded
 chunks with overlap-add, so its memory does not grow with track length and it
@@ -92,7 +92,7 @@ KARAOKE_CHUNK_SAMPLES: Final = 1 << 18
 KARAOKE_WINDOW: Final = 2048
 KARAOKE_HOP: Final = 512
 KARAOKE_BAND_HZ: Final = (200.0, 10_000.0)
-KARAOKE_PERIOD_MIN_S: Final = 0.5
+KARAOKE_PERIOD_MIN_S: Final = 0.45
 KARAOKE_PERIOD_MAX_S: Final = 4.0
 KARAOKE_PERIOD_BAND_WIDTH: Final = 16
 KARAOKE_PERIOD_BLOCK_FRAMES: Final = 4096
@@ -100,7 +100,9 @@ KARAOKE_PERIOD_CONFIDENCE: Final = 0.15
 KARAOKE_REPEATS: Final = 8
 KARAOKE_REPET_ALPHA: Final = 1.5
 KARAOKE_REPET_GAMMA: Final = 1.0
-KARAOKE_REPET_FLOOR: Final = 6.0
+KARAOKE_REPET_BLEND_LOW: Final = 1.2
+KARAOKE_REPET_BLEND_HIGH: Final = 2.0
+KARAOKE_REPET_SMOOTH_FRAMES: Final = 9
 KARAOKE_REPET_MIN_S: Final = 4.0
 MAX_DURATION_S: Final = 1800.0
 DURATION_TOLERANCE_S: Final = 0.050
@@ -404,8 +406,8 @@ def _karaoke(
     balance (``1`` only when both channels carry the same magnitude). Confident
     side content therefore leaves Vocals entirely instead of being averaged in
     as it is by a plain mid downmix. When the source repeats strongly, the loop
-    the accompaniment plays is estimated per bin and removed from the centre;
-    its non-repeating remainder is what Vocals keeps.
+    the accompaniment plays is estimated per bin; a bin the loop dominates is
+    subtracted, while a bin a clearer foreground leads keeps the centre mask.
     """
     out_dir = Path(args.out)
     writers = {
@@ -550,7 +552,7 @@ def _karaoke_period(
     """Estimate the accompaniment's repeat period in STFT frames, or skip it.
 
     The first pass keeps a coarse, channel-summed magnitude spectrogram and
-    autocorrelates it over time. A peak that is broad enough in the 0.5-4 s
+    autocorrelates it over time. A peak that is broad enough in the 0.45-4 s
     range is a loop the accompaniment is likely to repeat; a source with no
     such peak keeps the centre-only path, so a through-composed track is not
     forced into a mask built from unrelated audio.
@@ -578,7 +580,9 @@ def _karaoke_period(
             ::KARAOKE_HOP
         ]
         frame_count = min(KARAOKE_PERIOD_BLOCK_FRAMES, len(windows))
-        if frame_count <= 0:
+        # A one- or two-frame tail is an edge, not a repeat; including it moves
+        # the autocorrelation peak by a whole frame on a short source.
+        if frame_count < 8:
             break
         spectrum = numpy.fft.rfft(windows[:frame_count] * window, axis=-1)
         magnitude = numpy.abs(spectrum).sum(axis=1)
@@ -629,14 +633,19 @@ def _karaoke_background(
 
 
 def _karaoke_repet_mask(numpy: Any, foreground: Any, background: Any) -> Any:
-    """Keep the non-repeating part of the centre, with a floor for strong vocals.
+    """Blend the centre mask toward the repeating-background mask.
 
-    ``foreground / background`` separates a vocal that moves over the loop from
-    the loop itself. The floor raises bins whose foreground clearly dominates,
-    preserving a sustained lead note that would otherwise be pulled down with
-    the accompaniment.
+    A bin whose foreground clearly dominates the loop is vocal: it keeps the
+    full centre mask so the lead stays at its natural level. A bin that is
+    mostly loop uses the subtracted mask instead. The ratio is smoothed over
+    about a tenth of a second so the blend does not chatter on a vibrato or a
+    drum hit.
     """
-    ratio = foreground / (background + 1e-12)
+    ratio = _karaoke_smooth_time(
+        numpy,
+        foreground / (background + 1e-12),
+        KARAOKE_REPET_SMOOTH_FRAMES,
+    )
     soft = (
         numpy.clip(
             (foreground - KARAOKE_REPET_ALPHA * background) / (foreground + 1e-12),
@@ -645,12 +654,22 @@ def _karaoke_repet_mask(numpy: Any, foreground: Any, background: Any) -> Any:
         )
         ** KARAOKE_REPET_GAMMA
     )
-    floor = numpy.clip(
-        (ratio - KARAOKE_REPET_ALPHA) / (KARAOKE_REPET_FLOOR - KARAOKE_REPET_ALPHA),
+    blend = numpy.clip(
+        (ratio - KARAOKE_REPET_BLEND_LOW) / (KARAOKE_REPET_BLEND_HIGH - KARAOKE_REPET_BLEND_LOW),
         0.0,
         1.0,
     )
-    return numpy.maximum(soft, floor)
+    return soft + blend * (1.0 - soft)
+
+
+def _karaoke_smooth_time(numpy: Any, values: Any, width: int) -> Any:
+    """Average a frame-by-bin value over a short time window, edge-padded."""
+    if width <= 1:
+        return values
+    pad = width // 2
+    padded = numpy.pad(values, ((pad, pad), (0, 0)), mode="edge")
+    windows = numpy.lib.stride_tricks.sliding_window_view(padded, width, axis=0)
+    return windows.mean(axis=-1)
 
 
 def _karaoke_band(numpy: Any, sample_rate: int) -> Any:

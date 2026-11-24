@@ -687,7 +687,7 @@ async def test_without_the_model_karaoke_runs_and_shows_two_outputs(tmp_path: Pa
             )
             assert _only(user, "separation-action-method").text == "Method: Karaoke"
             assert _only(user, "separation-karaoke-fineprint").text == (
-                "Karaoke lifts the centre and removes the repeating backing; centred or "
+                "Karaoke lifts the centre and suppresses the repeating backing; centred or "
                 "non-repeating instruments can bleed in. Demucs gives the cleanest stems."
             )
             assert "Vocals + Instrumental" in _only(user, f"track-meta-{track_id}").text
@@ -1200,7 +1200,7 @@ async def test_the_selector_switches_sets_without_persisting_or_submitting(
         assert "Vocals + Instrumental" in _only(user, f"track-meta-{track_id}").text
         assert "4 stems" not in _only(user, f"track-meta-{track_id}").text
         assert _only(user, "separation-karaoke-fineprint").text == (
-            "Karaoke lifts the centre and removes the repeating backing; centred or "
+            "Karaoke lifts the centre and suppresses the repeating backing; centred or "
             "non-repeating instruments can bleed in. Demucs gives the cleanest stems."
         )
         await user.should_see(marker="output-row-vocals")

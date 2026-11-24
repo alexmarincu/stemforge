@@ -290,7 +290,7 @@ SEPARATION_AGAIN: Final = "Separate again"
 SEPARATION_DONE: Final = "4 stems + Instrumental ready · Demucs"
 SEPARATION_DONE_KARAOKE: Final = "Vocals + Instrumental ready · Karaoke"
 SEPARATION_KARAOKE_FINEPRINT: Final = (
-    "Karaoke lifts the centre and removes the repeating backing; centred or "
+    "Karaoke lifts the centre and suppresses the repeating backing; centred or "
     "non-repeating instruments can bleed in. Demucs gives the cleanest stems."
 )
 SEPARATION_PRIMARY_NOTE: Final = (
