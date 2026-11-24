@@ -6,7 +6,6 @@ import logging
 from collections.abc import Mapping
 
 from stemforge import errors
-from stemforge.application.identity import separation_key
 from stemforge.application.state import JobLedger, WorkspaceState
 from stemforge.application.views import (
     SeparationAvailability,
@@ -107,10 +106,6 @@ class SeparationService:
         """Whether the selected method has a committed set."""
         return self.selected_separation_set(track) is not None
 
-    def has_any_separation(self, track: Track) -> bool:
-        """Whether any method has a committed set for the Track."""
-        return bool(self._artifacts.separation_sets(track.source_id))
-
     def select_separation_method(self, track: Track, method_id: str) -> None:
         """Change the per-Track view selection only; never persist or submit."""
         known = self._known_method(method_id, source="selected")
@@ -139,7 +134,7 @@ class SeparationService:
                 continue
             views.append(
                 SeparationSet(
-                    set_key=separation_key(artifact),
+                    set_key=artifact.set_key,
                     created_at=artifact.created_at,
                     label=descriptor.label,
                     method=artifact.method,
@@ -310,7 +305,7 @@ class SeparationService:
             )
             return {
                 "track_id": track.track_id,
-                "set_key": separation_key(result.artifact),
+                "set_key": result.artifact.set_key,
             }
 
         return run

@@ -168,8 +168,7 @@ forbidden contracts add the named prohibitions:
   the facade can use the pipeline.
 - **UI talks to the application facade only.** The UI may not import
   `application.service`, `application.state`, `application.views`,
-  `application.renders`, `application.identity`, or
-  `application.collaborators`.
+  `application.renders`, or `application.collaborators`.
 - **Workers stay below the app.** A worker may not import `application`, `pipeline`,
   `engines`, `jobs`, `artifacts`, `domain`, `models`, `settings`, `integration`, or
   `ui`.
@@ -874,8 +873,8 @@ and `file://` URLs are rejected.
 forbidden contracts described in section 5.1. The UI imports `stemforge.application`,
 `stemforge.integration`, `stemforge.domain`, and `stemforge.errors`, and it imports the
 facade and view types from the package rather than from `application.service`,
-`application.state`, `application.views`, `application.renders`, `application.identity`,
-or `application.collaborators`. It never imports engines, workers, pipeline, jobs, or
+`application.state`, `application.views`, `application.renders`, or
+`application.collaborators`. It never imports engines, workers, pipeline, jobs, or
 platform. A worker imports only `worker_protocol`, `platform`, `errors`, and the standard
 library; torch and Demucs are imported inside `run()`.
 

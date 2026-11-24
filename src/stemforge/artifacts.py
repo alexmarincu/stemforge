@@ -777,12 +777,6 @@ class ArtifactStore:
                 found.append(legacy)
         return tuple(sorted(found, key=lambda artifact: (artifact.created_at, artifact.method)))
 
-    def iter_separations(
-        self, source_id: str, *, verify_hashes: bool = False
-    ) -> Iterator[SeparationArtifact]:
-        """Iterate every committed method set for one Source, oldest first."""
-        yield from self.separation_sets(source_id, verify_hashes=verify_hashes)
-
     def _read_separation(
         self,
         source_id: str,

@@ -21,7 +21,6 @@ PACKAGE = REPO_ROOT / "src" / "stemforge"
 # ``stemforge.application``; the package's internals stay private.
 APPLICATION_INTERNALS = (
     "stemforge.application.collaborators",
-    "stemforge.application.identity",
     "stemforge.application.renders",
     "stemforge.application.service",
     "stemforge.application.state",

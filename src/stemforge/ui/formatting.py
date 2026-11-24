@@ -257,7 +257,6 @@ PITCH_EARLIER_SEPARATION: Final = "based on an earlier separation"
 
 # The Separation card's copy.
 SEPARATION_TITLE: Final = "Separation"
-SEPARATION_METHOD_LABEL: Final = "Method"
 SEPARATION_METHOD_ACTION: Final = "Method: {method}"
 SEPARATION_METHOD_MODEL_REQUIRED: Final = "Needs the Demucs model."
 SEPARATION_METHOD_NO_MODEL: Final = "No model or network needed."

@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import quote
 
-from stemforge.application.identity import separation_key
 from stemforge.application.renders import RenderView, render_views
 from stemforge.application.state import WorkspaceState
 from stemforge.application.views import SEPARATION_ROLE_LABELS, PreviewTarget
@@ -102,7 +101,7 @@ class PreviewService:
             (
                 item
                 for item in self._artifacts.separation_sets(track.source_id)
-                if separation_key(item) == set_key
+                if item.set_key == set_key
             ),
             None,
         )
