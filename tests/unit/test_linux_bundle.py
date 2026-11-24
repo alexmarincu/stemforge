@@ -514,6 +514,7 @@ def test_run_sh_falls_back_to_browser_mode() -> None:
     script = (PROJECT_ROOT / "packaging" / "linux" / "run.sh").read_text("utf-8")
 
     assert "--preflight --quiet" in script
+    assert "--smoke-karaoke" in script
     assert "STEMFORGE_BROWSER=1" in script
     assert 'exec "$here/StemForge" "$@"' in script
     assert "vendor/rubberband" in script
@@ -522,10 +523,12 @@ def test_run_sh_falls_back_to_browser_mode() -> None:
 def test_the_smoke_script_covers_the_appimage() -> None:
     script = (PROJECT_ROOT / "packaging" / "linux" / "smoke-test.sh").read_text("utf-8")
 
+    assert "--with-karaoke" in script
     assert "--with-separation" in script
     assert "--appimage-extract-and-run" in script
     assert "--self-test" in script
     assert "--smoke-test" in script
+    assert "--smoke-karaoke" in script
 
 
 def test_the_bundle_readme_documents_the_host_contract() -> None:
@@ -546,6 +549,8 @@ def test_the_bundle_readme_documents_the_host_contract() -> None:
         "--appimage-extract-and-run",
         "--self-test",
         "--smoke-test",
+        "--smoke-karaoke",
+        "--with-karaoke",
         "--with-separation",
         "unsigned",
     ):

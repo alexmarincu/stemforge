@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Run the frozen bundle's diagnostic flags and keep the JSON reports.
 # --self-test plus --smoke-test, no weights, exit nonzero on failure.
-# --with-separation and the AppImage extraction check are separate opt-ins.
+# --with-karaoke is the no-model worker proof; --with-separation and the
+# AppImage extraction check are separate weight/asset opt-ins.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
@@ -10,14 +11,16 @@ cd "$repo_root"
 bundle=""
 reports="$repo_root/build/reports"
 with_separation=0
+with_karaoke=0
 appimage=""
 
 usage() {
     cat <<'EOF'
-Usage: packaging/linux/smoke-test.sh [--bundle DIR] [--with-separation]
-                                    [--appimage FILE]
+Usage: packaging/linux/smoke-test.sh [--bundle DIR] [--with-karaoke]
+                                    [--with-separation] [--appimage FILE]
 
   --bundle DIR       assembled Bundle (default: dist/StemForge-<ver>-linux-x86_64)
+  --with-karaoke     also run --smoke-karaoke (needs no weights and no network)
   --with-separation  also run --smoke-separation (needs the pinned weights in
                      STEMFORGE_HOME; install them with --install-model)
   --appimage FILE    also run FILE --appimage-extract-and-run --self-test
@@ -34,6 +37,7 @@ while (($# > 0)); do
             bundle="$2"
             shift 2
             ;;
+        --with-karaoke) with_karaoke=1; shift ;;
         --with-separation) with_separation=1; shift ;;
         --appimage)
             [[ $# -ge 2 ]] || {
@@ -72,6 +76,10 @@ mkdir -p "$STEMFORGE_HOME"
 status=0
 "$bundle/StemForge" --self-test --report "$reports/self-test.json" || status=1
 "$bundle/StemForge" --smoke-test --report "$reports/smoke-test.json" || status=1
+if ((with_karaoke)); then
+    "$bundle/StemForge" --smoke-karaoke --report "$reports/smoke-karaoke.json" ||
+        status=1
+fi
 if ((with_separation)); then
     "$bundle/StemForge" --smoke-separation --report "$reports/smoke-separation.json" ||
         status=1

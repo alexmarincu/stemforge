@@ -354,7 +354,7 @@ jobs:
           "dist/StemForge-${version}-linux-x86_64/StemForge" --preflight --json \
             --report build/reports/preflight.json
       - name: Smoke-test the frozen bundle
-        run: bash packaging/linux/smoke-test.sh
+        run: bash packaging/linux/smoke-test.sh --with-karaoke
       - name: Upload frozen build reports
         if: failure()
         uses: actions/upload-artifact@v7

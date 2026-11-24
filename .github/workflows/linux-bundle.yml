@@ -93,7 +93,7 @@ jobs:
           bash packaging/linux/build.sh
           echo "packaging wall time: $((SECONDS - started))s"
       - name: Smoke-test the frozen bundle
-        run: bash packaging/linux/smoke-test.sh --bundle "$BUNDLE"
+        run: bash packaging/linux/smoke-test.sh --bundle "$BUNDLE" --with-karaoke
       - name: Assert the frozen native window is available
         run: |
           # The Bundle ships PyGObject and takes GTK/WebKitGTK/GStreamer from

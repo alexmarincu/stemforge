@@ -147,6 +147,7 @@ jobs:
             '-NoProfile', '-ExecutionPolicy', 'Bypass',
             '-File', 'packaging/windows/smoke-test.ps1'
           )
+          $arguments += '-WithKaraoke'
           if ('${{ inputs.with_separation }}' -eq 'true') {
             $arguments += '-WithSeparation'
           }

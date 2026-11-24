@@ -117,8 +117,9 @@ mv "$pyinstaller_out" "$bundle"
 # The PyInstaller payload keeps debug symbols in several wheels (sphn is 82 MB
 # unstripped, libtorch_cpu 90 MB larger than its stripped form). Stripping is
 # what keeps the onedir inside the 1.15 GB budget; --smoke-separation validates
-# that the inference stack still loads afterwards. vendor/ is never touched:
-# its hashes are fixed by packaging/vendor.lock.json.
+# that the inference stack still loads afterwards, and --smoke-karaoke validates
+# the frozen worker without weights. vendor/ is never touched: its hashes are
+# fixed by packaging/vendor.lock.json.
 if command -v strip >/dev/null 2>&1 && command -v file >/dev/null 2>&1; then
     note "stripping unstripped ELF shared objects in _internal/"
     find "$bundle/_internal" -type f \( -name '*.so' -o -name '*.so.*' \) -print0 |

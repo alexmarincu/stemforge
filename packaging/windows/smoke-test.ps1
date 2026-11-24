@@ -1,16 +1,18 @@
 # Run the frozen Windows bundle's diagnostic flags.
 #
 # --self-test, --smoke-test, and --preflight always
-# run. -WithSeparation installs the pinned htdemucs weights into a temporary
-# STEMFORGE_HOME (never the real profile and never the repository), then runs
-# --smoke-separation. The wall time and peak-RSS check are recorded in the JSON
-# report and printed here.
+# run. -WithKaraoke runs --smoke-karaoke in the temporary STEMFORGE_HOME before
+# any weight install: it needs no weights and no network. -WithSeparation then
+# installs the pinned htdemucs weights into that same temporary home (never the
+# real profile and never the repository) and runs --smoke-separation. The wall
+# time and peak-RSS checks are recorded in the JSON reports and printed here.
 #
 # Exit code is nonzero when any required flag fails. Reports are written under
 # build/reports/ for the CI evidence artifact.
 [CmdletBinding()]
 param(
     [string]$Bundle,
+    [switch]$WithKaraoke,
     [switch]$WithSeparation,
     [switch]$KeepHome,
     [string]$HomePath
@@ -55,12 +57,13 @@ function Write-ReportSummary([string]$Name, [string]$Path) {
         Write-Host "smoke-test: $Name report is not valid JSON: $Path"
         return
     }
-    if ($Name -eq 'smoke-separation') {
+    if ($Name -eq 'smoke-separation' -or $Name -eq 'smoke-karaoke') {
         $wallProperty = $payload.PSObject.Properties['wall_seconds']
         $wall = if ($null -ne $wallProperty) { $wallProperty.Value } else { 'n/a' }
-        $rss = ($payload.checks | Where-Object { $_.name -eq 'separation.rss' } | Select-Object -First 1)
+        $rssName = if ($Name -eq 'smoke-karaoke') { 'karaoke.rss' } else { 'separation.rss' }
+        $rss = ($payload.checks | Where-Object { $_.name -eq $rssName } | Select-Object -First 1)
         $rssDetail = if ($null -ne $rss) { $rss.detail } else { 'n/a' }
-        Write-Host ("smoke-test: separation wall={0}s rss={1}" -f $wall, $rssDetail)
+        Write-Host ("smoke-test: {0} wall={1}s rss={2}" -f $Name, $wall, $rssDetail)
     }
     else {
         $server = $payload.PSObject.Properties['server']
@@ -118,6 +121,14 @@ try {
     # Exit 5 records an absent runtime; exit 6/7/8 are still failures.
     Invoke-FrozenCheck -Name 'preflight' -Arguments @('--preflight') `
         -AllowedExitCodes @(0, 4, 5) -Required
+
+    if ($WithKaraoke) {
+        Write-Host 'smoke-test: running the no-model Karaoke gate before any weight install'
+        Invoke-FrozenCheck 'smoke-karaoke' @('--smoke-karaoke') -Required
+    }
+    else {
+        Write-Host 'smoke-test: -WithKaraoke not requested; skipping --smoke-karaoke'
+    }
 
     if ($WithSeparation) {
         Write-Host "smoke-test: installing the pinned model into $HomeRoot"

@@ -70,7 +70,7 @@ COVERAGE_PRODUCERS = {
 }
 
 # Recorded topology for the release workflow.
-RELEASE_WORKFLOW_SHA256 = "103dda0cd888ebe1c85069da5fdec00ce4012b484478418132f9839068770f82"
+RELEASE_WORKFLOW_SHA256 = "f65a677f7eac1489049c54f1dc6aa8577b4d091acfc61b2776e3a2d8e5d42195"
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -309,6 +309,8 @@ def test_frozen_linux_is_the_linux_smoke_only(ci: dict[str, Any]) -> None:
     # too expensive for every PR and belong to linux-bundle.yml.
     assert "packaging/linux/build.sh --bundle-only" in text
     assert "packaging/linux/smoke-test.sh" in text
+    # The no-model Karaoke smoke runs on the frozen onedir without weights.
+    assert "--with-karaoke" in text
     assert "package.sh" not in text
     assert "AppImage" not in text
 
@@ -420,6 +422,7 @@ def test_nightly_builds_and_runs_the_real_separation(
     assert "packaging/linux/build.sh" in linux_text
     # The nightly keeps the full archive and AppImage path.
     assert "--bundle-only" not in linux_text
+    assert "--with-karaoke" in linux_text
     assert "--install-model" in linux_text
     assert "--accept-model-licence" in linux_text
     assert "--smoke-separation" in linux_text or "--with-separation" in linux_text
@@ -429,6 +432,7 @@ def test_nightly_builds_and_runs_the_real_separation(
     windows_text = _flat(windows_bundle["jobs"]["windows-bundle"])
     assert "packaging/windows/build.ps1" in windows_text
     assert "smoke-test.ps1" in windows_text
+    assert "-WithKaraoke" in windows_text
     assert "-WithSeparation" in windows_text
 
 
@@ -446,8 +450,10 @@ def test_the_smoke_test_passes_the_separation_switch_as_a_bare_argument(
     # [switch] accepts only $true/$false/1/0 and fails to bind before the
     # script body runs, so the switch must travel as a bare argument.
     assert "-WithSeparation:" not in text
+    assert "-WithKaraoke:" not in text
     assert "'${{ inputs.with_separation }}' -eq 'true'" in text
     assert "$arguments += '-WithSeparation'" in text
+    assert "$arguments += '-WithKaraoke'" in text
     assert "& powershell.exe @arguments" in text
 
 

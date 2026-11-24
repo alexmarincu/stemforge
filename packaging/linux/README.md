@@ -124,9 +124,10 @@ StemForge follows the XDG base-directory conventions:
 | Logs | `~/.local/state/stemforge/log` |
 
 Model weights are **not** in this Bundle. StemForge downloads the pinned
-`htdemucs` weights on first Separation, after an explicit consent screen, and
-verifies the SHA-256. The download is the only required network use; local
-import, pitch, separation with an installed model, and export work offline.
+`htdemucs` weights on first Demucs Separation, after an explicit consent screen,
+and verifies the SHA-256. The download is the only required network use; local
+import, pitch, export, and the Karaoke method work offline. Karaoke needs no
+weights at all: it extracts the centre channel and writes Vocals and Instrumental.
 
 Set `STEMFORGE_HOME` to keep everything in one portable directory:
 
@@ -147,6 +148,7 @@ Run these from the extracted Bundle:
 ./run.sh --preflight             # human-readable dependency report; --json too
 ./run.sh --self-test             # imports the runtime and executes the vendor tools
 ./run.sh --smoke-test            # boots the local server and polls it
+./run.sh --smoke-karaoke         # one-second centre-channel split; no weights or network
 ./run.sh --install-model --accept-model-licence
 ./run.sh --smoke-separation      # one-second synthetic separation; needs the model
 ```
@@ -160,7 +162,8 @@ From the source checkout, the same checks plus archive verification are:
 
 ```sh
 bash packaging/linux/smoke-test.sh --bundle dist/StemForge-{{version}}-linux-x86_64 \
-    --with-separation --appimage dist/StemForge-{{version}}-linux-x86_64.AppImage
+    --with-karaoke --with-separation \
+    --appimage dist/StemForge-{{version}}-linux-x86_64.AppImage
 python3 packaging/linux/verify_bundle.py --bundle dist/StemForge-{{version}}-linux-x86_64 \
     --archive dist/StemForge-{{version}}-linux-x86_64.tar.gz \
     --archive dist/StemForge-{{version}}-linux-x86_64.tar.zst \
