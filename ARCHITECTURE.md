@@ -1,9 +1,10 @@
 # StemForge architecture
 
-StemForge is a desktop application that separates a Track into four Stems and an
-Instrumental, shifts pitch without changing tempo, and exports the result through a
-native save dialog. It runs entirely on the user's machine: a NiceGUI page in a pywebview
-window, one serial Job queue, and a crash-isolated Demucs worker.
+StemForge is a desktop application that separates a Track into Stems with one of two
+Separation methods — Demucs (four Stems and an Instrumental) or Karaoke (Vocals and an
+Instrumental, with no Model weights) — shifts pitch without changing tempo, and exports
+the result through a native save dialog. It runs entirely on the user's machine: a
+NiceGUI page in a pywebview window, one serial Job queue, and a crash-isolated worker.
 
 This document describes the system as it is. The [README](README.md) tells the product
 story, [`GLOSSARY.md`](GLOSSARY.md) defines the vocabulary, and [`docs/adr/`](docs/adr/)
@@ -98,7 +99,7 @@ weights, and the user's filesystem are external.
 | FFmpeg and ffprobe | Out | Probe, decode canonical WAV, encode MP3 previews and exports, measure peaks. | Coded `media.*` errors; a missing vendor binary is `preflight.bundle_damaged` (exit 8). |
 | Rubber Band | Out | Pitch shift the Track or each Stem with formants preserved. | `pitch.engine_missing` or `pitch.render_failed`; the Job leaves no partial output. |
 | Deno and yt-dlp | Out | Extract and download one YouTube audio stream in-process. | Classified `import.youtube_*`, `import.network`, and extractor-drift errors. |
-| Pinned `htdemucs` weights | In | The separation model, downloaded once from Hugging Face after consent. | `separation.model_missing` or `separation.model_download_failed`; SHA-256 is verified again before every Separation. |
+| Pinned `htdemucs` weights | In | The Demucs separation model, downloaded once from Hugging Face after consent. | `separation.model_missing` or `separation.model_download_failed`; SHA-256 is verified again before every Demucs Separation. Karaoke never reads the store. |
 | GTK 3, WebKitGTK 4.1, Soup 3 | In | Native window on Linux. | Missing window stack is fatal for native mode (exit 3), but `run.sh` retries in browser mode. |
 | GStreamer | In | In-app Preview on Linux. | A missing element is a degraded mode (exit 4), announced in the UI. |
 | WebView2 and .NET 4.8 | In | Native window on Windows. | Fatal (exit 5); the portable ZIP carries the offline bootstrapper. |
@@ -232,7 +233,7 @@ outside the layer contract:
 | Module | Responsibility |
 |---|---|
 | `__main__.py` | CLI parsing, launch order, headless modes, worker dispatch, fatal boxes. |
-| `smoke.py` | `--self-test`, `--smoke-test`, and `--smoke-separation`. |
+| `smoke.py` | `--self-test`, `--smoke-test`, `--smoke-separation`, and `--smoke-karaoke`. |
 | `logging_setup.py` | App log, per-Job logs, and Job-log retention. |
 
 ### 5.3 Key types and where they live
@@ -325,6 +326,7 @@ Every mode returns a process exit code and never opens the workspace window.
 | `--self-test` | Checks the runtime, data roots, Bundle roots, assets, vendor binaries, and CPU torch build. | Emits a JSON report; `stemforge --self-test` is part of `scripts/check.sh`. |
 | `--smoke-test` | Runs the self-test, then boots the local server headlessly and polls `/` for HTTP 200. | Used by the frozen-bundle CI gate. |
 | `--smoke-separation` | Runs a one-second synthetic WAV through the real worker with the installed weights. | Never downloads; also asserts the worker's RSS ceiling. |
+| `--smoke-karaoke` | Runs a one-second centre-only synthetic WAV through the real worker with an empty model root. | Needs no weights, no network, and no FFmpeg; proves the no-model release path. |
 | `--worker separation` | Internal dispatch to `workers.separation.run`. | Scanned before argparse, environment setup, and the instance lock, so a second process can still run the bundled worker. |
 
 The model-install Job precedes Separation: it verifies installed weights first (an
@@ -713,6 +715,14 @@ The source archive is the tagged tree; the third-party archive contains the vend
 copyleft package sources. Every Bundle also ships `LICENSE`, `THIRD_PARTY_NOTICES.md`,
 `SOURCE_OFFER.md`, and `LICENSES/`; the generated tree is checked for drift by
 `scripts/generate_notices.py --check`.
+
+The frozen gate proves the no-model path, not only the weight path. `--smoke-karaoke`
+runs the worker on a one-second centre-only stereo WAV with an empty model root and no
+FFmpeg. It asserts two float32 44.1 kHz stereo outputs, non-silent Vocals, and a silent
+centre-removed Instrumental, and records `model_required: false` and `model_path: null`.
+The PR frozen job, the nightly reusable bundle jobs, and both release jobs run it before
+any weight install or download, so a build whose Karaoke path needs torch, Demucs, the
+model store, weights, or the network fails the gate.
 
 ## 8. Crosscutting Concepts
 

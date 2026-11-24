@@ -10,8 +10,9 @@ Judgement calls only. Formatting, typing, and import direction are enforced by
   `tests/unit/test_copy_policy.py` fails on a literal passed to `ui.label`,
   `ui.button`, `ui.notify`, `toast`, a tooltip, or an input placeholder.
 - `GLOSSARY.md` is normative. Use **Import**, never Load, Add, or Ingest.
-- An Instrumental is not a Stem. `OUTPUT_ROLES` includes it; `STEM_ROLES`
-  does not.
+- An Instrumental is an output, never a Stem; each Separation method declares its own
+  Stems in `domain/methods.py`. `STEM_ROLES` and `OUTPUT_ROLES` are the Demucs and
+  legacy vocabulary, not a global output list.
 
 ## Tests
 
