@@ -134,6 +134,7 @@ class FakePitch:
         self.fail_retryable = True
         self._gate: threading.Event | None = None
         self.shift_started = threading.Event()
+        self.sum_calls = 0
 
     def block(self) -> threading.Event:
         self._gate = threading.Event()
@@ -174,6 +175,7 @@ class FakePitch:
         log: logging.Logger,
     ) -> None:
         cancel.check()
+        self.sum_calls += 1
         dst.write_bytes(b"sum:" + b"|".join(path.read_bytes() for path in srcs))
 
     def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
@@ -246,13 +248,24 @@ class Harness:
         path.write_bytes(b"fake source bytes for " + name.encode())
         return path
 
-    def add_separation(self, source_id: str, *, version: str = "v1") -> dict[str, str]:
-        """Commit four Stems and return their role -> sha256 map."""
-        staging = self.artifacts.stage(f"ui-separation-{version}")
+    def add_separation(
+        self,
+        source_id: str,
+        *,
+        version: str = "v1",
+        method: str = "demucs",
+    ) -> dict[str, str]:
+        """Commit one method's set and return its role -> sha256 map."""
+        roles = (
+            ("vocals", "instrumental")
+            if method == "karaoke"
+            else ("vocals", "drums", "bass", "other")
+        )
+        staging = self.artifacts.stage(f"ui-separation-{method}-{version}")
         hashes: dict[str, str] = {}
         files: list[Mapping[str, object]] = []
-        for role in ("vocals", "drums", "bass", "other"):
-            data = f"{version}-{role}-audio".encode()
+        for role in roles:
+            data = f"{version}-{method}-{role}-audio".encode()
             (staging / f"{role}.wav").write_bytes(data)
             hashes[role] = hashlib.sha256(data).hexdigest()
             files.append(_file_entry(f"{role}.wav", role, data))
@@ -265,7 +278,7 @@ class Harness:
             "source_id": source_id,
             "files": files,
         }
-        self.artifacts.commit_separation(staging, source_id, manifest)
+        self.artifacts.commit_separation(staging, source_id, manifest, method=method)
         return hashes
 
     def add_render(
@@ -276,6 +289,7 @@ class Harness:
         scope: str = "original",
         inputs: Mapping[str, str] | None = None,
         tag: str | None = None,
+        method: str | None = None,
     ) -> str:
         key = f"ui-render-{scope}-{semitones:+d}".replace("+", "p").replace("-", "m")
         if tag is not None:
@@ -290,7 +304,12 @@ class Harness:
             (staging / "original_preview.mp3").write_bytes(preview)
             files.append(_file_entry("original_preview.mp3", "original_preview", preview))
         else:
-            for role in ("vocals", "drums", "bass", "other", "instrumental"):
+            roles = (
+                ("vocals", "instrumental")
+                if method == "karaoke"
+                else ("vocals", "drums", "bass", "other", "instrumental")
+            )
+            for role in roles:
                 data = f"render-stems-{semitones}-{role}-{tag}".encode()
                 (staging / f"{role}.wav").write_bytes(data)
                 files.append(_file_entry(f"{role}.wav", role, data))
@@ -311,11 +330,14 @@ class Harness:
             manifest["inputs"] = [
                 {
                     "role": role,
-                    "artifact": f"separations/demucs/{role}.wav",
+                    "artifact": f"separations/{method or 'demucs'}/{role}.wav",
                     "sha256": digest,
                 }
                 for role, digest in inputs.items()
             ]
+        if method is not None:
+            manifest["separation_method"] = method
+            manifest["separation_method_version"] = 1
         self.artifacts.commit_render(staging, key, manifest)
         return key
 
@@ -641,6 +663,103 @@ async def test_the_stems_scope_is_offered_only_after_a_separation_and_renders_st
         assert _only(user, "now-playing").text == "Vocals · +3"
         jobs = harness.runner.jobs()
         assert sum(1 for job in jobs if job.kind.value == "render_pitch") == 1
+
+
+async def test_a_karaoke_stems_render_shifts_two_outputs_and_shows_its_rows(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id, method="karaoke")
+        await _refresh(harness, user, workspace_page)
+
+        await user.should_see(marker="pitch-karaoke-fineprint")
+        assert _only(user, "pitch-karaoke-fineprint").text == "Renders Vocals + Instrumental."
+
+        _step(user, 3)
+        await asyncio.sleep(0.05)
+        user.find(marker="pitch-render").click()
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+        await asyncio.sleep(0.05)
+
+        track = harness.service.snapshot().tracks[0]
+        (item,) = harness.service.pitch_sets(track)
+        assert item.method == "karaoke"
+        assert item.output_roles == ("vocals", "instrumental")
+        assert item.label == "+3"
+        assert harness.pitch.sum_calls == 0
+        artifact = harness.artifacts.find_render(item.render_key)
+        assert artifact is not None
+        assert artifact.manifest["separation_method"] == "karaoke"
+        assert isinstance(artifact.manifest["separation_set_key"], str)
+        instrumental = artifact.path_for("instrumental")
+        assert instrumental is not None
+        assert instrumental.read_bytes().startswith(b"shift:")
+
+        assert _only(user, "now-playing").text == "Vocals · +3"
+        await user.should_see(marker="output-row-vocals")
+        await user.should_see(marker="output-row-instrumental")
+        await user.should_not_see(marker="output-row-drums")
+        await user.should_not_see(marker="outputs-show-more")
+        await user.should_not_see("Show 3 more stems")
+        await user.should_not_see("sum")
+
+
+async def test_version_tabs_qualify_the_method_only_on_a_collision(harness: Harness) -> None:
+    async for user, workspace_page in _open_page(harness):
+        await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id)
+        harness.add_separation(source_id, method="karaoke")
+        demucs = harness.add_render(
+            source_id, semitones=3, scope="stems", tag="demucs", method="demucs"
+        )
+        karaoke = harness.add_render(
+            source_id, semitones=3, scope="stems", tag="karaoke", method="karaoke"
+        )
+        await _refresh(harness, user, workspace_page)
+
+        assert _only(user, f"output-tab-{demucs}").text == "+3 stems · Demucs"
+        assert _only(user, f"output-tab-{karaoke}").text == "+3 stems · Karaoke"
+
+        lone = harness.add_render(
+            source_id, semitones=4, scope="stems", tag="karaoke", method="karaoke"
+        )
+        await _refresh(harness, user, workspace_page)
+
+        assert _only(user, f"output-tab-{lone}").text == "+4"
+
+
+async def test_switching_to_demucs_keeps_the_karaoke_render_valid(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id, method="karaoke")
+        karaoke_hashes = harness.add_separation(source_id, method="karaoke", version="v2")
+        karaoke = harness.add_render(
+            source_id,
+            semitones=3,
+            scope="stems",
+            inputs=karaoke_hashes,
+            method="karaoke",
+        )
+        await _refresh(harness, user, workspace_page)
+        assert _only(user, f"output-tab-{karaoke}").text == "+3"
+
+        harness.add_separation(source_id, method="demucs")
+        await _refresh(harness, user, workspace_page)
+        user.find(marker="separation-method-demucs").click()
+        await asyncio.sleep(0.05)
+
+        await user.should_not_see(marker="pitch-karaoke-fineprint")
+        track = harness.service.snapshot().tracks[0]
+        (item,) = harness.service.pitch_sets(track)
+        assert item.render_key == karaoke
+        assert item.based_on_earlier_separation is False
+        assert "based on an earlier separation" not in _only(user, f"output-tab-{karaoke}").text
 
 
 # ---------------------------------------------------------------------------

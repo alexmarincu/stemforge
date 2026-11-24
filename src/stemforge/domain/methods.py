@@ -25,6 +25,7 @@ __all__ = [
     "SeparationMethod",
     "auto_method_id",
     "method_by_id",
+    "method_id_or_default",
 ]
 
 DEFAULT_METHOD_ID: Final = "demucs"
@@ -37,7 +38,10 @@ class SeparationMethod:
     ``stems`` is the method's Stem vocabulary; Instrumental is an output, never
     a Stem (GLOSSARY). ``output_roles`` is every role the method emits in the
     order the UI presents them, so a caller never reconstructs it from a global
-    list.
+    list. ``instrumental_is_sum`` records whether the Instrumental is derived by
+    summing the method's non-vocal Stems or stored directly as its own output;
+    the two shapes take different Render paths. ``stereo_only`` records that the
+    method needs a genuine stereo image.
     """
 
     id: str
@@ -46,6 +50,7 @@ class SeparationMethod:
     stems: tuple[str, ...]
     output_roles: tuple[str, ...]
     requires_model: bool
+    instrumental_is_sum: bool
     stereo_only: bool = False
 
     def __post_init__(self) -> None:
@@ -57,10 +62,30 @@ class SeparationMethod:
             raise ValueError("output roles must be a non-empty unique tuple")
         if not set(self.stems) < set(self.output_roles):
             raise ValueError("Stems must be a proper subset of the output roles")
+        if not isinstance(self.instrumental_is_sum, bool):
+            raise ValueError("instrumental_is_sum must be a bool")
+        if "instrumental" not in self.output_roles:
+            raise ValueError("every method emits an instrumental output")
+        if self.instrumental_is_sum and not self.non_vocal_stems:
+            raise ValueError("a summed Instrumental needs non-vocal Stems")
 
     @property
     def output_count(self) -> int:
         return len(self.output_roles)
+
+    @property
+    def non_vocal_stems(self) -> tuple[str, ...]:
+        return tuple(role for role in self.stems if role != "vocals")
+
+    @property
+    def render_input_roles(self) -> tuple[str, ...]:
+        """The stored roles a stems Render reads for this method.
+
+        A summed Instrumental is derived from the Stems, so it is not read; a
+        stored Instrumental is shifted directly and is an input like any other
+        output.
+        """
+        return self.stems if self.instrumental_is_sum else self.output_roles
 
 
 DEMUCS_METHOD: Final = SeparationMethod(
@@ -70,6 +95,7 @@ DEMUCS_METHOD: Final = SeparationMethod(
     stems=("vocals", "drums", "bass", "other"),
     output_roles=("vocals", "instrumental", "drums", "bass", "other"),
     requires_model=True,
+    instrumental_is_sum=True,
 )
 
 KARAOKE_METHOD: Final = SeparationMethod(
@@ -79,6 +105,7 @@ KARAOKE_METHOD: Final = SeparationMethod(
     stems=("vocals",),
     output_roles=("vocals", "instrumental"),
     requires_model=False,
+    instrumental_is_sum=False,
     stereo_only=True,
 )
 
@@ -98,3 +125,15 @@ def method_by_id(method_id: str) -> SeparationMethod | None:
 def auto_method_id(*, demucs_installed: bool) -> str:
     """Resolve an unset preference: Demucs when installed, otherwise Karaoke."""
     return DEMUCS_METHOD.id if demucs_installed else KARAOKE_METHOD.id
+
+
+def method_id_or_default(value: object) -> str:
+    """A manifest's recorded method, or Demucs for an absent or unknown value.
+
+    Manifests written before methods existed have no field, and every one of
+    them is a Demucs set (ADR 0015). An unknown id is treated the same way so a
+    stray value cannot invent a method the registry does not know.
+    """
+    if isinstance(value, str) and method_by_id(value) is not None:
+        return value
+    return DEFAULT_METHOD_ID

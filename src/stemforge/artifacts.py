@@ -318,7 +318,7 @@ class SeparationArtifact:
 
     @property
     def set_key(self) -> str:
-        """A stable, path-safe identity for this method's committed set."""
+        """The stable, path-safe identity of this method's committed set."""
         digest = hashlib.sha256(
             f"{self.source_id}:{self.method}:{self.created_at.isoformat()}".encode()
         ).hexdigest()

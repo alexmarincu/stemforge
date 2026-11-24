@@ -9,7 +9,7 @@ from stemforge.application.renders import render_views
 from stemforge.application.state import JobLedger
 from stemforge.application.views import PitchSet
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.methods import DEMUCS_METHOD
+from stemforge.domain.methods import DEMUCS_METHOD, method_by_id
 from stemforge.domain.models import JobKind, RenderScope, Track
 from stemforge.engines.media import MediaTool
 from stemforge.engines.pitch import (
@@ -47,6 +47,8 @@ class PitchService:
                 label=view.label,
                 created_at=view.artifact.created_at,
                 based_on_earlier_separation=view.based_on_earlier_separation,
+                method=view.method,
+                output_roles=view.output_roles,
             )
             for view in render_views(self._artifacts, track.source_id)
         )
@@ -56,24 +58,29 @@ class PitchService:
         track: Track,
         semitones: int,
         scope: RenderScope | str,
+        *,
+        separation_method: str = DEMUCS_METHOD.id,
     ) -> PitchSet | None:
         """The set that satisfies a Render request for ``(semitones, scope)``.
 
         Scope is part of the query: a master render never answers a stems
-        request. A stems set built from an earlier separation is
-        not a cache hit for the current Stems, so Render is offered instead of
-        Open while the old set stays in the tabs.
+        request. A stems query also follows the selected Separation method, so
+        another method's render is never opened for it. A stems set built from
+        an earlier separation of that method is not a cache hit, so Render is
+        offered instead of Open while the old set stays in the tabs.
         """
         if isinstance(semitones, bool) or not isinstance(semitones, int):
             return None
         if not MIN_SEMITONES <= semitones <= MAX_SEMITONES or semitones == 0:
             return None
         resolved_scope = RenderScope(scope)
+        requested_method = separation_method if resolved_scope is RenderScope.STEMS else None
         found = find_pitch_render(
             self._artifacts,
             source_id=track.source_id,
             semitones=semitones,
             scope=resolved_scope,
+            separation_method=requested_method,
         )
         sets = self.pitch_sets(track)
         if found is not None:
@@ -87,6 +94,7 @@ class PitchService:
             if (
                 item.semitones == semitones
                 and item.scope is resolved_scope
+                and item.method == requested_method
                 and not item.based_on_earlier_separation
             ):
                 return item
@@ -102,11 +110,11 @@ class PitchService:
     ) -> str:
         """Submit one Pitch Render Job and return its id.
 
-        The request is explicit: the UI's stepper never calls this by itself.
+        The request is explicit: the UI's stepper never calls it by itself.
         ``scope`` is ``original`` for the default flow, or ``stems`` when the
-        user asks for the explicit stems action after a Separation. Until the
-        method-aware stems path lands, a stems request is Demucs-only: another
-        selected method must fail here rather than silently read the Demucs set.
+        user asks for the explicit stems action after a Separation. A stems
+        request names the selected method and fails when that method has no
+        committed set; it never reads another method's set.
         """
         shift = validate_semitones(semitones)
         resolved_scope = RenderScope(scope)
@@ -117,23 +125,29 @@ class PitchService:
                 errors.INTERNAL_UNEXPECTED,
                 "the pitch render engines are not configured",
             )
-        if (
-            resolved_scope is RenderScope.STEMS
-            and self._artifacts.find_separation(track.source_id) is None
-        ):
-            raise ValueError(f"stems are not available for this source: {track.source_id}")
-        if resolved_scope is RenderScope.STEMS and separation_method != DEMUCS_METHOD.id:
-            raise ValueError(f"stems rendering is Demucs-only, not {separation_method!r}")
+        method: str | None = None
+        if resolved_scope is RenderScope.STEMS:
+            descriptor = method_by_id(separation_method)
+            if descriptor is None:
+                raise ValueError(f"unknown Separation method: {separation_method!r}")
+            if self._artifacts.find_separation(track.source_id, method=descriptor.id) is None:
+                raise ValueError(
+                    f"the {descriptor.label} Separation set is not available for this Track"
+                )
+            method = descriptor.id
+        identity: tuple[str, ...] = (
+            JobKind.RENDER_PITCH.value,
+            track.source_id,
+            resolved_scope.value,
+            str(shift),
+        )
+        if method is not None:
+            identity += (method,)
         job = Job(
             kind=JobKind.RENDER_PITCH,
-            identity=(
-                JobKind.RENDER_PITCH.value,
-                track.source_id,
-                resolved_scope.value,
-                str(shift),
-            ),
+            identity=identity,
             title=track.title,
-            run=self._pitch_run(track, shift, resolved_scope, pitch, media),
+            run=self._pitch_run(track, shift, resolved_scope, pitch, media, method),
         )
         return self._ledger.submit(
             job,
@@ -148,6 +162,7 @@ class PitchService:
         scope: RenderScope,
         pitch: PitchEngine,
         media: MediaTool,
+        separation_method: str | None,
     ) -> JobRun:
         def run(ctx: JobContext) -> Mapping[str, str]:
             result = run_pitch_job(
@@ -158,6 +173,7 @@ class PitchService:
                 source_id=track.source_id,
                 semitones=semitones,
                 scope=scope,
+                separation_method=separation_method,
                 title=track.title,
             )
             return {

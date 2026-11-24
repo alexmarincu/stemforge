@@ -252,6 +252,7 @@ PITCH_NOT_RENDERED: Final = "Not rendered at {label} yet."
 PITCH_TEMPO_NOTE: Final = (
     "Tempo preserved (Rubber Band R3 + formant). Renders never modify the original."
 )
+PITCH_KARAOKE_FINEPRINT: Final = "Renders Vocals + Instrumental."
 PITCH_EARLIER_SEPARATION: Final = "based on an earlier separation"
 
 # The Separation card's copy.

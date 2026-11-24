@@ -322,7 +322,12 @@ class WorkspaceService:
         scope: RenderScope | str,
     ) -> PitchSet | None:
         """The set that satisfies a Render request for ``(semitones, scope)``."""
-        return self._pitch.pitch_set(track, semitones, scope)
+        return self._pitch.pitch_set(
+            track,
+            semitones,
+            scope,
+            separation_method=self._separation.separation_method(track),
+        )
 
     def render_pitch(
         self,

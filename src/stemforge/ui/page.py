@@ -32,9 +32,9 @@ from stemforge.application import (
     PitchSet,
     PreflightView,
     PreviewTarget,
-    SeparationSet,
     WorkspaceService,
 )
+from stemforge.domain.methods import method_by_id
 from stemforge.domain.models import OriginKind, RenderScope, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import (
@@ -68,8 +68,7 @@ from stemforge.ui.toast import toast
 TITLE: Final = formatting.APP_NAME
 POLL_INTERVAL_S: Final = 0.4
 RECENT_VISIBLE: Final = 3
-# Render sets are Demucs-only until the method-aware Pitch path lands; a
-# committed Separation set carries its own roles in its view.
+# The legacy Demucs order; committed Separation and Render views carry their own.
 DEMUCS_OUTPUT_ROLES: Final = SEPARATION_OUTPUT_ROLES
 
 SHELL_CSS: Final = (
@@ -980,7 +979,11 @@ class WorkspacePage:
     def _active_output_roles(self, track: Track, active_key: str) -> tuple[str, ...]:
         """Roles the Outputs card may show for the active artifact set."""
         if active_key != "original":
-            return DEMUCS_OUTPUT_ROLES
+            item = next(
+                (view for view in self.service.pitch_sets(track) if view.render_key == active_key),
+                None,
+            )
+            return item.output_roles if item is not None else ()
         selected = self.service.selected_separation_set(track)
         return selected.output_roles if selected is not None else ()
 
@@ -1026,7 +1029,9 @@ class WorkspacePage:
                     OutputRow(
                         key=role,
                         name=formatting.SEPARATION_ROLE_LABELS[role],
-                        badges=self._badges_for(role, separation_set=selected),
+                        badges=self._badges_for(
+                            role, roles=selected.output_roles, method=selected.method
+                        ),
                         preview=self.service.separation_preview_target(
                             track, selected.set_key, role
                         ),
@@ -1053,12 +1058,14 @@ class WorkspacePage:
                 ),
             )
         rows = []
-        for role in DEMUCS_OUTPUT_ROLES:
+        for role in item.output_roles:
             rows.append(
                 OutputRow(
                     key=role,
                     name=formatting.SEPARATION_ROLE_LABELS[role],
-                    badges=self._badges_for(role, method="demucs", shift=shift),
+                    badges=self._badges_for(
+                        role, roles=item.output_roles, method=item.method, shift=shift
+                    ),
                     preview=self.service.pitch_render_preview_target(track, item.render_key, role),
                     export_key=exports.get((RenderScope.STEMS.value, role, item.render_key)),
                 )
@@ -1069,20 +1076,17 @@ class WorkspacePage:
     def _badges_for(
         role: str,
         *,
-        separation_set: SeparationSet | None = None,
-        method: str | None = None,
+        roles: Sequence[str],
+        method: str | None,
         shift: str | None = None,
     ) -> tuple[str, ...]:
-        roles = separation_set.output_roles if separation_set is not None else DEMUCS_OUTPUT_ROLES
-        effective_method = (
-            separation_set.method if separation_set is not None else method or "demucs"
-        )
         primary_roles = roles[:2]
         secondary_roles = roles[2:]
+        descriptor = method_by_id(method) if method is not None else None
         badges: list[str] = []
         if role in primary_roles:
             badges.append(formatting.SEPARATION_PRIMARY_BADGE)
-        if role == "instrumental" and effective_method == "demucs":
+        if role == "instrumental" and descriptor is not None and descriptor.instrumental_is_sum:
             badges.append(formatting.SEPARATION_SUM_BADGE)
         if role in secondary_roles:
             badges.append(formatting.OUTPUTS_STEM_BADGE)

@@ -106,6 +106,8 @@ def _key(**overrides: object) -> str:
         "engine_version": "4.0.0",
     }
     arguments.update(overrides)
+    if RenderScope(arguments["scope"]) is RenderScope.STEMS:  # type: ignore[arg-type]
+        arguments.setdefault("separation_method", "demucs")
     return render_key_for(**arguments)  # type: ignore[arg-type]
 
 
