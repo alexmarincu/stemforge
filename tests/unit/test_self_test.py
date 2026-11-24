@@ -1,4 +1,4 @@
-"""The diagnostic flags: ``--self-test``, ``--smoke-test``, ``--smoke-separation``.
+"""The diagnostic flags: ``--self-test``, ``--smoke-test``, and the two smokes.
 
 Each flag prints one JSON report, writes the same report with ``--report``, and
 uses its exit code as the authoritative result.
@@ -247,6 +247,46 @@ def test_smoke_separation_reports_the_missing_model_clearly(tmp_path: Path) -> N
 
 
 @pytest.mark.unit
+def test_smoke_karaoke_runs_without_weights_or_ffmpeg(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+
+    result = _run("--smoke-karaoke", home=home, cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    report = _report(result)
+    assert report["check"] == "smoke-karaoke"
+    assert report["ok"] is True
+    assert report["frozen"] is False
+    assert report["model_required"] is False
+    assert report["model_path"] is None
+    assert report["outputs"] == ["vocals", "instrumental"]
+    assert report["wall_seconds"] >= 0
+    assert report["peak_rss_bytes"] > 0
+    assert _check(report, "karaoke.worker")["status"] == "ok"
+    assert _check(report, "karaoke.outputs")["status"] == "ok"
+    assert _check(report, "karaoke.vocals")["status"] == "ok"
+    assert _check(report, "karaoke.instrumental")["status"] == "ok"
+    assert _check(report, "karaoke.time")["status"] == "ok"
+    assert _check(report, "karaoke.rss")["status"] == "ok"
+    assert _check(report, "karaoke.progress")["status"] == "ok"
+    assert not (home / "data" / "models" / "htdemucs").exists()
+
+
+@pytest.mark.unit
+def test_smoke_karaoke_writes_the_report_file(tmp_path: Path) -> None:
+    report_path = tmp_path / "reports" / "smoke-karaoke.json"
+
+    result = _run(
+        "--smoke-karaoke", "--report", str(report_path), home=tmp_path / "home", cwd=tmp_path
+    )
+
+    assert result.returncode == 0, result.stderr
+    written = json.loads(report_path.read_text(encoding="utf-8"))
+    assert written == _report(result)
+    assert written["check"] == "smoke-karaoke"
+
+
+@pytest.mark.unit
 def test_smoke_test_does_not_run_a_separation(tmp_path: Path) -> None:
     result = _run("--smoke-test", home=tmp_path / "home", cwd=tmp_path)
 
@@ -254,7 +294,9 @@ def test_smoke_test_does_not_run_a_separation(tmp_path: Path) -> None:
     report = _report(result)
     names = {check["name"] for check in report["checks"]}
     assert not any(name.startswith("separation.") for name in names)
+    assert not any(name.startswith("karaoke.") for name in names)
     assert "smoke-separation" not in report["check"]
+    assert "smoke-karaoke" not in report["check"]
 
 
 @pytest.mark.unit
