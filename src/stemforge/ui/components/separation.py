@@ -93,14 +93,18 @@ class SeparationCard:
         self._current_track_id = track.track_id
         methods = self._service.separation_methods()
         availability = self._service.separation_availability(track)
+        by_method = {item.method: item for item in availability}
         selected_method = self._selected_method(track, methods)
-        selected_status = next(
-            (item for item in availability if item.method == selected_method.id),
-            None,
-        )
-        unavailable_reason = (
+        selected_status = by_method.get(selected_method.id)
+        blocked_reason = (
             selected_status.reason
             if selected_status is not None and not selected_status.available
+            else None
+        )
+        karaoke_status = by_method.get("karaoke")
+        karaoke_reason = (
+            karaoke_status.reason
+            if karaoke_status is not None and not karaoke_status.available
             else None
         )
         selected = self._service.selected_separation_set(track)
@@ -126,8 +130,10 @@ class SeparationCard:
             ui.label(formatting.SEPARATION_TITLE).classes("sf-card-title")
             self._method_control(track, methods, selected_method, availability)
             self._method_requirement(selected_method)
-            if unavailable_reason is not None:
-                self._method_unavailable(track, unavailable_reason)
+            if karaoke_reason is not None:
+                self._method_unavailable(
+                    track, karaoke_reason, offer_demucs=blocked_reason is not None
+                )
             if gate_visible:
                 self._gate(busy=busy, checksum_failure=checksum_failure)
             elif offer_demucs:
@@ -146,7 +152,7 @@ class SeparationCard:
                     ui.label(self._last_success_copy(selected.method)).classes("sf-fineprint").mark(
                         "separation-last-success"
                     )
-                if not gate_visible and unavailable_reason is None:
+                if not gate_visible and blocked_reason is None:
                     self._primary(
                         track,
                         busy,
@@ -158,7 +164,7 @@ class SeparationCard:
                     "sf-separation-status"
                 ).mark("separation-status")
                 ui.label(self._not_separated_hint(selected_method.id)).classes("sf-fineprint")
-                if not gate_visible and unavailable_reason is None:
+                if not gate_visible and blocked_reason is None:
                     self._primary(
                         track,
                         busy,
@@ -166,7 +172,7 @@ class SeparationCard:
                         label=formatting.SEPARATION_ACTION,
                     )
             self._error(track, busy)
-            if selected_method.id == "karaoke" and unavailable_reason is None:
+            if selected_method.id == "karaoke" and blocked_reason is None:
                 ui.label(formatting.SEPARATION_KARAOKE_FINEPRINT).classes("sf-fineprint").mark(
                     "separation-karaoke-fineprint"
                 )
@@ -218,20 +224,21 @@ class SeparationCard:
                 "separation-method-select"
             )
 
-    def _method_unavailable(self, track: Track, reason: str) -> None:
+    def _method_unavailable(self, track: Track, reason: str, *, offer_demucs: bool) -> None:
         with ui.element("div").classes("sf-notice"):
             ui.label(formatting.separation_unavailable_copy(reason)).classes(
                 "sf-notice-action"
             ).mark("separation-method-unavailable")
-            (
-                ui.button(
-                    formatting.SEPARATION_METHOD_USE_DEMUCS,
-                    on_click=lambda _=None: self._choose_method(track, "demucs"),
-                    color=None,
+            if offer_demucs:
+                (
+                    ui.button(
+                        formatting.SEPARATION_METHOD_USE_DEMUCS,
+                        on_click=lambda _=None: self._choose_method(track, "demucs"),
+                        color=None,
+                    )
+                    .props("flat no-caps size=sm")
+                    .mark("separation-use-demucs")
                 )
-                .props("flat no-caps size=sm")
-                .mark("separation-use-demucs")
-            )
 
     @staticmethod
     def _method_requirement(method: SeparationMethodView) -> None:

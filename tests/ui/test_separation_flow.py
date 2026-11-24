@@ -965,6 +965,10 @@ async def test_karaoke_is_disabled_with_a_reason_and_a_demucs_action(
             assert "is-active" in _only(user, "separation-method-demucs").classes
             assert _only(user, "separation-action-method").text == "Method: Demucs"
             assert _enabled(user, "separation-action") is True
+            # The disabled Karaoke item keeps its reason; the one-click action
+            # belongs to the blocked selection.
+            assert _only(user, "separation-method-unavailable").text == reason_copy
+            await user.should_not_see(marker="separation-use-demucs")
             assert len(harness.runner.jobs()) == jobs_before
             assert [job for job in harness.runner.jobs() if job.kind.value == "separate"] == []
     finally:
