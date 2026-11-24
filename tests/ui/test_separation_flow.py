@@ -494,10 +494,15 @@ async def test_the_gate_shows_size_revision_licence_and_consent(tmp_path: Path) 
             # Demucs line reveals the full gate without downloading anything.
             await user.should_see(marker="separation-demucs-offer")
             await user.should_not_see(marker="separation-gate")
+            assert "download" in _only(user, "separation-demucs-offer-action").text.lower()
             user.find(marker="separation-demucs-offer-action").click()
             await asyncio.sleep(0.05)
 
+            # One click from the compact line reaches the real download control;
+            # consent still happens in the revealed gate.
             await user.should_see(marker="separation-gate")
+            await user.should_see(marker="model-download")
+            assert _enabled(user, "model-download") is True
             await user.should_see("Separation model not installed")
             await user.should_see("84 MB")
             assert "cbc8a9b1" in _only(user, "model-identity").text

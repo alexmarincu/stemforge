@@ -239,7 +239,8 @@ track holding pill-radius flat buttons, with the selected option using the activ
 `sf-method-fallback` is the `ui.select` shown in place of the switch when the selector's container is
 narrower than 320 px. `sf-method-notes` holds one `sf-method-description` fineprint per method, so a
 user sees what each method produces before choosing. `sf-demucs-offer` is a dashed `line2` row that
-reveals the model gate; it is not a second gate and never carries a download action of its own.
+reveals the model gate; its action names the download the gate offers, and the row is not a second
+gate and never starts a download itself.
 
 **Do.** Keep the pill vocabulary for short status nouns and version labels. Let the label carry the
 state in words as well as colour.
