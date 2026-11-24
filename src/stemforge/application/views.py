@@ -182,9 +182,9 @@ class LicenceFiles:
 class PitchSet:
     """One immutable Render set as version tabs and A/B see it.
 
-    ``label`` is the tab text (``+3`` or, when both scopes exist at one
-    semitone, ``+3 master`` / ``+3 stems``; two methods at one semitone also
-    gain their method label). ``based_on_earlier_separation`` records that the
+    ``label`` is the tab text: ``+3``; ``+3 master`` / ``+3 stems`` when both
+    scopes exist at one semitone; and ``+3 · Demucs`` when two methods collide,
+    with both qualifiers present when both collision kinds do. ``based_on_earlier_separation`` records that the
     set's recorded inputs no longer match that method's current set; such a set
     stays listed and selectable. An original-scope set has no method and one
     output role.

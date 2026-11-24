@@ -275,7 +275,22 @@ def test_two_methods_at_one_semitone_gain_a_method_qualifier_only_on_collision(
 
     labels = sorted(item.label for item in service.pitch_sets(_track()))
 
-    assert labels == ["+3 stems · Demucs", "+3 stems · Karaoke"]
+    assert labels == ["+3 · Demucs", "+3 · Karaoke"]
+
+
+@pytest.mark.unit
+def test_a_method_and_scope_collision_keeps_both_qualifiers(tmp_path: Path) -> None:
+    service, store = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store)
+    _commit_separation(store, method="karaoke")
+    _commit_render(store, SOURCE_ID, semitones=3, scope="original", tag="master")
+    _commit_render(store, SOURCE_ID, semitones=3, scope="stems", tag="demucs")
+    _commit_render(store, SOURCE_ID, semitones=3, scope="stems", method="karaoke", tag="karaoke")
+
+    labels = sorted(item.label for item in service.pitch_sets(_track()))
+
+    assert labels == ["+3 master", "+3 stems · Demucs", "+3 stems · Karaoke"]
 
 
 @pytest.mark.unit
