@@ -33,7 +33,7 @@ from stemforge.application import (
     PreviewTarget,
     WorkspaceService,
 )
-from stemforge.domain.methods import method_by_id
+from stemforge.domain.methods import KARAOKE_METHOD, method_by_id
 from stemforge.domain.models import OriginKind, RenderScope, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import (
@@ -2556,7 +2556,7 @@ class WorkspacePage:
             assert selected is not None
             status = (
                 formatting.TRACK_STATUS_KARAOKE
-                if selected.method == "karaoke"
+                if selected.method == KARAOKE_METHOD.id
                 else formatting.TRACK_STATUS_STEMS
             )
             if latest is not None:
@@ -2614,7 +2614,7 @@ class WorkspacePage:
                 ui.label(formatting.SIGNAL_SEPARATION).classes("sf-chip-label")
                 if selected is None:
                     separation_copy = formatting.SIGNAL_NOT_RUN
-                elif selected.method == "karaoke":
+                elif selected.method == KARAOKE_METHOD.id:
                     separation_copy = formatting.SIGNAL_SEPARATION_DONE_KARAOKE
                 else:
                     separation_copy = formatting.SIGNAL_SEPARATION_DONE
