@@ -174,7 +174,7 @@ def test_a_karaoke_render_shifts_its_two_stored_outputs_without_summing(tmp_path
 
     manifest = rendered.artifact.manifest
     assert manifest["separation_method"] == "karaoke"
-    assert manifest["separation_method_version"] == 2
+    assert manifest["separation_method_version"] == 3
     assert manifest["output_roles"] == ["vocals", "instrumental"]
     assert isinstance(manifest["separation_set_key"], str)
     assert [entry["role"] for entry in manifest["inputs"]] == ["vocals", "instrumental"]

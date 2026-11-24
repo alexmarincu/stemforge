@@ -229,7 +229,7 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
     assert KARAOKE_METHOD.id == "karaoke"
     assert KARAOKE_METHOD.label == "Karaoke"
     assert KARAOKE_METHOD.description_key == "separation-method.karaoke"
-    assert KARAOKE_METHOD.version == 2
+    assert KARAOKE_METHOD.version == 3
     assert KARAOKE_METHOD.stems == ("vocals",)
     assert KARAOKE_METHOD.output_roles == ("vocals", "instrumental")
     assert KARAOKE_METHOD.requires_model is False

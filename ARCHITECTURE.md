@@ -395,8 +395,9 @@ model only when the method needs weights, plans blocks only for Demucs, spawns t
 worker, validates exactly the method's declared outputs, measures one gain, encodes
 their previews, writes the manifest, and promotes the set. The worker imports torch and
 Demucs only on the Demucs path; Karaoke masks the centre in the STFT domain with
-numpy (channel coherence times level balance, limited to 150 Hz–12 kHz) and writes
-Vocals plus the exact residual as Instrumental.
+numpy (channel coherence times level balance, limited to 200 Hz–10 kHz), subtracts
+the repeating background it estimates from the accompaniment, and writes Vocals plus
+the exact residual as Instrumental.
 
 The card's method selector is also the set selector. A Track's displayed method
 resolves in this order: its per-Track view selection, the newest committed set's method,

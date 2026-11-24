@@ -15,6 +15,7 @@ import sys
 from array import array
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from stemforge.worker_protocol import (
@@ -43,6 +44,12 @@ PRESENCE_HZ = 1_000.0
 BASS_AMPLITUDE = 0.3
 PRESENCE_AMPLITUDE = 0.1
 EDGE_SAMPLES = 2_048
+REPEAT_SECONDS = 8.0
+LOOP_SECONDS = 0.5
+LOOP_HZ = (220.0, 330.0)
+CHIRP_START_HZ = 500.0
+CHIRP_SWEEP_HZ = 400.0
+CHIRP_AMPLITUDE = 0.1
 
 
 def write_stereo_wav(path: Path, *, seconds: float = 1.0) -> None:
@@ -67,6 +74,23 @@ def write_centre_wav(path: Path, *, seconds: float = 1.0) -> None:
         ) + PRESENCE_AMPLITUDE * math.sin(2.0 * math.pi * PRESENCE_HZ * frame / SAMPLE_RATE)
         samples.append(value)
         samples.append(value)
+    _write_float_wav(path, samples, frames)
+
+
+def write_repeating_wav(path: Path, *, seconds: float = REPEAT_SECONDS) -> None:
+    """A repeating centre loop under a moving, non-repeating centre vocal."""
+    frames = round(seconds * SAMPLE_RATE)
+    samples = array("f")
+    for frame in range(frames):
+        time = frame / SAMPLE_RATE
+        loop_phase = time % LOOP_SECONDS
+        loop_hz = LOOP_HZ[0] if loop_phase < LOOP_SECONDS / 2 else LOOP_HZ[1]
+        loop = 0.2 * math.sin(2.0 * math.pi * loop_hz * time)
+        chirp = CHIRP_AMPLITUDE * math.sin(
+            2.0 * math.pi * (CHIRP_START_HZ * time + (CHIRP_SWEEP_HZ / 2.0) * time * time / seconds)
+        )
+        samples.append(loop + chirp)
+        samples.append(loop + chirp)
     _write_float_wav(path, samples, frames)
 
 
@@ -150,6 +174,18 @@ def tone_level(samples: tuple[float, ...], channel: int, frequency: float) -> fl
     return 2.0 * math.hypot(real, imaginary) / total
 
 
+def chirp_correlation(samples: tuple[float, ...], seconds: float) -> float:
+    """How much of the moving vocal survives, measured against the chirp."""
+    values = np.asarray(samples, dtype=np.float64).reshape(-1, CHANNELS)[
+        EDGE_SAMPLES:-EDGE_SAMPLES, 0
+    ]
+    time = (np.arange(len(values)) + EDGE_SAMPLES) / SAMPLE_RATE
+    chirp = CHIRP_AMPLITUDE * np.sin(
+        2.0 * np.pi * (CHIRP_START_HZ * time + (CHIRP_SWEEP_HZ / 2.0) * time * time / seconds)
+    )
+    return float(np.dot(values, chirp) / (np.linalg.norm(values) * np.linalg.norm(chirp) + 1e-12))
+
+
 def run_karaoke(
     tmp_path: Path,
     *,
@@ -157,9 +193,12 @@ def run_karaoke(
     stdin: int | None = None,
     env: dict[str, str] | None = None,
     centre_only: bool = False,
+    repeating: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, dict[str, str]]:
     source = tmp_path / "source.wav"
-    if centre_only:
+    if repeating:
+        write_repeating_wav(source, seconds=seconds)
+    elif centre_only:
         write_centre_wav(source, seconds=seconds)
     else:
         write_stereo_wav(source, seconds=seconds)
@@ -331,6 +370,31 @@ def test_karaoke_keeps_the_bass_out_of_vocals_and_the_presence_tone_in(
         assert tone_level(vocals, channel, BASS_HZ) < BASS_AMPLITUDE * 0.01
         assert tone_level(instrumental, channel, BASS_HZ) > BASS_AMPLITUDE * 0.95
         assert tone_level(instrumental, channel, PRESENCE_HZ) < PRESENCE_AMPLITUDE * 0.01
+
+
+@pytest.mark.unit
+def test_karaoke_suppresses_a_repeating_loop_and_keeps_a_moving_vocal(
+    tmp_path: Path,
+) -> None:
+    """The repeating pass must remove the loop, not the vocal that moves over it."""
+    process, source, out, _env = run_karaoke(tmp_path, seconds=REPEAT_SECONDS, repeating=True)
+
+    assert process.returncode == 0, process.stderr
+    _channels, _rate, mixed = read_float_wav(source)
+    _channels, _rate, vocals = read_float_wav(out / "vocals.wav")
+    _channels, _rate, instrumental = read_float_wav(out / "instrumental.wav")
+
+    mixture = np.asarray(mixed, dtype=np.float64)
+    vocal = np.asarray(vocals, dtype=np.float64)
+    residual = np.asarray(instrumental, dtype=np.float64)
+    assert np.max(np.abs(vocal + residual - mixture)) <= 1e-5
+
+    for channel in range(CHANNELS):
+        for frequency in LOOP_HZ:
+            assert tone_level(vocals, channel, frequency) <= (
+                tone_level(mixed, channel, frequency) * 0.15
+            )
+    assert chirp_correlation(vocals, REPEAT_SECONDS) >= 0.7
 
 
 @pytest.mark.unit

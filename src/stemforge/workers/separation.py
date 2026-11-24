@@ -16,11 +16,14 @@ in memory.
 
 Karaoke isolates the centre with numpy only. Each STFT bin keeps the content
 whose two channels agree in magnitude and phase, weighted by that agreement; the
-mask is limited to the vocal band so bass and kick stay in the Instrumental.
-Vocals are the masked centre, Instrumental is the exact residual (``mix -
-vocals``), so the two always sum back to the source. It streams the canonical
-source in bounded chunks with overlap-add, so its memory does not grow with track
-length and it never reads Model weights.
+mask is limited to the vocal band so bass and kick stay in the Instrumental. A
+second, repeating-background pass estimates the loop the accompaniment plays and
+removes that loop from the centre, so a repeated backing no longer arrives with
+the vocals; a vocal that repeats exactly with the loop shares its fate. Vocals
+are the masked centre, Instrumental is the exact residual (``mix - vocals``), so
+the two always sum back to the source. It streams the canonical source in bounded
+chunks with overlap-add, so its memory does not grow with track length and it
+never reads Model weights.
 
 STFT masking is numerically unstable in a Hann window's leading and trailing
 samples, where the window is tiny; the signal is therefore padded by one window
@@ -85,10 +88,20 @@ DEMUCS_METHOD: Final = "demucs"
 KARAOKE_METHOD: Final = "karaoke"
 DEMUCS_OUTPUT_NAMES: Final = METHOD_OUTPUT_ROLES[DEMUCS_METHOD]
 KARAOKE_OUTPUT_NAMES: Final = METHOD_OUTPUT_ROLES[KARAOKE_METHOD]
-KARAOKE_CHUNK_SAMPLES: Final = 1 << 16
+KARAOKE_CHUNK_SAMPLES: Final = 1 << 18
 KARAOKE_WINDOW: Final = 2048
 KARAOKE_HOP: Final = 512
-KARAOKE_BAND_HZ: Final = (150.0, 12_000.0)
+KARAOKE_BAND_HZ: Final = (200.0, 10_000.0)
+KARAOKE_PERIOD_MIN_S: Final = 0.5
+KARAOKE_PERIOD_MAX_S: Final = 4.0
+KARAOKE_PERIOD_BAND_WIDTH: Final = 16
+KARAOKE_PERIOD_BLOCK_FRAMES: Final = 4096
+KARAOKE_PERIOD_CONFIDENCE: Final = 0.15
+KARAOKE_REPEATS: Final = 8
+KARAOKE_REPET_ALPHA: Final = 1.5
+KARAOKE_REPET_GAMMA: Final = 1.0
+KARAOKE_REPET_FLOOR: Final = 6.0
+KARAOKE_REPET_MIN_S: Final = 4.0
 MAX_DURATION_S: Final = 1800.0
 DURATION_TOLERANCE_S: Final = 0.050
 STDIN_WATCH_ENV: Final = "STEMFORGE_WORKER_STDIN_WATCH"
@@ -390,7 +403,9 @@ def _karaoke(
     in-phase centre source, ``0`` for anti-phase or one-sided content) and level
     balance (``1`` only when both channels carry the same magnitude). Confident
     side content therefore leaves Vocals entirely instead of being averaged in
-    as it is by a plain mid downmix.
+    as it is by a plain mid downmix. When the source repeats strongly, the loop
+    the accompaniment plays is estimated per bin and removed from the centre;
+    its non-repeating remainder is what Vocals keeps.
     """
     out_dir = Path(args.out)
     writers = {
@@ -408,6 +423,8 @@ def _karaoke(
     frame_bytes = info.channels * 4
     try:
         with open(args.input, "rb") as handle:
+            period = _karaoke_period(numpy, handle, info, stop=stop)
+            context = KARAOKE_REPEATS * period if period is not None else 0
             position = 0
             while position < info.frames:
                 if stop.requested:
@@ -417,8 +434,10 @@ def _karaoke(
                 last = first + count
                 first_frame = max(0, (first - KARAOKE_WINDOW) // KARAOKE_HOP + 1)
                 last_frame = min(frame_total - 1, (last + KARAOKE_HOP - 1) // KARAOKE_HOP - 1)
-                span_start = first_frame * KARAOKE_HOP
-                span_length = (last_frame - first_frame) * KARAOKE_HOP + KARAOKE_WINDOW
+                span_first_frame = max(0, first_frame - context)
+                span_last_frame = min(frame_total - 1, last_frame + context)
+                span_start = span_first_frame * KARAOKE_HOP
+                span_length = (span_last_frame - span_first_frame) * KARAOKE_HOP + KARAOKE_WINDOW
                 span = numpy.zeros((span_length, info.channels), dtype="float32")
                 read_start = max(0, span_start - padded)
                 read_end = min(info.frames, span_start + span_length - padded)
@@ -432,7 +451,8 @@ def _karaoke(
                         raw, dtype="<f4"
                     ).reshape(read_end - read_start, info.channels)
                 windows = numpy.lib.stride_tricks.sliding_window_view(span, KARAOKE_WINDOW, axis=0)
-                frames = windows[::KARAOKE_HOP][: last_frame - first_frame + 1]
+                frame_count = span_last_frame - span_first_frame + 1
+                frames = windows[::KARAOKE_HOP][:frame_count]
                 spectrum = numpy.fft.rfft(frames * window, axis=-1)
                 left = spectrum[:, 0, :]
                 right = spectrum[:, 1, :]
@@ -441,7 +461,20 @@ def _karaoke(
                 product = left_mag * right_mag + 1e-12
                 coherence = numpy.real(left * numpy.conj(right)) / product
                 balance = 2.0 * numpy.minimum(left_mag, right_mag) / (left_mag + right_mag + 1e-12)
-                mask = numpy.clip(coherence, 0.0, 1.0) * balance
+                selected = slice(
+                    first_frame - span_first_frame,
+                    last_frame - span_first_frame + 1,
+                )
+                mask = numpy.clip(coherence[selected], 0.0, 1.0) * balance[selected]
+                if period is not None:
+                    offsets = numpy.arange(first_frame, last_frame + 1) - span_first_frame
+                    background = _karaoke_background(
+                        numpy,
+                        left_mag + right_mag,
+                        offsets,
+                        period,
+                    )
+                    mask *= _karaoke_repet_mask(numpy, (left_mag + right_mag)[offsets], background)
                 mask *= _karaoke_edge_ramp(
                     numpy,
                     first_frame=first_frame,
@@ -450,20 +483,25 @@ def _karaoke(
                     padded=padded,
                     band=band,
                 )
-                centre = numpy.fft.irfft((left + right) * 0.5 * mask, n=KARAOKE_WINDOW, axis=-1)
+                centre = numpy.fft.irfft(
+                    (left[selected] + right[selected]) * 0.5 * mask,
+                    n=KARAOKE_WINDOW,
+                    axis=-1,
+                )
                 centre *= window
-                accumulated = numpy.zeros(span_length, dtype="float32")
-                weight = numpy.zeros(span_length, dtype="float32")
+                output_length = (last_frame - first_frame) * KARAOKE_HOP + KARAOKE_WINDOW
+                accumulated = numpy.zeros(output_length, dtype="float32")
+                weight = numpy.zeros(output_length, dtype="float32")
                 for index in range(last_frame - first_frame + 1):
                     start = index * KARAOKE_HOP
                     accumulated[start : start + KARAOKE_WINDOW] += centre[index]
                     weight[start : start + KARAOKE_WINDOW] += window_sq
-                offset = first - span_start
+                offset = first - first_frame * KARAOKE_HOP
                 vocals = accumulated[offset : offset + count] / numpy.maximum(
                     weight[offset : offset + count], 1e-12
                 )
                 vocals = vocals.astype("float32", copy=False)
-                mix = span[offset : offset + count]
+                mix = span[first - span_start : first - span_start + count]
                 writers["vocals"].write(numpy.stack((vocals, vocals), axis=1))
                 writers["instrumental"].write(mix - vocals[:, None])
                 position += count
@@ -500,6 +538,119 @@ def _karaoke(
             writer.abort()
         _remove_partials(out_dir, KARAOKE_OUTPUT_NAMES)
         raise
+
+
+def _karaoke_period(
+    numpy: Any,
+    handle: Any,
+    info: _WavInfo,
+    *,
+    stop: _Stop,
+) -> int | None:
+    """Estimate the accompaniment's repeat period in STFT frames, or skip it.
+
+    The first pass keeps a coarse, channel-summed magnitude spectrogram and
+    autocorrelates it over time. A peak that is broad enough in the 0.5-4 s
+    range is a loop the accompaniment is likely to repeat; a source with no
+    such peak keeps the centre-only path, so a through-composed track is not
+    forced into a mask built from unrelated audio.
+    """
+    seconds = info.frames / info.sample_rate
+    if seconds < KARAOKE_REPET_MIN_S:
+        return None
+    window = numpy.hanning(KARAOKE_WINDOW + 1)[:-1].astype("float32")
+    frame_bytes = info.channels * 4
+    step = KARAOKE_PERIOD_BLOCK_FRAMES * KARAOKE_HOP
+    bands: list[Any] = []
+    position = 0
+    while position < info.frames:
+        if stop.requested:
+            raise _StopRequested()
+        read_count = min(step + KARAOKE_WINDOW, info.frames - position)
+        if read_count < KARAOKE_WINDOW:
+            break
+        handle.seek(info.data_offset + position * frame_bytes)
+        raw = handle.read(read_count * frame_bytes)
+        if len(raw) != read_count * frame_bytes:
+            raise _InvalidInput("the input ended before its declared duration")
+        block = numpy.frombuffer(raw, dtype="<f4").reshape(read_count, info.channels)
+        windows = numpy.lib.stride_tricks.sliding_window_view(block, KARAOKE_WINDOW, axis=0)[
+            ::KARAOKE_HOP
+        ]
+        frame_count = min(KARAOKE_PERIOD_BLOCK_FRAMES, len(windows))
+        if frame_count <= 0:
+            break
+        spectrum = numpy.fft.rfft(windows[:frame_count] * window, axis=-1)
+        magnitude = numpy.abs(spectrum).sum(axis=1)
+        width = KARAOKE_PERIOD_BAND_WIDTH
+        band_count = magnitude.shape[1] // width
+        bands.append(
+            magnitude[:, : band_count * width].reshape(frame_count, band_count, width).mean(axis=2)
+        )
+        position += frame_count * KARAOKE_HOP
+    if not bands:
+        return None
+    coarse = numpy.concatenate(bands, axis=0)
+    if len(coarse) < 4:
+        return None
+    coarse = coarse - coarse.mean(axis=0, keepdims=True)
+    max_lag = min(int(KARAOKE_PERIOD_MAX_S * info.sample_rate / KARAOKE_HOP), len(coarse) - 2)
+    low_lag = math.ceil(KARAOKE_PERIOD_MIN_S * info.sample_rate / KARAOKE_HOP)
+    if max_lag <= low_lag:
+        return None
+    length = 1
+    while length < 2 * len(coarse):
+        length <<= 1
+    power = numpy.zeros(length // 2 + 1, dtype="float64")
+    for start in range(0, coarse.shape[1], 8):
+        chunk = coarse[:, start : start + 8]
+        transformed = numpy.fft.rfft(chunk, axis=0, n=length)
+        power += numpy.sum(numpy.abs(transformed) ** 2, axis=1)
+    autocorrelation = numpy.fft.irfft(power, n=length)[: max_lag + 1]
+    if autocorrelation[0] <= 0.0:
+        return None
+    autocorrelation /= autocorrelation[0]
+    peak = low_lag + int(numpy.argmax(autocorrelation[low_lag : max_lag + 1]))
+    if autocorrelation[peak] < KARAOKE_PERIOD_CONFIDENCE:
+        return None
+    return peak
+
+
+def _karaoke_background(
+    numpy: Any,
+    magnitude: Any,
+    offsets: Any,
+    period: int,
+) -> Any:
+    """The median magnitude at the same phase of the surrounding repeats."""
+    index = offsets[:, None] + period * numpy.arange(-KARAOKE_REPEATS, KARAOKE_REPEATS + 1)[None, :]
+    index = numpy.clip(index, 0, magnitude.shape[0] - 1)
+    return numpy.median(magnitude[index], axis=1)
+
+
+def _karaoke_repet_mask(numpy: Any, foreground: Any, background: Any) -> Any:
+    """Keep the non-repeating part of the centre, with a floor for strong vocals.
+
+    ``foreground / background`` separates a vocal that moves over the loop from
+    the loop itself. The floor raises bins whose foreground clearly dominates,
+    preserving a sustained lead note that would otherwise be pulled down with
+    the accompaniment.
+    """
+    ratio = foreground / (background + 1e-12)
+    soft = (
+        numpy.clip(
+            (foreground - KARAOKE_REPET_ALPHA * background) / (foreground + 1e-12),
+            0.0,
+            1.0,
+        )
+        ** KARAOKE_REPET_GAMMA
+    )
+    floor = numpy.clip(
+        (ratio - KARAOKE_REPET_ALPHA) / (KARAOKE_REPET_FLOOR - KARAOKE_REPET_ALPHA),
+        0.0,
+        1.0,
+    )
+    return numpy.maximum(soft, floor)
 
 
 def _karaoke_band(numpy: Any, sample_rate: int) -> Any:

@@ -398,7 +398,7 @@ def test_karaoke_commits_two_outputs_without_reading_the_model_store(
 
     assert result.artifact.directory == store.sources_dir / source_id / "separations" / "karaoke"
     assert result.artifact.method == "karaoke"
-    assert result.artifact.method_version == 2
+    assert result.artifact.method_version == 3
     assert tuple(result.outputs) == ("vocals", "instrumental")
     assert tuple(result.stems) == ("vocals",)
     assert not (store.paths.models / "htdemucs").exists()
@@ -423,9 +423,9 @@ def test_karaoke_commits_two_outputs_without_reading_the_model_store(
     assert manifest["schema_version"] == 1
     assert manifest["kind"] == "separation"
     assert manifest["method"] == "karaoke"
-    assert manifest["method_version"] == 2
+    assert manifest["method_version"] == 3
     assert manifest["engine"] == "karaoke"
-    assert manifest["engine_version"] == "2"
+    assert manifest["engine_version"] == "3"
     assert manifest["validation"]["ok"] is True
     assert isinstance(manifest["gain_db"], float)
     assert isinstance(manifest["peak_dbfs"], float)

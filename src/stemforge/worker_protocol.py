@@ -80,7 +80,7 @@ METHOD_OUTPUT_ROLES: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProx
 METHOD_VERSIONS: Final[MappingProxyType[str, int]] = MappingProxyType(
     {
         "demucs": 1,
-        "karaoke": 2,
+        "karaoke": 3,
     }
 )
 
