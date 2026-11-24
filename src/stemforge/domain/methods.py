@@ -8,8 +8,8 @@ list.
 
 This module stays stdlib-only. The worker process cannot import ``domain``
 (import-linter), so :mod:`stemforge.worker_protocol` carries the same
-``method id -> output roles`` mapping and a contract test keeps the two
-identical.
+``method id -> output roles`` and ``method id -> version`` mappings and a
+contract test keeps the copies identical.
 """
 
 from __future__ import annotations

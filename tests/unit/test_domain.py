@@ -212,7 +212,7 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
         auto_method_id,
         method_by_id,
     )
-    from stemforge.worker_protocol import METHOD_OUTPUT_ROLES
+    from stemforge.worker_protocol import METHOD_OUTPUT_ROLES, METHOD_VERSIONS
 
     assert DEFAULT_METHOD_ID == "demucs"
     assert DEMUCS_METHOD.id == "demucs"
@@ -245,6 +245,7 @@ def test_separation_methods_are_the_single_source_of_roles_and_versions() -> Non
 
     # The worker cannot import the domain, so it carries this one copy.
     assert {method.id: method.output_roles for method in METHODS.values()} == METHOD_OUTPUT_ROLES
+    assert {method.id: method.version for method in METHODS.values()} == METHOD_VERSIONS
 
 
 @pytest.mark.unit
