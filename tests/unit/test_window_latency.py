@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 from scripts import measure_window_latency as latency
+from scripts import measure_window_rendering as measure
 
 pytestmark = pytest.mark.unit
 
@@ -64,3 +65,10 @@ def test_the_import_probe_samples_the_button_not_the_rail() -> None:
     assert area.left + area.width <= 279
     assert area.top >= 68
     assert area.top + area.height <= 104
+
+
+def test_the_latency_probe_only_runs_conditions_that_render() -> None:
+    # A blank condition has no rows to hover, so the probe cannot report a
+    # number for it; the two arms must be the shipped default and its predecessor.
+    assert set(latency.LATENCY_CONDITIONS) == {"default", "force-shm"}
+    assert set(latency.LATENCY_CONDITIONS) <= measure.SEEDED_CONDITIONS

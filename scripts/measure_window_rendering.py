@@ -40,38 +40,33 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Final
 
-from stemforge.integration.window import DEFAULT_WINDOW_SIZE, WEBKIT_SHM_ENV
+from stemforge.integration.window import DEFAULT_WINDOW_SIZE, WEBKIT_DMABUF_ENV
 from stemforge.ui.formatting import APP_NAME
 
 TITLE: Final = APP_NAME
 DEFAULT_SIZES: Final = ("default", "1920x1080", "maximized")
+# The previous guard; the harness keeps it as a comparison arm.
+LEGACY_SHM_ENV: Final = "WEBKIT_DMABUF_RENDERER_FORCE_SHM"
 CONDITIONS: Final[dict[str, dict[str, str]]] = {
-    # configure_window sets the workaround itself when the variable is absent.
+    # configure_window sets the guard itself when the variable is absent.
     "default": {},
-    # An explicit value replaces the default through setdefault; zero switches
-    # the renderer back to the GBM path.
-    "shm-0": {WEBKIT_SHM_ENV: "0"},
-    "disable-dmabuf": {"WEBKIT_DISABLE_DMABUF_RENDERER": "1"},
-    # What a default that stops forcing shared memory would leave behind: the
-    # DMABUF renderer off and no FORCE_SHM value of its own.
-    "disable-dmabuf-only": {
-        WEBKIT_SHM_ENV: "0",
-        "WEBKIT_DISABLE_DMABUF_RENDERER": "1",
-    },
+    # The previous guard: keep the DMABUF renderer on and force shared memory.
+    "force-shm": {WEBKIT_DMABUF_ENV: "0", LEGACY_SHM_ENV: "1"},
+    # No guard: the blank-view path, kept as the white-screen control.
+    "no-guard": {WEBKIT_DMABUF_ENV: "0", LEGACY_SHM_ENV: "0"},
     # BROWSER points webbrowser at a no-op so the control window is the one the
     # harness sizes, not a tab in the maintainer's session.
     "browser": {"STEMFORGE_BROWSER": "1", "BROWSER": "/bin/true"},
 }
 CONDITION_ORDER: Final = (
     "default",
-    "shm-0",
-    "disable-dmabuf",
-    "disable-dmabuf-only",
+    "force-shm",
+    "no-guard",
     "browser",
 )
 # A blank view cannot show the import button, and browser mode has no native
 # dialog, so only the native conditions that render can be populated.
-SEEDED_CONDITIONS: Final = frozenset({"default", "disable-dmabuf", "disable-dmabuf-only"})
+SEEDED_CONDITIONS: Final = frozenset({"default", "force-shm"})
 BROWSER_BINARIES: Final = (
     "chromium",
     "chromium-browser",

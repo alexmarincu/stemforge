@@ -76,6 +76,12 @@ In-app playback of a Track or Artifact before Export.
 
 The explicit action that produces a Pitch shift Artifact set from a Track's original audio or from all of its Stems. A Render never modifies its inputs, does not imply a Separation, and leaves earlier sets cached as independent Artifacts.
 
+## Renderer guard
+
+A launch-time environment override that keeps the native window's web view on a renderer path known to paint correctly on a given host. It protects against a blank view; it is not a performance setting and does not change the page.
+
+_Avoid_: workaround, fix
+
 ## Separation
 
 The local process that splits a Track into Stems using a separation model.
