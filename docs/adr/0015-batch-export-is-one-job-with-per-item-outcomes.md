@@ -1,0 +1,17 @@
+---
+status: accepted
+---
+
+# A batch export is one Job with per-item outcomes
+
+Exporting a whole Artifact set one save dialog at a time is repetitive and easy to get wrong. A batch exports every output of one Artifact set — the version the Outputs card shows, never the Original — to one chosen folder, in one format, flat, with the existing Windows-safe names and collision suffixes. The version tab stays the authority for the set, so a two-output Separation exports two files and a stems Render exports its five.
+
+The batch is **one `EXPORT_BATCH` Job**, not a sequence of `EXPORT` Jobs. One Job gives one Job-bar surface with aggregate progress, one cancel token, one identity, one log with one manifest line per file, and one of the runner's 20 finished-history slots. A UI controller over N Jobs would make the bar show one item at a time, make Cancel cancel one item, and move batch identity, progress aggregation, and per-item state into the page. The wrapper runs the existing `run_export_job` per item and catches item-level failures so the rest still run.
+
+**Outcomes are not `result_keys`.** The runner records result keys only on success, but the results list must survive failure and cancellation. `ExportService` keeps a lock-guarded, session-scoped outcome record per batch Job, written as each item finishes and read on any terminal state. It holds each item's key, label, state (written, failed, not attempted), and, when failed, the coded error. A batch with any failed item finishes the rest and then **fails**, carrying the first failure's code and a count context; the UI never infers "nothing was written" from the state. Cancel stops at the next checkpoint, removes the current item's destination partial, keeps written files, and records the rest as not attempted. A destination-level failure (disk full, permission, device gone, name too long) aborts the batch because every remaining item would fail the same way; item-level failures do not.
+
+Recovery re-submits only the items that need work — failed items after a failure, not-attempted items after a cancel or a destination abort — into the same folder and format with the same collision rules, so nothing already written is duplicated. Free space is checked once for the whole set before the first file, and each item keeps its own check as a backstop.
+
+**Considered options:** N `EXPORT` Jobs with a UI batch controller (rejected — the one Job bar would report one item at a time, Cancel would cancel one item, and identity, progress aggregation, and per-item state would live in the page); the batch outcome in `result_keys` as JSON (rejected — it disappears on failure and cancellation, which are exactly the states the results list exists for); per-item formats and per-item save dialogs (rejected — they reproduce the repetition the ticket removes); a created subfolder per set (rejected — the Job never creates directories on the user's behalf, and a failed batch would leave a half-populated folder); continuing after a destination-level failure (rejected — it turns one cause into N identical failures).
+
+**Consequences:** a new `JobKind` and label, a batch pipeline wrapper, an `ExportService` outcome record, a folder-dialog seam, a second mode for the Export sheet, and a list-shaped results bar; the Original is not part of a batch, and a true native "Save original" remains a separate backlog item (ADR 0001); a cancelled or failed batch can be completed without duplicate ` (2)` files; and the batch's per-item results live only for the session, like the Job history.

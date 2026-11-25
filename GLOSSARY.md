@@ -10,6 +10,12 @@ A rendered audio output derived from a Track: a pitch-shifted version, a Stem, o
 
 The group of Artifacts one Job produces, sharing provenance and one presentation gain: a Source's canonical audio and preview, a Separation's Stems, Instrumental, and previews, or a Render's shifted masters and previews.
 
+## Batch export
+
+An Export of every output in one Artifact set to one chosen folder, in a single action.
+
+_Avoid_: Bulk export, mass export, export stems (the set also contains the Instrumental)
+
 ## Bundle
 
 The complete, per-platform application package a user downloads: the frozen application, its Vendor binaries, and its licence files. A Bundle is replaced as a whole; nothing inside it is patched in place.
@@ -32,7 +38,7 @@ The local summary of versions, paths, settings, and recent log lines a user copi
 
 ## Export
 
-Copying an Artifact to a user-chosen location on disk through a native save dialog.
+Copying an Artifact out of StemForge to a location on disk the user chooses. An Export always writes a new file and never overwrites an existing one; exporting an Artifact set writes each of its outputs into one chosen folder.
 
 ## Import
 
