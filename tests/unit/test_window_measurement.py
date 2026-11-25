@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from scripts import measure_window_rendering as measure
 
-from stemforge.integration.window import WEBKIT_SHM_ENV
+from stemforge.integration.window import WEBKIT_DMABUF_ENV
 
 pytestmark = pytest.mark.unit
 
@@ -136,13 +136,23 @@ def test_missing_gpu_samples_are_not_reported_as_zero() -> None:
 def test_every_condition_sets_the_environment_it_claims() -> None:
     assert set(measure.CONDITIONS) == set(measure.CONDITION_ORDER)
     assert measure.CONDITIONS["default"] == {}
-    assert measure.CONDITIONS["shm-0"] == {WEBKIT_SHM_ENV: "0"}
-    assert measure.CONDITIONS["disable-dmabuf"] == {"WEBKIT_DISABLE_DMABUF_RENDERER": "1"}
-    assert measure.CONDITIONS["disable-dmabuf-only"] == {
-        WEBKIT_SHM_ENV: "0",
-        "WEBKIT_DISABLE_DMABUF_RENDERER": "1",
+    assert measure.CONDITIONS["force-shm"] == {
+        WEBKIT_DMABUF_ENV: "0",
+        measure.LEGACY_SHM_ENV: "1",
+    }
+    assert measure.CONDITIONS["no-guard"] == {
+        WEBKIT_DMABUF_ENV: "0",
+        measure.LEGACY_SHM_ENV: "0",
     }
     assert measure.CONDITIONS["browser"]["STEMFORGE_BROWSER"] == "1"
+
+
+def test_only_native_conditions_that_render_can_be_seeded() -> None:
+    rendered = frozenset({"default", "force-shm"})
+
+    assert rendered == measure.SEEDED_CONDITIONS
+    assert "no-guard" not in measure.SEEDED_CONDITIONS
+    assert "browser" not in measure.SEEDED_CONDITIONS
 
 
 def test_the_matrix_row_has_the_header_column_count() -> None:

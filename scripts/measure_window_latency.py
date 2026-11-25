@@ -67,7 +67,7 @@ IMPORT_HOVER: Final = (146, 86)
 # rows, controls, and the scroll area's content.
 AWAY_X: Final = 4
 # A blank view has no rows to hover and browser mode has no native window.
-LATENCY_CONDITIONS: Final = ("default", "disable-dmabuf", "disable-dmabuf-only")
+LATENCY_CONDITIONS: Final = ("default", "force-shm")
 PROBES: Final = ("row", "import")
 POLL_S: Final = 0.004
 SETTLE_S: Final = 0.8

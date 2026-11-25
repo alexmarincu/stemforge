@@ -11,7 +11,7 @@ import pytest
 import webview
 
 from stemforge import __main__
-from stemforge.integration.window import MIN_WINDOW_SIZE, WEBKIT_SHM_ENV, configure_window
+from stemforge.integration.window import MIN_WINDOW_SIZE, WEBKIT_DMABUF_ENV, configure_window
 from stemforge.platform.paths import AppPaths
 from stemforge.platform.preflight import PreflightReport
 
@@ -39,7 +39,7 @@ def test_window_configuration_sets_the_minimum_and_no_downloads(tmp_path: Path) 
 
 
 @pytest.mark.parametrize(("existing", "expected"), [(None, "1"), ("0", "0")])
-def test_linux_window_forces_the_webkit_shared_memory_renderer(
+def test_linux_window_disables_the_webkit_dmabuf_renderer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     existing: str | None,
@@ -51,27 +51,44 @@ def test_linux_window_forces_the_webkit_shared_memory_renderer(
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     monkeypatch.setattr(sys, "platform", "linux")
     if existing is None:
-        monkeypatch.delenv(WEBKIT_SHM_ENV, raising=False)
+        monkeypatch.delenv(WEBKIT_DMABUF_ENV, raising=False)
     else:
-        monkeypatch.setenv(WEBKIT_SHM_ENV, existing)
+        monkeypatch.setenv(WEBKIT_DMABUF_ENV, existing)
 
     configure_window(paths)
 
-    assert os.environ[WEBKIT_SHM_ENV] == expected
+    assert os.environ[WEBKIT_DMABUF_ENV] == expected
 
 
-def test_windows_window_does_not_set_the_linux_webkit_workaround(
+def test_linux_window_does_not_set_the_old_shared_memory_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The app sets one guard; a leftover FORCE_SHM export belongs to the user."""
+    import sys
+
+    legacy = "WEBKIT_DMABUF_RENDERER_FORCE_SHM"
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv(WEBKIT_DMABUF_ENV, raising=False)
+    monkeypatch.delenv(legacy, raising=False)
+
+    configure_window(paths)
+
+    assert legacy not in os.environ
+
+
+def test_windows_window_does_not_set_the_linux_webkit_guard(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import sys
 
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.delenv(WEBKIT_SHM_ENV, raising=False)
+    monkeypatch.delenv(WEBKIT_DMABUF_ENV, raising=False)
 
     configure_window(paths)
 
-    assert WEBKIT_SHM_ENV not in os.environ
+    assert WEBKIT_DMABUF_ENV not in os.environ
 
 
 def test_windows_window_asserts_the_edge_chromium_backend(
