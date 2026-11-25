@@ -12,8 +12,9 @@ This is the in-tree verification record for the Linux window workaround in
 
 The procedures are manual: they need a live X11 session, the real window, and an
 unlocked desktop. The unit suite covers the harness's parsing and classification
-only. The profile in question 4 also ran on a virtual display while the host
-session was locked; that section marks which figures are virtual.
+only. The layer/paint recordings in question 4 ran on a virtual display while
+the host session was locked; the host latency pair in "The fix" was recorded
+after unlocking. That section marks which figures are which.
 
 ## Host
 
@@ -30,10 +31,11 @@ session was locked; that section marks which figures are virtual.
 
 ### Virtual display
 
-The layer/paint profile and the corrected-probe table were recorded on a
-separate 3640x1920 Xvfb display with bspwm, picom's xrender backend, Mesa
-llvmpipe, and the same WebKitGTK 2.54.3 and Python. It reproduces the page's
-layer structure and paint clips, not the NVIDIA driver's present path.
+The layer/paint profile was recorded on a separate 3640x1920 Xvfb display with
+bspwm, picom's xrender backend, Mesa llvmpipe, and the same WebKitGTK 2.54.3 and
+Python. It reproduces the page's layer structure and paint clips, not the NVIDIA
+driver's present path. The corrected-probe fix pair in "The fix" below was
+recorded on the host after its session was unlocked.
 
 ## Procedure
 
@@ -293,12 +295,13 @@ the hover paint entirely, because the helper is the hover effect. Pinning the
 helper at one opacity and disabling its transition leaves both full-window
 paints, so the fade's animation is not required.
 
-The same Import button, after the fix, is within 1 ms on the two pages:
+The same Import button, after the fix, is within 3 ms on the two pages on the
+host:
 
 | Import hover | 1280x820 | 3640x1920 |
 | --- | --- | --- |
-| empty Workspace | 31.4 ms | 92.9 ms |
-| eight tracks and detail | 32.2 ms | 93.8 ms |
+| empty Workspace | 42.6 ms | 124.3 ms |
+| eight tracks and detail | 39.7 ms | 125.4 ms |
 
 The populated content adds no measurable hover cost; the old 119 against 652 ms
 pair was not a same-button comparison. The detail pane and the row list are
@@ -319,30 +322,29 @@ size of that difference. The Import button's hover damage becomes its own
 background of its own, still 12.5x less than the 7.0 Mpx window.
 
 The corrected probe, at 1280x820 and 3640x1920, eight trials, before and after
-the fix, on a 3640x1920 Xvfb display with bspwm, picom's xrender backend, Mesa
-llvmpipe, and WebKitGTK 2.54.3:
+the fix, on the host after its session was unlocked:
 
 | Probe | Size | Hover before | Hover after | Click before | Click after |
 | --- | --- | --- | --- | --- | --- |
-| row | 1280x820 | 38.8 ms | 39.1 ms | 117.4 ms | 122.6 ms |
-| import | 1280x820 | 56.3 ms | 32.2 ms | - | - |
-| row | 3640x1920 | 107.8 ms | 105.6 ms | 184.5 ms | 188.7 ms |
-| import | 3640x1920 | 158.1 ms | 93.8 ms | - | - |
+| row | 1280x820 | 54.9 ms | 46.1 ms | 149.1 ms | 153.0 ms |
+| import | 1280x820 | 64.0 ms | 39.7 ms | - | - |
+| row | 3640x1920 | 132.1 ms | 132.0 ms | 240.0 ms | 239.0 ms |
+| import | 3640x1920 | 643.4 ms | 125.4 ms | - | - |
 
-The row hover figures, which the fix does not target, are unchanged; the click
-figures move within the trial noise. The Import button falls from 56.3 to
-32.2 ms at 1280x820 and from 158.1 to 93.8 ms at 3640x1920, about 40% at each
-size. That is the full-window paint and the composited layers leaving the hover
-path. The earlier point probe on a long-lived instance measured 257.1 ms before
-and 96.1 ms after for the Import button and 297.8 ms before and 99.9 ms after
-for the remove button, the same direction. The host figures, not the virtual
-display's, decide the felt win.
+The row hover, which the fix does not target, is unchanged at 3640x1920 (132.1
+against 132.0 ms); the 1280x820 row difference is inside the overlapping trial
+spread. The Import button falls from 64.0 to 39.7 ms at 1280x820 (38%) and from
+643.4 to 125.4 ms at 3640x1920 (80%). The maximised result is the reported
+case: the button hover comes down to the row-body floor, 125-132 ms, and the old
+652 ms button figure is gone. The same probe on the Xvfb display gave row
+38.8 against 39.1 and 107.8 against 105.6 ms, and Import 56.3 against 32.2 and
+158.1 against 93.8 ms; it showed the same direction without the host's
+present-path weight.
 
-The host session was locked when this profile ran. The timeline records and the
-corrected-probe table therefore come from the virtual display: it reproduces the
-layer structure and the paint clips, but not the NVIDIA driver's present path.
-The host's existing 652 ms figure is the old probe's button/dialog measurement;
-the corrected probe's host figures are still to be recorded.
+The layer/paint records above come from the virtual display because the host
+session was locked during the profile. The latency pair in this table is from
+the host; its 643.4 ms baseline is the same order as the old probe's 652 ms
+button figure, measured again with the corrected probe and the old hover CSS.
 
 ### Why the extra conditions and workloads
 
@@ -406,9 +408,12 @@ and paints the whole 7.0 Mpx window twice, on the empty and populated pages
 alike. The old probe's x=270 landed on the row's remove control, so its "track
 row" figures were button figures. The detail pane and the row list are ruled out
 as the source: hiding either leaves both full-window paints. They are also ruled
-out as a cost term: the same Import button is within 1 ms on the empty and
-eight-track pages after the fix (31.4 against 32.2 ms at 1280x820, 92.9 against
-93.8 ms at 3640x1920).
+out as a cost term: on the host the same Import button is within 3 ms on the
+empty and eight-track pages after the fix (42.6 against 39.7 ms at 1280x820,
+124.3 against 125.4 ms at 3640x1920). The host Import button falls from 643.4 to
+125.4 ms at 3640x1920 and from 64.0 to 39.7 ms at 1280x820, while the row body
+stays in the same range (132.1 against 132.0 ms at 3640x1920, 54.9 against
+46.1 ms at 1280x820).
 
 **The forced-SHM renderer is a default-size term, not the large-window fix.**
 At 1280x820 the DMABUF-disabled configuration cuts the old probe's button hover
@@ -418,7 +423,9 @@ with picom and from 189 to 127 ms without, but the result stays in the hundreds
 of milliseconds and the click figures are too noisy to rank the paths. Disabling
 accelerated compositing (`WEBKIT_DISABLE_COMPOSITING_MODE=1`) did not fix the
 maximised lag (574-1220 ms), and neither did picom's glx backend (548 ms). No
-renderer environment value tested here removes the maximised cost.
+renderer environment value tested here removes the maximised cost. The button
+overlay fix above removes the page-wide component; the remaining 125-132 ms at
+3640x1920 is the row and empty-page floor.
 
 **Recommendation.** Keep a Linux guard. The measured default-size win favors
 replacing `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` with
@@ -427,8 +434,9 @@ keeps WebKit off the white-screen path, and cuts default-size hover and CPU. It
 does not fix the maximised lag, so it should not be sold as that fix. The
 page-wide hover paint is fixed in `SHELL_CSS`: the button focus helper is hidden
 and replaced by a non-animated overlay that keeps the same hover and focus
-fills. The corrected probe's host figures are the remaining validation, and the
-decision to change the renderer default remains the maintainer's.
+fills. The host pair is recorded above: the Import button falls from 643.4 to
+125.4 ms at 3640x1920 and from 64.0 to 39.7 ms at 1280x820, with the row body
+unchanged. The decision to change the renderer default remains the maintainer's.
 
 ## Limits
 
@@ -449,11 +457,9 @@ decision to change the renderer default remains the maintainer's.
 - The populated page includes the selected track's detail pane and the rail
   rows. The empty state and the minimal page establish the baseline; the
   populated page's layer and paint work was profiled on a 3640x1920 Xvfb
-  display because the host session was locked, so the host's NVIDIA present
-  path is not included in the corrected-probe figures.
-- The virtual display reproduces the page's layer structure and paint clips, but
-  not the host driver's presentation cost. Its absolute latency figures are not
-  interchangeable with the host table's.
+  display because the host session was locked. The corrected-probe latency pair
+  is from the host; the virtual display's figures are a cross-check of the
+  layer structure, not a substitute for the host's present path.
 - The eight-track session is small. A much larger Workspace adds rows and detail
   content, but the page-wide paint is a button layer promotion, so the finding
   does not depend on a larger session.
