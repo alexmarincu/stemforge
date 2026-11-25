@@ -59,7 +59,10 @@ class FakeMedia:
         self.encode_error: StemForgeError | None = None
         self.corrupt_tags = False
         self.encode_gate: threading.Event | None = None
+        self.encode_gate_after: int | None = None
         self.encode_started = threading.Event()
+        self.encode_calls = 0
+        self.fail_source_names: set[str] = set()
 
     def probe(self, path: Path) -> MediaInfo:
         return MediaInfo(
@@ -126,10 +129,19 @@ class FakeMedia:
     ) -> None:
         del fmt, gain_db, cover
         cancel.check()
+        self.encode_calls += 1
         self.encode_started.set()
-        if self.encode_gate is not None:
+        if self.encode_gate is not None and (
+            self.encode_gate_after is None or self.encode_calls >= self.encode_gate_after
+        ):
             self.encode_gate.wait(timeout=10)
         cancel.check()
+        if src.stem in self.fail_source_names:
+            raise StemForgeError(
+                errors.MEDIA_ENCODE_FAILED,
+                f"fake encode failure for {src.stem}",
+                retryable=True,
+            )
         if self.encode_error is not None:
             raise self.encode_error
         dst.write_bytes(b"encoded:" + src.read_bytes())
@@ -190,6 +202,35 @@ class FakeSaveBackend:
         return None if result is None else [result]
 
 
+class FakeFolderDialog:
+    """The native folder seam; each call pops the next scripted directory."""
+
+    def __init__(self, results: Sequence[Path | None] = ()) -> None:
+        self.results = list(results)
+        self.calls: list[Path | None] = []
+
+    async def choose_folder(self, *, directory: Path | None = None) -> Path | None:
+        self.calls.append(directory)
+        if not self.results:
+            return None
+        return self.results.pop(0)
+
+
+class FlakyCommit:
+    """Fail one destination commit, then delegate to the real atomic rename."""
+
+    def __init__(self, real, *, fail_on: int = 2) -> None:
+        self._real = real
+        self._fail_on = fail_on
+        self.calls = 0
+
+    def __call__(self, partial: Path, **kwargs: object) -> Path:
+        self.calls += 1
+        if self.calls == self._fail_on:
+            raise PermissionError(13, "injected destination failure")
+        return self._real(partial, **kwargs)
+
+
 def _file_entry(name: str, role: str, data: bytes) -> Mapping[str, object]:
     return {
         "path": name,
@@ -205,6 +246,7 @@ class Harness:
     media: FakeMedia
     open_dialog: FakeOpenDialog
     save_backend: FakeSaveBackend
+    folder_dialog: FakeFolderDialog
     paths: AppPaths = field(init=False)
     settings: SettingsStore = field(init=False)
     artifacts: ArtifactStore = field(init=False)
@@ -228,6 +270,7 @@ class Harness:
             service=self.service,
             dialogs=self.open_dialog,
             save_dialog=NativeSaveDialog(backend=self.save_backend),
+            folder_dialog=self.folder_dialog,
         )
 
     def source_file(self, name: str = "My Song.WAV") -> Path:
@@ -291,6 +334,7 @@ def harness(tmp_path: Path) -> Iterator[Harness]:
         media=FakeMedia(),
         open_dialog=FakeOpenDialog(),
         save_backend=FakeSaveBackend(),
+        folder_dialog=FakeFolderDialog(),
     )
     item.runner.start()
     try:
@@ -429,7 +473,8 @@ async def test_the_sheet_is_format_only_and_keeps_the_entry_point_source(
         assert _count(user, "export-target-master") == 0
         assert _count(user, "export-target-stem:vocals") == 0
         await user.should_not_see("Save original")
-        await user.should_not_see("Export all")
+        await user.should_not_see("Export 5 files")
+        assert _count(user, "export-batch-source") == 0
         await user.should_not_see("batch")
 
 
@@ -846,3 +891,351 @@ async def test_playback_and_ab_stay_enabled_during_an_export_job(harness: Harnes
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
         assert _enabled(user, "export-action") is True
         assert _enabled(user, "add-audio") is True
+
+
+# ---------------------------------------------------------------------------
+# Batch Export (ADR 0015)
+# ---------------------------------------------------------------------------
+
+
+def _batch_jobs(harness: Harness):
+    return [job for job in harness.runner.jobs() if job.kind.value == "export_batch"]
+
+
+async def test_export_all_outputs_is_disabled_until_the_active_set_has_two_outputs(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        assert _count(user, "outputs-export-all") == 1
+        assert _enabled(user, "outputs-export-all") is False
+
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+        assert _enabled(user, "outputs-export-all") is True
+
+        render_key = harness.add_render(source_id, semitones=4)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+        user.find(marker=f"output-tab-{render_key}").click()
+        await asyncio.sleep(0.05)
+        # A shifted master is a one-output set, so a batch has nothing to do.
+        assert _enabled(user, "outputs-export-all") is False
+
+
+async def test_the_batch_sheet_chooses_a_folder_and_exports_every_output(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        user.find(marker="outputs-export-all").click()
+        await asyncio.sleep(0.05)
+        assert _sheet_open(workspace_page)
+        await user.should_see("Export all outputs")
+        assert _only(user, "export-batch-source").text == (
+            "Vocals, Instrumental, Drums, Bass, Other"
+        )
+        assert _only(user, "export-confirm").text == "Export 5 files"
+        assert _enabled(user, "export-confirm") is False
+        await user.should_see(marker="export-batch-folder-required")
+
+        destination = harness.root / "chosen"
+        destination.mkdir()
+        harness.folder_dialog.results = [destination]
+        user.find(marker="export-batch-folder-picker").click()
+        await asyncio.sleep(0.05)
+        assert harness.folder_dialog.calls == [None]
+        assert _only(user, "export-batch-destination").text == str(destination)
+        assert _enabled(user, "export-confirm") is True
+
+        user.find(marker="export-confirm").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        jobs = harness.runner.jobs()
+        assert sorted(job.kind.value for job in jobs) == ["export_batch", "import_local"]
+        batch = _batch_jobs(harness)[0]
+        result = harness.service.export_batch_result(batch.job_id)
+        assert result is not None
+        assert [item.path.name for item in result.written] == [
+            "Song - Vocals.wav",
+            "Song - Instrumental.wav",
+            "Song - Drums.wav",
+            "Song - Bass.wav",
+            "Song - Other.wav",
+        ]
+        assert sorted(path.name for path in destination.iterdir()) == [
+            "Song - Bass.wav",
+            "Song - Drums.wav",
+            "Song - Instrumental.wav",
+            "Song - Other.wav",
+            "Song - Vocals.wav",
+        ]
+        await user.should_see(marker="export-batch-bar")
+        assert _only(user, "export-batch-headline").text == (f"Exported 5 files to {destination}")
+        assert harness.settings.preferred_export_dir == destination
+
+
+async def test_a_partial_batch_lists_the_failed_item_and_retries_only_it(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id)
+        destination = harness.root / "exports"
+        destination.mkdir()
+        harness.settings.set_export_dir(destination)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        harness.media.fail_source_names = {"drums"}
+        user.find(marker="outputs-export-all").click()
+        await asyncio.sleep(0.05)
+        user.find(marker="export-confirm").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        batch = _batch_jobs(harness)[0]
+        assert batch.state.value == "failed"
+        assert batch.error_code == errors.MEDIA_ENCODE_FAILED
+        result = harness.service.export_batch_result(batch.job_id)
+        assert result is not None
+        assert [item.key for item in result.written] == [
+            "stem:vocals",
+            "instrumental",
+            "stem:bass",
+            "stem:other",
+        ]
+        assert [item.key for item in result.failed] == ["stem:drums"]
+        await user.should_see(marker="export-batch-bar")
+        assert _only(user, "export-batch-headline").text == ("4 of 5 files exported; 1 failed")
+        await user.should_see(marker="export-batch-item-stem:drums")
+        assert _enabled(user, "export-batch-retry") is True
+        assert _count(user, "export-batch-remaining") == 0
+
+        harness.media.fail_source_names.clear()
+        user.find(marker="export-batch-retry").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
+
+        retried = _batch_jobs(harness)[0]
+        assert retried.job_id != batch.job_id
+        retry_result = harness.service.export_batch_result(retried.job_id)
+        assert retry_result is not None
+        assert [item.key for item in retry_result.items] == ["stem:drums"]
+        assert [item.path.name for item in retry_result.written] == ["Song - Drums.wav"]
+        assert len(list(destination.iterdir())) == 5
+        _assert_no_partial(destination)
+        assert _only(user, "export-batch-headline").text == (f"Exported 1 file to {destination}")
+
+
+async def test_a_destination_failure_stops_the_batch_and_choosing_a_folder_resumes_it(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from stemforge.pipeline import export_job
+
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id)
+        destination = harness.root / "exports"
+        destination.mkdir()
+        harness.settings.set_export_dir(destination)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        real_commit = export_job._commit_without_overwrite
+        monkeypatch.setattr(
+            export_job,
+            "_commit_without_overwrite",
+            FlakyCommit(real_commit),
+        )
+        user.find(marker="outputs-export-all").click()
+        await asyncio.sleep(0.05)
+        user.find(marker="export-confirm").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        batch = _batch_jobs(harness)[0]
+        assert batch.state.value == "failed"
+        assert batch.error_code == errors.EXPORT_WRITE_FAILED
+        result = harness.service.export_batch_result(batch.job_id)
+        assert result is not None
+        assert [item.path.name for item in result.written] == ["Song - Vocals.wav"]
+        assert [item.key for item in result.failed] == ["instrumental"]
+        assert [item.key for item in result.not_exported] == [
+            "stem:drums",
+            "stem:bass",
+            "stem:other",
+        ]
+        await user.should_see(marker="export-batch-bar")
+        assert _only(user, "export-batch-headline").text == ("1 of 5 files exported; 4 remaining")
+        assert _enabled(user, "export-batch-choose-folder") is True
+        assert _enabled(user, "export-batch-remaining") is True
+
+        monkeypatch.setattr(export_job, "_commit_without_overwrite", real_commit)
+        other = harness.root / "other"
+        other.mkdir()
+        harness.folder_dialog.results = [other]
+        user.find(marker="export-batch-choose-folder").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
+
+        resumed = _batch_jobs(harness)[0]
+        resumed_result = harness.service.export_batch_result(resumed.job_id)
+        assert resumed_result is not None
+        assert [item.path.name for item in resumed_result.written] == [
+            "Song - Instrumental.wav",
+            "Song - Drums.wav",
+            "Song - Bass.wav",
+            "Song - Other.wav",
+        ]
+        assert len(list(destination.iterdir())) == 1
+        assert len(list(other.iterdir())) == 4
+        _assert_no_partial(destination)
+        _assert_no_partial(other)
+        assert _only(user, "export-batch-headline").text == (f"Exported 4 files to {other}")
+
+
+async def test_cancelling_a_batch_keeps_written_files_and_exports_the_rest(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id)
+        destination = harness.root / "exports"
+        destination.mkdir()
+        harness.settings.set_export_dir(destination)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        gate = threading.Event()
+        harness.media.encode_gate = gate
+        harness.media.encode_gate_after = 2
+        user.find(marker="outputs-export-all").click()
+        await asyncio.sleep(0.05)
+        user.find(marker="export-confirm").click()
+        await asyncio.sleep(0.05)
+
+        for _ in range(300):
+            if harness.media.encode_calls >= 2:
+                break
+            await asyncio.sleep(0.01)
+        assert harness.media.encode_calls >= 2
+        with user:
+            workspace_page.poll()
+        await asyncio.sleep(0.05)
+        await user.should_see(marker="job-bar")
+        assert _only(user, "job-stage").text == "Exporting 2 of 5"
+        user.find(marker="cancel-job").click()
+        gate.set()
+        harness.media.encode_gate = None
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        batch = _batch_jobs(harness)[0]
+        assert batch.state.value == "cancelled"
+        result = harness.service.export_batch_result(batch.job_id)
+        assert result is not None
+        assert [item.path.name for item in result.written] == ["Song - Vocals.wav"]
+        assert [item.key for item in result.not_exported] == [
+            "instrumental",
+            "stem:drums",
+            "stem:bass",
+            "stem:other",
+        ]
+        await user.should_see(marker="export-batch-bar")
+        assert _only(user, "export-batch-headline").text == (
+            "Export cancelled — 1 of 5 files written"
+        )
+        assert _enabled(user, "export-batch-remaining") is True
+
+        user.find(marker="export-batch-remaining").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
+
+        resumed = _batch_jobs(harness)[0]
+        resumed_result = harness.service.export_batch_result(resumed.job_id)
+        assert resumed_result is not None
+        assert [item.key for item in resumed_result.written] == [
+            "instrumental",
+            "stem:drums",
+            "stem:bass",
+            "stem:other",
+        ]
+        assert sorted(path.name for path in destination.iterdir()) == [
+            "Song - Bass.wav",
+            "Song - Drums.wav",
+            "Song - Instrumental.wav",
+            "Song - Other.wav",
+            "Song - Vocals.wav",
+        ]
+        _assert_no_partial(destination)
+        assert _only(user, "export-batch-headline").text == (f"Exported 4 files to {destination}")
+
+
+async def test_a_full_destination_refuses_the_batch_before_any_file(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from collections import namedtuple
+
+    Usage = namedtuple("Usage", "total used free")
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id)
+        destination = harness.root / "exports"
+        destination.mkdir()
+        harness.settings.set_export_dir(destination)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        monkeypatch.setattr(
+            "stemforge.artifacts.shutil.disk_usage",
+            lambda _path: Usage(10**12, 10**12 - 1024, 1024),
+        )
+        user.find(marker="outputs-export-all").click()
+        await asyncio.sleep(0.05)
+        user.find(marker="export-confirm").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        batch = _batch_jobs(harness)[0]
+        assert batch.state.value == "failed"
+        assert batch.error_code == errors.STORAGE_DISK_FULL
+        result = harness.service.export_batch_result(batch.job_id)
+        assert result is not None
+        assert result.written == ()
+        assert len(result.not_exported) == 5
+        assert list(destination.iterdir()) == []
+        await user.should_see(marker="export-batch-bar")
+        assert _only(user, "export-batch-headline").text == ("0 of 5 files exported; 5 remaining")
+        assert _enabled(user, "export-batch-choose-folder") is True
+        assert _enabled(user, "export-batch-remaining") is True

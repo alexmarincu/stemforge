@@ -10,7 +10,7 @@ and injectable placeholders for the ArtifactStore, JobRunner, and engine adapter
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -45,6 +45,7 @@ from .collaborators.separation import SeparationService
 from .collaborators.youtube import YouTubeService
 from .state import JobLedger, WorkspaceState
 from .views import (
+    ExportBatchResult,
     ExportedFile,
     LicenceFiles,
     PitchSet,
@@ -376,6 +377,36 @@ class WorkspaceService:
     def export_targets(self, track: Track | str) -> tuple[ExportTarget, ...]:
         """Every existing, valid export selection for one Track."""
         return self._export.export_targets(track)
+
+    def export_batch_targets(
+        self,
+        track: Track | str,
+        version_key: str,
+    ) -> tuple[ExportTarget, ...]:
+        """The active version's outputs, in card order, without the master."""
+        return self._export.export_batch_targets(track, version_key)
+
+    def submit_export_batch(
+        self,
+        track: Track | str,
+        version_key: str,
+        fmt: ExportFormat | str,
+        destination_dir: Path | str,
+        *,
+        target_keys: Sequence[str] | None = None,
+    ) -> str:
+        """Submit one batch Export Job for a version and folder."""
+        return self._export.submit_export_batch(
+            track,
+            version_key,
+            fmt,
+            destination_dir,
+            target_keys=target_keys,
+        )
+
+    def export_batch_result(self, job_id: str) -> ExportBatchResult | None:
+        """The batch's per-item outcomes, readable after any terminal state."""
+        return self._export.export_batch_result(job_id)
 
     def submit_export(
         self,

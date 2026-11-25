@@ -221,6 +221,7 @@ CANCEL: Final = "Cancel"
 REMOVE: Final = "Remove"
 PLAYBACK_UNAVAILABLE_TOOLTIP: Final = "Playback unavailable"
 JOB_STAGE: Final = "{label} · {stage}"
+JOB_STAGE_INLINE: Final = "{label} {stage}"
 JOB_STARTING: Final = "Starting"
 JOB_WORKING: Final = "Working"
 JOB_LABELS: Final[Mapping[str, str]] = MappingProxyType(
@@ -230,6 +231,7 @@ JOB_LABELS: Final[Mapping[str, str]] = MappingProxyType(
         JobKind.SEPARATE.value: "Separating",
         JobKind.RENDER_PITCH.value: "Rendering",
         JobKind.EXPORT.value: "Exporting",
+        JobKind.EXPORT_BATCH.value: "Exporting",
         JobKind.MODEL_INSTALL.value: "Downloading model",
     }
 )
@@ -284,6 +286,7 @@ EXPORT_DESTINATION_DEFAULT: Final = "Your system's default location"
 EXPORT_CONFIRM: Final = "Export"
 EXPORT_DISMISS: Final = "Dismiss"
 EXPORT_CHOOSE_FOLDER: Final = "Choose another folder…"
+EXPORT_CHOOSE_FOLDER_ACTION: Final = "Choose folder…"
 EXPORT_NO_TARGETS: Final = "No exportable audio is available for this Track."
 EXPORT_ESTIMATE: Final = "about {size} MB"
 EXPORTED_TO: Final = "Exported to {path}"
@@ -291,6 +294,21 @@ EXPORT_EXTENSION_CHANGED: Final = "Extension changed to {suffix} for {label}."
 EXPORT_FORMAT_WAV24: Final = "WAV 24-bit"
 EXPORT_FORMAT_FLAC24: Final = "FLAC 24-bit"
 EXPORT_FORMAT_MP3_320: Final = "MP3 320"
+
+# The one batch Export entry point, sheet, results bar, and recovery actions.
+OUTPUTS_EXPORT_ALL: Final = "Export all outputs"
+EXPORT_BATCH_TITLE: Final = "Export all outputs"
+EXPORT_BATCH_CONFIRM: Final = "Export {count} files"
+EXPORT_BATCH_CONFIRM_ONE: Final = "Export 1 file"
+EXPORT_BATCH_SUCCESS: Final = "Exported {count} files to {path}"
+EXPORT_BATCH_SUCCESS_ONE: Final = "Exported 1 file to {path}"
+EXPORT_BATCH_PARTIAL_FAILED: Final = "{written} of {total} files exported; {count} failed"
+EXPORT_BATCH_PARTIAL_STOPPED: Final = "{written} of {total} files exported; {count} remaining"
+EXPORT_BATCH_CANCELLED: Final = "Export cancelled — {written} of {total} files written"
+EXPORT_BATCH_NONE: Final = "No files were exported"
+EXPORT_BATCH_FOLDER_REQUIRED: Final = "Choose a folder to export."
+EXPORT_NOT_EXPORTED: Final = "Not exported"
+EXPORT_BATCH_REMAINING: Final = "Export remaining {count}"
 SEPARATION_PRIMARY_BADGE: Final = "primary"
 SEPARATION_SUM_BADGE: Final = "sum"
 SEPARATION_ROLE_LABELS: Final[Mapping[str, str]] = MappingProxyType(
@@ -819,6 +837,47 @@ def file_count_label(count: int) -> str:
     """Name a count of recent files, singular only at one."""
     template = SETTINGS_ONE_FILE if count == 1 else SETTINGS_MANY_FILES
     return template.format(count=count)
+
+
+def export_batch_confirm(count: int) -> str:
+    """The batch sheet's confirm label, singular only at one."""
+    template = EXPORT_BATCH_CONFIRM_ONE if count == 1 else EXPORT_BATCH_CONFIRM
+    return template.format(count=count)
+
+
+def export_batch_remaining(count: int) -> str:
+    """The results bar's recovery action for the items that were not written."""
+    return EXPORT_BATCH_REMAINING.format(count=count)
+
+
+def export_batch_headline(
+    *,
+    written: int,
+    failed: int,
+    not_exported: int,
+    cancelled: bool,
+    destination: Path | None = None,
+) -> str:
+    """The one results-bar sentence for a batch's terminal outcome.
+
+    The counts come from the per-item record, never from the Job's state: a
+    failed batch may have written files, and a cancelled one usually has.
+    """
+    total = written + failed + not_exported
+    if cancelled:
+        return EXPORT_BATCH_CANCELLED.format(written=written, total=total)
+    if total and written == total and destination is not None:
+        template = EXPORT_BATCH_SUCCESS_ONE if written == 1 else EXPORT_BATCH_SUCCESS
+        return template.format(count=written, path=destination)
+    if total == 0:
+        return EXPORT_BATCH_NONE
+    if not_exported:
+        return EXPORT_BATCH_PARTIAL_STOPPED.format(
+            written=written,
+            total=total,
+            count=failed + not_exported,
+        )
+    return EXPORT_BATCH_PARTIAL_FAILED.format(count=failed, written=written, total=total)
 
 
 def cache_percent(used: int, cap: int) -> int:

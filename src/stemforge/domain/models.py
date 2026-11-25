@@ -39,6 +39,7 @@ class JobKind(StrEnum):
     SEPARATE = "separate"
     RENDER_PITCH = "render_pitch"
     EXPORT = "export"
+    EXPORT_BATCH = "export_batch"
     MODEL_INSTALL = "model_install"
 
 
@@ -50,6 +51,14 @@ class JobState(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class ExportBatchItemState(StrEnum):
+    """One output's outcome inside a batch Export (ADR 0015)."""
+
+    WRITTEN = "written"
+    FAILED = "failed"
+    NOT_EXPORTED = "not_exported"
 
 
 @dataclass(frozen=True, slots=True)

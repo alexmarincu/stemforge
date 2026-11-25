@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
 from stemforge import errors
-from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
+from stemforge.domain.models import JobKind, OriginKind, Source, SourceMetadata, Track
 from stemforge.ui import formatting
 
 pytestmark = pytest.mark.unit
@@ -256,3 +257,69 @@ def test_the_level_adjusted_badge_is_quiet_and_exact() -> None:
     assert formatting.level_adjusted_label(0.0) is None
     assert formatting.level_adjusted_label(-1.5) == "level adjusted \u22121.5 dB"
     assert formatting.level_adjusted_label(-6.0) == "level adjusted \u22126.0 dB"
+
+
+def test_every_job_kind_has_a_bar_label() -> None:
+    assert set(formatting.JOB_LABELS) == {kind.value for kind in JobKind}
+
+
+def test_batch_confirm_and_remaining_are_singular_at_one() -> None:
+    assert formatting.export_batch_confirm(5) == "Export 5 files"
+    assert formatting.export_batch_confirm(1) == "Export 1 file"
+    assert formatting.export_batch_remaining(4) == "Export remaining 4"
+    assert formatting.export_batch_remaining(1) == "Export remaining 1"
+
+
+def test_batch_headline_reads_the_per_item_counts() -> None:
+    destination = Path("/music/exports")
+
+    assert (
+        formatting.export_batch_headline(
+            written=5,
+            failed=0,
+            not_exported=0,
+            cancelled=False,
+            destination=destination,
+        )
+        == f"Exported 5 files to {destination}"
+    )
+    assert (
+        formatting.export_batch_headline(
+            written=1,
+            failed=0,
+            not_exported=0,
+            cancelled=False,
+            destination=destination,
+        )
+        == f"Exported 1 file to {destination}"
+    )
+    assert (
+        formatting.export_batch_headline(
+            written=3,
+            failed=2,
+            not_exported=0,
+            cancelled=False,
+            destination=destination,
+        )
+        == "3 of 5 files exported; 2 failed"
+    )
+    assert (
+        formatting.export_batch_headline(
+            written=1,
+            failed=1,
+            not_exported=3,
+            cancelled=False,
+            destination=destination,
+        )
+        == "1 of 5 files exported; 4 remaining"
+    )
+    assert (
+        formatting.export_batch_headline(
+            written=1,
+            failed=0,
+            not_exported=4,
+            cancelled=True,
+            destination=destination,
+        )
+        == "Export cancelled — 1 of 5 files written"
+    )

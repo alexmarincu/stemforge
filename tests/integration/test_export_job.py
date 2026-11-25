@@ -218,10 +218,11 @@ def _commit_separation(
     canonical: Path,
     *,
     gain_db: float = -2.0,
+    roles: Sequence[str] = ALL_STEMS,
 ) -> None:
     staging = store.stage("separation-job")
     files = []
-    for role in ALL_STEMS:
+    for role in roles:
         target = staging / f"{role}.wav"
         shutil.copyfile(canonical, target)
         files.append(_entry(target, role))
@@ -828,3 +829,337 @@ def test_the_service_submits_an_export_and_reads_the_finished_file(
     assert exported.size_bytes == exported.path.stat().st_size
     assert exported.duration_s == pytest.approx(DURATION_S, abs=0.05)
     assert exported.gain_db == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Batch Export (ADR 0015)
+# ---------------------------------------------------------------------------
+
+
+def _batch_service(
+    tmp_path: Path,
+    canonical: Path,
+    media: FfmpegTool,
+    *,
+    roles: Sequence[str] = ALL_STEMS,
+):
+    paths = AppPaths.for_home(tmp_path / "batch-home").ensure()
+    store = ArtifactStore(paths)
+    _commit_source(store, canonical)
+    _commit_separation(store, canonical, roles=roles)
+    runner = JobRunner(paths=paths)
+    workspace = Workspace()
+    service = WorkspaceService(
+        SettingsStore(paths),
+        paths=paths,
+        artifacts=store,
+        runner=runner,
+        engines=ServiceEngines(media=media),
+        workspace=workspace,
+    )
+    artifact = store.find_source(SOURCE_ID)
+    assert artifact is not None
+    source = Source(
+        source_id=SOURCE_ID,
+        origin=str(canonical),
+        origin_kind=OriginKind.FILE,
+        metadata=SourceMetadata(title=TITLE, artist="Fixture Artist", duration_s=DURATION_S),
+        canonical_path=artifact.canonical_path,
+        created_at=artifact.created_at,
+    )
+    track = Track(track_id="track-export-batch", source=source, title=TITLE)
+    workspace.add_track(track)
+    return service, runner, track, store
+
+
+def _run_batch(
+    service: WorkspaceService,
+    runner: JobRunner,
+    track: Track,
+    destination: Path,
+    *,
+    version_key: str = "original",
+    target_keys: Sequence[str] | None = None,
+) -> tuple[str, object]:
+    runner.start()
+    try:
+        job_id = service.submit_export_batch(
+            track,
+            version_key,
+            ExportFormat.WAV24,
+            destination,
+            target_keys=target_keys,
+        )
+        assert runner.wait_idle(timeout=120) is True
+        snapshot = runner.snapshot(job_id)
+    finally:
+        runner.stop(timeout=10)
+    return job_id, snapshot
+
+
+def test_a_batch_exports_every_separation_output_primary_first(
+    tmp_path: Path,
+    ffmpeg_path: Path,
+    media: FfmpegTool,
+) -> None:
+    canonical = _make_tone(ffmpeg_path, tmp_path / "tone.wav")
+    service, runner, track, store = _batch_service(tmp_path, canonical, media)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    job_id, snapshot = _run_batch(service, runner, track, destination)
+
+    assert snapshot.state is JobState.SUCCEEDED, snapshot
+    assert snapshot.kind is JobKind.EXPORT_BATCH
+    result = service.export_batch_result(job_id)
+    assert result is not None
+    assert [item.path.name for item in result.written] == [
+        f"{TITLE} - Vocals.wav",
+        f"{TITLE} - Instrumental.wav",
+        f"{TITLE} - Drums.wav",
+        f"{TITLE} - Bass.wav",
+        f"{TITLE} - Other.wav",
+    ]
+    assert not (destination / f"{TITLE}.wav").exists()
+    assert sorted(path.name for path in destination.iterdir()) == [
+        f"{TITLE} - Bass.wav",
+        f"{TITLE} - Drums.wav",
+        f"{TITLE} - Instrumental.wav",
+        f"{TITLE} - Other.wav",
+        f"{TITLE} - Vocals.wav",
+    ]
+    _assert_no_partial(destination)
+    assert list(store.staging_dir.iterdir()) == []
+
+
+def test_a_two_output_separation_exports_two_files(
+    tmp_path: Path,
+    ffmpeg_path: Path,
+    media: FfmpegTool,
+) -> None:
+    canonical = _make_tone(ffmpeg_path, tmp_path / "tone.wav")
+    service, runner, track, _store = _batch_service(
+        tmp_path,
+        canonical,
+        media,
+        roles=("vocals", "instrumental"),
+    )
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    job_id, snapshot = _run_batch(service, runner, track, destination)
+
+    assert snapshot.state is JobState.SUCCEEDED, snapshot
+    result = service.export_batch_result(job_id)
+    assert result is not None
+    assert [item.key for item in result.items] == ["stem:vocals", "instrumental"]
+    assert [item.path.name for item in result.written] == [
+        f"{TITLE} - Vocals.wav",
+        f"{TITLE} - Instrumental.wav",
+    ]
+    assert sorted(path.name for path in destination.iterdir()) == [
+        f"{TITLE} - Instrumental.wav",
+        f"{TITLE} - Vocals.wav",
+    ]
+
+
+def test_a_full_destination_refuses_the_batch_before_writing_anything(
+    tmp_path: Path,
+    ffmpeg_path: Path,
+    media: FfmpegTool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canonical = _make_tone(ffmpeg_path, tmp_path / "tone.wav")
+    service, runner, track, store = _batch_service(tmp_path, canonical, media)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+    Usage = namedtuple("Usage", "total used free")
+    monkeypatch.setattr(
+        "stemforge.artifacts.shutil.disk_usage",
+        lambda _path: Usage(10**12, 10**12 - 1024, 1024),
+    )
+
+    job_id, snapshot = _run_batch(service, runner, track, destination)
+
+    assert snapshot.state is JobState.FAILED, snapshot
+    assert snapshot.error_code == errors.STORAGE_DISK_FULL
+    result = service.export_batch_result(job_id)
+    assert result is not None
+    assert result.written == ()
+    assert len(result.not_exported) == 5
+    assert list(destination.iterdir()) == []
+    assert list(store.staging_dir.iterdir()) == []
+
+
+def test_a_subset_resubmission_never_overwrites_the_files_already_written(
+    tmp_path: Path,
+    ffmpeg_path: Path,
+    media: FfmpegTool,
+) -> None:
+    canonical = _make_tone(ffmpeg_path, tmp_path / "tone.wav")
+    service, runner, track, _store = _batch_service(tmp_path, canonical, media)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    first_id, first_snapshot = _run_batch(service, runner, track, destination)
+    second_id, second_snapshot = _run_batch(
+        service,
+        runner,
+        track,
+        destination,
+        target_keys=("instrumental", "stem:vocals"),
+    )
+
+    assert first_snapshot.state is JobState.SUCCEEDED
+    assert second_snapshot.state is JobState.SUCCEEDED
+    second = service.export_batch_result(second_id)
+    assert second is not None
+    assert [item.key for item in second.items] == ["stem:vocals", "instrumental"]
+    assert [item.path.name for item in second.written] == [
+        f"{TITLE} - Vocals (2).wav",
+        f"{TITLE} - Instrumental (2).wav",
+    ]
+    assert len(list(destination.iterdir())) == 7
+    _assert_no_partial(destination)
+    assert first_id != second_id
+
+
+def test_a_destination_failure_stops_the_batch_after_the_first_file(
+    tmp_path: Path,
+    ffmpeg_path: Path,
+    media: FfmpegTool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from stemforge.pipeline import export_job
+
+    canonical = _make_tone(ffmpeg_path, tmp_path / "tone.wav")
+    service, runner, track, _store = _batch_service(tmp_path, canonical, media)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+    real_commit = export_job._commit_without_overwrite
+
+    class FailSecondCommit:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def __call__(self, partial: Path, **kwargs: object) -> Path:
+            self.calls += 1
+            if self.calls == 2:
+                raise OSError(errno.EIO, "injected destination failure")
+            return real_commit(partial, **kwargs)
+
+    monkeypatch.setattr(export_job, "_commit_without_overwrite", FailSecondCommit())
+
+    job_id, snapshot = _run_batch(service, runner, track, destination)
+
+    assert snapshot.state is JobState.FAILED, snapshot
+    assert snapshot.error_code == errors.EXPORT_WRITE_FAILED
+    result = service.export_batch_result(job_id)
+    assert result is not None
+    assert [item.path.name for item in result.written] == [f"{TITLE} - Vocals.wav"]
+    assert [item.key for item in result.failed] == ["instrumental"]
+    assert [item.key for item in result.not_exported] == [
+        "stem:drums",
+        "stem:bass",
+        "stem:other",
+    ]
+    assert sorted(path.name for path in destination.iterdir()) == [f"{TITLE} - Vocals.wav"]
+    _assert_no_partial(destination)
+
+
+def test_a_batch_re_resolves_the_set_after_a_fresh_separation(
+    tmp_path: Path,
+    ffmpeg_path: Path,
+    media: FfmpegTool,
+) -> None:
+    canonical = _make_tone(ffmpeg_path, tmp_path / "tone.wav")
+    service, runner, track, store = _batch_service(tmp_path, canonical, media)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    # Queue the batch, then replace the Separation before the runner starts.
+    job_id = service.submit_export_batch(
+        track,
+        "original",
+        ExportFormat.WAV24,
+        destination,
+    )
+    _commit_separation(store, canonical, gain_db=-5.0)
+    runner.start()
+    try:
+        assert runner.wait_idle(timeout=120) is True
+        snapshot = runner.snapshot(job_id)
+    finally:
+        runner.stop(timeout=10)
+
+    assert snapshot.state is JobState.SUCCEEDED, snapshot
+    result = service.export_batch_result(job_id)
+    assert result is not None
+    assert len(result.written) == 5
+    assert sorted(path.name for path in destination.iterdir()) == [
+        f"{TITLE} - Bass.wav",
+        f"{TITLE} - Drums.wav",
+        f"{TITLE} - Instrumental.wav",
+        f"{TITLE} - Other.wav",
+        f"{TITLE} - Vocals.wav",
+    ]
+
+
+def test_a_cancel_between_items_keeps_the_file_already_written(
+    tmp_path: Path,
+    ffmpeg_path: Path,
+    media: FfmpegTool,
+) -> None:
+    from stemforge.domain.models import ExportBatchItemState
+    from stemforge.errors import JobCancelled
+    from stemforge.pipeline.export_batch_job import (
+        ExportBatchItemOutcome,
+        batch_targets,
+        run_export_batch_job,
+    )
+
+    store = _store(tmp_path)
+    canonical = _make_tone(ffmpeg_path, tmp_path / "tone.wav")
+    _commit_source(store, canonical)
+    _commit_separation(store, canonical)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+    targets = batch_targets(
+        export_targets(store, source_id=SOURCE_ID, title=TITLE),
+        version_key="original",
+    )
+    cancel = CancelToken()
+    written: list[str] = []
+
+    def record(outcome: ExportBatchItemOutcome) -> None:
+        if outcome.state is ExportBatchItemState.WRITTEN:
+            written.append(outcome.key)
+            cancel.cancel()
+
+    def update(fraction: float, stage: str | None, detail: str | None) -> None:
+        del fraction, stage, detail
+
+    context = JobContext(
+        job_id="job-cancel-batch",
+        kind=JobKind.EXPORT_BATCH,
+        cancel=cancel,
+        log=LOG,
+        update=update,
+    )
+
+    with pytest.raises(JobCancelled):
+        run_export_batch_job(
+            context,
+            artifacts=store,
+            media=media,
+            source_id=SOURCE_ID,
+            targets=targets,
+            fmt=ExportFormat.WAV24,
+            destination_dir=destination,
+            record=record,
+        )
+
+    assert written == ["stem:vocals"]
+    assert sorted(path.name for path in destination.iterdir()) == [f"{TITLE} - Vocals.wav"]
+    _assert_no_partial(destination)
+    assert list(store.staging_dir.iterdir()) == []

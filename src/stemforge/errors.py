@@ -128,6 +128,12 @@ ALL_CODES: Final[frozenset[str]] = frozenset(
     }
 )
 
+# A destination-level failure would hit every remaining batch item the same
+# way, so the batch stops instead of trying them (ADR 0015).
+EXPORT_BATCH_ABORT_CODES: Final[frozenset[str]] = frozenset(
+    {EXPORT_WRITE_FAILED, STORAGE_DISK_FULL}
+)
+
 
 class StemForgeError(Exception):
     """A failure with a stable code for UI copy and a log-only message."""

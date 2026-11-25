@@ -8,12 +8,14 @@ behaviour beyond small derived properties.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final, Protocol
 
 from stemforge.artifacts import RemoveReport
+from stemforge.domain.models import ExportBatchItemState as ExportBatchItemState
 from stemforge.domain.models import RenderScope, Track
 from stemforge.domain.roles import INSTRUMENTAL_ROLE
 from stemforge.engines.media import ExportFormat
@@ -155,6 +157,68 @@ class ExportedFile:
     size_bytes: int
     duration_s: float
     gain_db: float
+
+
+@dataclass(frozen=True, slots=True)
+class ExportBatchItem:
+    """One planned output and the outcome the batch recorded for it."""
+
+    key: str
+    label: str
+    state: ExportBatchItemState
+    path: Path | None = None
+    error_code: str | None = None
+    error_detail: str | None = None
+    error_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+
+
+@dataclass(frozen=True, slots=True)
+class ExportBatchResult:
+    """A batch Job's last recorded outcomes, safe to read after any terminal state.
+
+    The runner records ``result_keys`` only on success, so the per-item record
+    lives in ``ExportService`` (ADR 0015). The page reads this view instead of
+    inferring what was written from the Job's state.
+    """
+
+    track_id: str
+    source_id: str
+    version_key: str
+    format: ExportFormat
+    destination_dir: Path
+    items: tuple[ExportBatchItem, ...]
+
+    @property
+    def written(self) -> tuple[ExportBatchItem, ...]:
+        return self._items_in(ExportBatchItemState.WRITTEN)
+
+    @property
+    def failed(self) -> tuple[ExportBatchItem, ...]:
+        return self._items_in(ExportBatchItemState.FAILED)
+
+    @property
+    def not_exported(self) -> tuple[ExportBatchItem, ...]:
+        return self._items_in(ExportBatchItemState.NOT_EXPORTED)
+
+    @property
+    def retry_keys(self) -> tuple[str, ...]:
+        """Every failed item, in batch order.
+
+        A failed target may become available again after a fresh Separation, so
+        the batch offers Retry for the failed set rather than filtering on the
+        error's retryable flag.
+        """
+        return tuple(item.key for item in self.failed)
+
+    @property
+    def remaining_keys(self) -> tuple[str, ...]:
+        """Every item that is not written, in batch order."""
+        return tuple(
+            item.key for item in self.items if item.state is not ExportBatchItemState.WRITTEN
+        )
+
+    def _items_in(self, state: ExportBatchItemState) -> tuple[ExportBatchItem, ...]:
+        return tuple(item for item in self.items if item.state is state)
 
 
 @dataclass(frozen=True, slots=True)
