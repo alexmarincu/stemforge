@@ -38,7 +38,7 @@ The local summary of versions, paths, settings, and recent log lines a user copi
 
 ## Export
 
-Copying an Artifact out of StemForge to a location on disk the user chooses. An Export always writes a new file and never overwrites an existing one; exporting an Artifact set writes each of its outputs into one chosen folder.
+Copying an Artifact out of StemForge to a location on disk the user chooses. An Export always writes a new file and never overwrites an existing one; exporting an Artifact set writes each of its outputs into one chosen folder. Saving a local Source's Native file is a separate operation, not an Export.
 
 ## Import
 
@@ -63,6 +63,12 @@ The pretrained parameters of the separation model. They are a third-party downlo
 The untouched file an Import copies into the Cache before decoding to canonical audio. For a local Import it is the user's own file; for a YouTube Import it is the downloaded media.
 
 _Avoid_: Raw file, source file; "original" alone, which names the Outputs card's canonical master.
+
+## Original
+
+The unshifted master Artifact of a Track, presented first in Outputs. It is the canonical audio, not the Native file.
+
+_Avoid_: Source file, raw file.
 
 ## Partial
 
