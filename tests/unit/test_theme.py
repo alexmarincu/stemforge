@@ -139,6 +139,30 @@ def test_dialog_cards_reset_quasar_elevation() -> None:
     assert "box-shadow" not in _rule(page.SHELL_CSS, ".sf-card")
 
 
+def test_the_button_fill_replaces_the_focus_helper_fade() -> None:
+    """Quasar's helper fade promotes a composited layer and repaints the window.
+
+    The non-animated overlay paints the same hover and focus fills instead.
+    """
+    css = page.SHELL_CSS
+
+    assert "display: none" in _rule(css, ".q-btn .q-focus-helper")
+
+    # Quasar's tabs, items, and expansion rows use the same helper; only the
+    # button's copy may be hidden.
+    assert "\n.q-focus-helper {" not in css
+
+    overlay = _rule(css, ".q-btn::after")
+    assert "position: absolute" in overlay
+    assert "pointer-events: none" in overlay
+
+    hover = _rule(css, ".q-btn:not(.disabled):hover::after")
+    assert "color-mix(in srgb, currentColor 15%, transparent)" in hover
+
+    focus = _rule(css, ".q-btn:not(.disabled):focus-visible::after")
+    assert "color-mix(in srgb, currentColor 22%, transparent)" in focus
+
+
 def test_output_row_css_has_no_dormant_active_state() -> None:
     """``is-playing`` is the only row highlight; the version tab owns the rest."""
     assert ".sf-output-row.is-playing" in page.SHELL_CSS

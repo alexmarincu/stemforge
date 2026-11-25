@@ -1,17 +1,20 @@
 # Linux window rendering: the forced WebKitGTK shared-memory renderer
 
 This is the in-tree verification record for the Linux window workaround in
-`configure_window`. It answers four questions with measurements from one host:
+`configure_window`. It answers five questions with measurements from one host:
 
 1. How much CPU, GPU, and VRAM does the native window use at rest and under
    interaction?
 2. How long does an interaction take to show, and does that grow with the window?
 3. Where does the large-window time go?
-4. Does WebKitGTK still paint a blank white view when the workaround is removed?
+4. Which layer, paint, or style/layout work makes the populated page expensive?
+5. Does WebKitGTK still paint a blank white view when the workaround is removed?
 
 The procedures are manual: they need a live X11 session, the real window, and an
 unlocked desktop. The unit suite covers the harness's parsing and classification
-only.
+only. The layer/paint recordings in question 4 ran on a virtual display while
+the host session was locked; the host latency pair in "The fix" was recorded
+after unlocking. That section marks which figures are which.
 
 ## Host
 
@@ -25,6 +28,14 @@ only.
 | WebKitGTK | 2.54.3 |
 | pywebview | 6.2.1 |
 | Python | 3.13.18 |
+
+### Virtual display
+
+The layer/paint profile was recorded on a separate 3640x1920 Xvfb display with
+bspwm, picom's xrender backend, Mesa llvmpipe, and the same WebKitGTK 2.54.3 and
+Python. It reproduces the page's layer structure and paint clips, not the NVIDIA
+driver's present path. The corrected-probe fix pair in "The fix" below was
+recorded on the host after its session was unlocked.
 
 ## Procedure
 
@@ -83,12 +94,22 @@ uv run python -m scripts.measure_window_latency \
 
 It pins the window's top-left corner to the root origin, so a requested size is
 the window's real size and the same rail coordinates are on-screen at every
-size. It hovers the first two track rows and clicks them in alternation,
-reporting the time from the pointer warp or click until the row background, the
-row icon, or the detail title changes. The click figure therefore includes the
-local server round-trip and the detail-pane rebuild, not only paint, which is
-what the user waits for. Polling is every 4 ms, so the resolution is about one
-poll.
+size. It hovers the first two track rows and clicks them in alternation, reporting the
+time from the pointer warp or click until the row background, the row icon, or
+the detail title changes. The hover and click land in the row's title column,
+clear of the icon tile, the play and remove controls, and the rail's overlay
+scrollbar, so the figure is the row and not a control. The click figure
+therefore includes the local server round-trip and the detail-pane rebuild, not
+only paint, which is what the user waits for. Polling is every 4 ms, so the
+resolution is about one poll.
+
+```sh
+uv run python -m scripts.measure_window_latency \
+  --condition default --size 3640x1920 --probe import
+```
+
+`--probe import` times the fixed Import audio button instead. It does not
+click, because the button opens the Import dialog.
 
 ## Results
 
@@ -160,6 +181,15 @@ figure includes the server round-trip and the detail-pane rebuild, and at
 does not mean the renderer made clicks slower. A missed trial means the row was
 already in the target state or no change appeared within five seconds.
 
+This table predates the probe correction. Its row hover and click used x=270,
+which is over the row's remove control at 3640x1920 and over the rail's overlay
+scrollbar edge at 1280x820. The maximised hover figure is therefore a Quasar
+button's hover, and the maximised click figure is the Remove dialog opening, not
+the detail-pane rebuild; the default-size figures sit on the scrollbar edge and
+are not a row-body measurement either. The figures stay because they are the
+measurements that prompted the profile; "The populated page's repaint profile"
+below records what the old probe was measuring and the corrected figures.
+
 ### Where the large-window time goes
 
 The 3640x1920 cell leaves three candidates: WebKitGTK's paint, picom's
@@ -191,25 +221,130 @@ same configuration; the glx cell adds `--backend glx`. All are manual one-offs.
 The empty app page and the minimal WebKitGTK page both hover in about
 115-130 ms, and Chrome's empty page in 41 ms. Neither WebKitGTK nor picom is
 slow by itself at this size. The populated page is: two tracks bring the app to
-520 ms and eight to 652 ms, and any hover in that page is in the same range (the
-fixed Import audio button measured 466 ms against 327 ms for a track row in one
-two-track run, both with wide spreads). The cost is page-wide, not tied to the
-hovered row.
+520 ms and eight to 652 ms, and every hover in that page is in the same range
+(the fixed Import audio button measured 466 ms against 327 ms for a track row
+in one two-track run, both with wide spreads). Under the old probe the cost was
+page-wide; the profile below shows it followed Quasar buttons, not the row. The
+empty 118.7 ms cell is not a same-button measurement; the profile's controlled
+empty-and-eight-track pair is below.
 
 Stopping picom lowers the populated default from 652 to 189 ms, so most of the
 gap is the compositor's handling of the populated page. Without picom the
 populated page is still slower than the empty page (189 against 119 ms), and the
 renderer choice still shows (default 189 against 127 ms for
 `disable-dmabuf-only`), so WebKit's repaint is a second, smaller term. The
-two-track result against the empty result puts the detail pane or track-row
-content, not the base page, at the centre. A hidden `<audio>` element with a
-loaded source did not reproduce the cost in the minimal page (115.7 ms), so the
-media element is ruled out.
+two-track result against the empty result put the detail pane or track-row
+content, not the base page, at the centre; the profile below rejects that
+reading. A hidden `<audio>` element with a loaded source did not reproduce the
+cost in the minimal page (115.7 ms), so the media element is ruled out.
 
-The exact layer or paint inside the populated page is not isolated here. The
-candidates left are the detail pane's composited content and the row list's
-layer structure; both need a WebKit layer/paint profile, which is outside this
-measurement's scope.
+### The populated page's repaint profile
+
+The old probe measured a control, not the row. The rail's track row is 275 px
+wide: the hit area ends at x=209 and the play and remove controls occupy
+x=218-275. The probe's x=270 and its 255-275 background patch therefore sat on
+the remove control, which explains why a "track row" and the fixed Import audio
+button moved together: both are Quasar buttons. At 1280x820 the rail's overlay
+scrollbar reaches x=271-283, so the same point can land on the scrollbar
+instead. `scripts/measure_window_latency.py` now hovers and clicks x=100 in the
+row's title column and samples the row's left padding.
+
+The WebKit side was recorded through WebKitGTK's remote inspector. Launch the
+app with `WEBKIT_INSPECTOR_HTTP_SERVER=127.0.0.1:9222`, open
+`http://127.0.0.1:9222/`, and drive the page socket at
+`/socket/1/1/WebPage`. The instruments are the Timeline domain's `Timeline`
+instrument (`Timeline.setInstruments`, `Timeline.start`, `Timeline.stop`); each
+`Paint` record carries its clip, each `Layout` record its root, and
+`LayerTree.layersForNode` plus `LayerTree.reasonsForCompositingLayer` name a
+node's layers and why they were promoted.
+
+The eight-track page at 3640x1920 has no composited layers at idle: the whole
+7.0 Mpx document is one paint layer. One recording of each hover, with the
+eight-track detail pane populated:
+
+| Hover | RecalculateStyles | Layout | Full-window paints | Row or button paints |
+| --- | --- | --- | --- | --- |
+| Row body | 0.54 ms | 0.44 ms | 0 | 2, 1.84 ms |
+| Import audio button | 12.27 ms | 0 | 2, 2.80 ms | 14, 0.71 ms |
+| Detail title (inert) | 0 | 0 | 0 | 0 |
+
+A row-body hover changes style and paints two 275x51 row patches; the detail
+title has no hover change at all. A Quasar button is different: Quasar fades
+`.q-focus-helper` from opacity 0 to 0.15, and WebKit promotes the button and its
+contents to four composited layers (267x37 and 235x29 at the Import button;
+reasons `animation`, `stacking`, `overlap`,
+`opacityWithCompositedDescendants`) and paints the whole 3640x1920 window twice.
+After the 0.4 s fade the layers are demoted again. That promotion is the
+page-wide paint; the detail pane and the row list are only the content it
+covers.
+
+Three controls separate the candidate causes, all at 3640x1920 with the
+eight-track detail pane populated and the pointer on the Import audio button:
+
+| Variant | Full-window paints | WebKit paint total |
+| --- | --- | --- |
+| baseline | 2 | 2.80 ms |
+| `.sf-detail-slot { display: none }` | 2 | 1.91 ms |
+| `.sf-tracks { display: none }` | 2 | 2.29 ms |
+| detail cards hidden | 2 | 1.88 ms |
+| `.q-focus-helper { display: none }` | 0 | 0 |
+
+Hiding the detail pane, the row list, or the detail cards leaves both
+full-window paints, so neither is the source. Hiding the focus helper removes
+the hover paint entirely, because the helper is the hover effect. Pinning the
+helper at one opacity and disabling its transition leaves both full-window
+paints, so the fade's animation is not required.
+
+The same Import button, after the fix, is within 3 ms on the two pages on the
+host:
+
+| Import hover | 1280x820 | 3640x1920 |
+| --- | --- | --- |
+| empty Workspace | 42.6 ms | 124.3 ms |
+| eight tracks and detail | 39.7 ms | 125.4 ms |
+
+The populated content adds no measurable hover cost; the old 119 against 652 ms
+pair was not a same-button comparison. The detail pane and the row list are
+ruled out as the source and as a cost term.
+
+### The fix
+
+`SHELL_CSS` hides the button's helper and paints its fill with a `::after`
+overlay: 15% `currentColor` on hover and 22% on keyboard focus
+(`:focus-visible`). The overlay does not change the button's ink because it is
+drawn in the same colour. The sampled Import button background is
+(242, 177, 113) on hover with the helper and (244, 179, 115) with the overlay,
+against (242, 166, 90) at rest; over the whole button box the two captures
+differ by at most 3/255, mean 1.9/255. Quasar's helper also carries 1.5% black
+and 6% white sub-layers that the single overlay does not reproduce, which is the
+size of that difference. The Import button's hover damage becomes its own
+267x36 box; a flat row button paints the 292x1920 rail because it has no
+background of its own, still 12.5x less than the 7.0 Mpx window.
+
+The corrected probe, at 1280x820 and 3640x1920, eight trials, before and after
+the fix, on the host after its session was unlocked:
+
+| Probe | Size | Hover before | Hover after | Click before | Click after |
+| --- | --- | --- | --- | --- | --- |
+| row | 1280x820 | 54.9 ms | 46.1 ms | 149.1 ms | 153.0 ms |
+| import | 1280x820 | 64.0 ms | 39.7 ms | - | - |
+| row | 3640x1920 | 132.1 ms | 132.0 ms | 240.0 ms | 239.0 ms |
+| import | 3640x1920 | 643.4 ms | 125.4 ms | - | - |
+
+The row hover, which the fix does not target, is unchanged at 3640x1920 (132.1
+against 132.0 ms); the 1280x820 row difference is inside the overlapping trial
+spread. The Import button falls from 64.0 to 39.7 ms at 1280x820 (38%) and from
+643.4 to 125.4 ms at 3640x1920 (80%). The maximised result is the reported
+case: the button hover comes down to the row-body floor, 125-132 ms, and the old
+652 ms button figure is gone. The same probe on the Xvfb display gave row
+38.8 against 39.1 and 107.8 against 105.6 ms, and Import 56.3 against 32.2 and
+158.1 against 93.8 ms; it showed the same direction without the host's
+present-path weight.
+
+The layer/paint records above come from the virtual display because the host
+session was locked during the profile. The latency pair in this table is from
+the host; its 643.4 ms baseline is the same order as the old probe's 652 ms
+button figure, measured again with the corrected probe and the old hover CSS.
 
 ### Why the extra conditions and workloads
 
@@ -266,33 +401,42 @@ alternative guard renders as well: `disable-dmabuf-only` passes the white check
 at the sizes measured. The requirement is therefore keeping WebKit off the
 failing DMABUF path, not the `FORCE_SHM` spelling specifically.
 
-**The large-window cost is the populated page, amplified by picom.** The empty
-app page and a minimal WebKitGTK page hover in 115-130 ms, and Chrome's empty
-page in 41 ms (14 ms with software rendering). The populated eight-track page is
-652 ms with picom and 189 ms without it; the two-track page is 520 ms with
-picom. So neither WebKitGTK nor picom is slow alone. The populated page's
-repaint path is the dominant term, and picom's composite of that page adds about
-460 ms of the 652 ms default. The exact layer inside the populated page is not
-isolated; the detail pane and the row list are the remaining candidates.
+**The page-wide paint is a Quasar button, not the populated page.** A row-body
+hover paints only its two 275x51 patches; it has no full-window paint. Every
+Quasar button hover fades `.q-focus-helper`, promotes four composited layers,
+and paints the whole 7.0 Mpx window twice, on the empty and populated pages
+alike. The old probe's x=270 landed on the row's remove control, so its "track
+row" figures were button figures. The detail pane and the row list are ruled out
+as the source: hiding either leaves both full-window paints. They are also ruled
+out as a cost term: on the host the same Import button is within 3 ms on the
+empty and eight-track pages after the fix (42.6 against 39.7 ms at 1280x820,
+124.3 against 125.4 ms at 3640x1920). The host Import button falls from 643.4 to
+125.4 ms at 3640x1920 and from 64.0 to 39.7 ms at 1280x820, while the row body
+stays in the same range (132.1 against 132.0 ms at 3640x1920, 54.9 against
+46.1 ms at 1280x820).
 
 **The forced-SHM renderer is a default-size term, not the large-window fix.**
-At 1280x820 the DMABUF-disabled configuration cuts hover from 61 to 23 ms, click
-from 218 to 149 ms, and resize-renderer CPU from 180 to 72-75% of a core. At
-3640x1920 it lowers the populated hover from 652 to 485 ms with picom and from
-189 to 127 ms without, but the result stays in the hundreds of milliseconds and
-the click figures are too noisy to rank the paths. Disabling accelerated
-compositing (`WEBKIT_DISABLE_COMPOSITING_MODE=1`) did not fix the maximised lag
-(574-1220 ms), and neither did picom's glx backend (548 ms). No renderer
-environment value tested here removes the maximised cost.
+At 1280x820 the DMABUF-disabled configuration cuts the old probe's button hover
+from 61 to 23 ms, click from 218 to 149 ms, and resize-renderer CPU from 180 to
+72-75% of a core. At 3640x1920 it lowers the button hover from 652 to 485 ms
+with picom and from 189 to 127 ms without, but the result stays in the hundreds
+of milliseconds and the click figures are too noisy to rank the paths. Disabling
+accelerated compositing (`WEBKIT_DISABLE_COMPOSITING_MODE=1`) did not fix the
+maximised lag (574-1220 ms), and neither did picom's glx backend (548 ms). No
+renderer environment value tested here removes the maximised cost. The button
+overlay fix above removes the page-wide component; the remaining 125-132 ms at
+3640x1920 is the row and empty-page floor.
 
 **Recommendation.** Keep a Linux guard. The measured default-size win favors
 replacing `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` with
 `WEBKIT_DISABLE_DMABUF_RENDERER=1` under the same `setdefault`: it renders,
 keeps WebKit off the white-screen path, and cuts default-size hover and CPU. It
 does not fix the maximised lag, so it should not be sold as that fix. The
-maximised lag needs a follow-up profile of the populated page's layer/paint and
-a host compositor check; the decision to change the default remains the
-maintainer's.
+page-wide hover paint is fixed in `SHELL_CSS`: the button focus helper is hidden
+and replaced by a non-animated overlay that keeps the same hover and focus
+fills. The host pair is recorded above: the Import button falls from 643.4 to
+125.4 ms at 3640x1920 and from 64.0 to 39.7 ms at 1280x820, with the row body
+unchanged. The decision to change the renderer default remains the maintainer's.
 
 ## Limits
 
@@ -307,8 +451,18 @@ maintainer's.
   bottom 480 px of the left monitor is outside the root. WebKit still paints the
   full window surface, so the latency includes that off-screen area.
 - The probe's row positions are the first two rows of the shipped rail layout.
-  A layout change moves them and the probe then reports no detected trials.
-- The GPU columns are whole-device and include the rest of the desktop.
+  A layout change moves them and the probe then reports no detected trials. The
+  corrected probe samples the row's title column and left padding, clear of the
+  play and remove controls and the rail's overlay scrollbar.
+- The populated page includes the selected track's detail pane and the rail
+  rows. The empty state and the minimal page establish the baseline; the
+  populated page's layer and paint work was profiled on a 3640x1920 Xvfb
+  display because the host session was locked. The corrected-probe latency pair
+  is from the host; the virtual display's figures are a cross-check of the
+  layer structure, not a substitute for the host's present path.
+- The eight-track session is small. A much larger Workspace adds rows and detail
+  content, but the page-wide paint is a button layer promotion, so the finding
+  does not depend on a larger session.
 - The `browser` arm runs an empty Workspace: browser mode has no native import
   dialog, so it cannot be populated through the page. Its renderer column sums
   the Chromium tree and is not comparable with the native rows.
@@ -317,9 +471,5 @@ maintainer's.
   cells are one-off diagnostic controls, not part of the shipped procedure. They
   use the maintainer's picom configuration (xrender, no shadows, blur, or
   fading); another compositor configuration can change the absolute numbers.
-- The populated page includes the selected track's detail pane and the rail
-  rows. The empty state and the minimal page establish the baseline, but the
-  exact layer or paint inside the populated page is not isolated.
-- The eight-track session is small. A much larger Workspace adds rows and detail
-  content, but the populated page already dominates at eight tracks, so the
-  renderer comparison does not depend on a larger session.
+- The GPU columns are whole-device and include the rest of the desktop.
+

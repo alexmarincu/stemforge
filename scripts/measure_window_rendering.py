@@ -387,9 +387,44 @@ def pids_by_marker(root: int, marker: str) -> list[int]:
     return matches
 
 
+def _process_display(pid: int) -> str | None:
+    """The DISPLAY a process was started on, or None when it is unreadable."""
+    try:
+        environment = Path(f"/proc/{pid}/environ").read_bytes()
+    except OSError:
+        return None
+    for entry in environment.split(b"\0"):
+        if entry.startswith(b"DISPLAY="):
+            return entry.removeprefix(b"DISPLAY=").decode("utf-8", "replace")
+    return None
+
+
+def _display_key(value: str | None) -> str | None:
+    """``:0`` and ``:0.0`` name the same screen."""
+    return value.split(".")[0] if value is not None else None
+
+
 def session_locked() -> bool:
-    """A screen locker covers the window and receives synthetic input itself."""
-    return any(try_run(["pgrep", "-x", locker]) is not None for locker in LOCKERS)
+    """A screen locker covers the window and receives synthetic input itself.
+
+    The locker's own DISPLAY scopes the check, so a locker on another display
+    does not block a virtual display. An unreadable locker cannot be ruled out
+    and still blocks.
+    """
+    current = _display_key(os.environ.get("DISPLAY"))
+    for locker in LOCKERS:
+        output = try_run(["pgrep", "-x", locker])
+        if output is None:
+            continue
+        for pid_text in output.split():
+            try:
+                pid = int(pid_text)
+            except ValueError:
+                continue
+            locker_display = _display_key(_process_display(pid))
+            if locker_display is None or locker_display == current:
+                return True
+    return False
 
 
 def screen_size() -> tuple[int, int]:

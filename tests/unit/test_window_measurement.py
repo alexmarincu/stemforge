@@ -173,3 +173,45 @@ def test_the_harness_stays_out_of_the_default_gate() -> None:
     gate = CHECK.read_text(encoding="utf-8")
     assert "measure_window_rendering" not in gate
     assert "measure_window_latency" not in gate
+
+
+def test_a_locker_window_blocks_the_measured_display(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr(
+        measure,
+        "try_run",
+        lambda argv, *, timeout=30.0: "67108864\n" if argv[:2] == ["pgrep", "-x"] else None,
+    )
+    monkeypatch.setattr(measure, "_process_display", lambda pid: ":0")
+
+    assert measure.session_locked() is True
+
+
+def test_a_locker_on_another_display_does_not_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DISPLAY", ":99")
+    monkeypatch.setattr(
+        measure,
+        "try_run",
+        lambda argv, *, timeout=30.0: "67108864\n" if argv[:2] == ["pgrep", "-x"] else None,
+    )
+    monkeypatch.setattr(measure, "_process_display", lambda pid: ":0")
+
+    assert measure.session_locked() is False
+
+
+def test_a_locker_with_an_unreadable_display_still_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DISPLAY", ":99")
+    monkeypatch.setattr(
+        measure,
+        "try_run",
+        lambda argv, *, timeout=30.0: "67108864\n" if argv[:2] == ["pgrep", "-x"] else None,
+    )
+    monkeypatch.setattr(measure, "_process_display", lambda pid: None)
+
+    assert measure.session_locked() is True

@@ -202,7 +202,10 @@ width, 16 px inline padding, 12.5 px at weight 600.
 
 **States.** The default `unelevated` button uses Quasar's `primary`, which the theme has already
 turned amber, and `.q-btn.bg-primary` sets its text to `ink`. A neutral `flat` control uses `muted`
-and moves to `text` on hover. Focus and ripple come from Quasar's primary-derived colours; do not
+and moves to `text` on hover. The button's hover and focus fill is a non-animated `::after` overlay
+at 15% of the control's current text colour on hover and 22% on keyboard focus; Quasar's button
+focus helper is hidden because its opacity fade promotes a composited layer and repaints the whole
+window. Other controls keep their helper. Focus and ripple still come from Quasar's palette; do not
 remove them. The disabled state is Quasar's own opacity and pointer behaviour, reached through
 `set_enabled(False)`. The active state for a tab or A/B side is the `is-active` class, not a
 pressed-button style.
