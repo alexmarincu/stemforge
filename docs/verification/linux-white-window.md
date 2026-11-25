@@ -1,6 +1,6 @@
-# Linux window rendering: the forced WebKitGTK shared-memory renderer
+# Linux window rendering: the WebKit renderer guard
 
-This is the in-tree verification record for the Linux window workaround in
+This is the in-tree verification record for the Linux renderer guard in
 `configure_window`. It answers five questions with measurements from one host:
 
 1. How much CPU, GPU, and VRAM does the native window use at rest and under
@@ -37,6 +37,18 @@ Python. It reproduces the page's layer structure and paint clips, not the NVIDIA
 driver's present path. The corrected-probe fix pair in "The fix" below was
 recorded on the host after its session was unlocked.
 
+## Decision
+
+StemForge sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` by default on Linux, under
+`setdefault`, so an explicit user value wins. The choice and its host scope are
+recorded in [ADR-0015](../adr/0015-linux-disables-the-webkit-dmabuf-renderer.md).
+
+The decision is validated on the host above: WebKitGTK 2.54.3, NVIDIA driver
+470.256.02, X11, picom xrender. The white-screen check passes at 1280x820,
+1920x1080, and 3640x1920; the corrected latency probe and the 1280x820 cost
+pair are recorded under "After the guard change". Other WebKitGTK versions,
+drivers, and Wayland are unverified.
+
 ## Procedure
 
 ### Cost matrix
@@ -63,7 +75,10 @@ default launch behaviour is unchanged; the harness supplies only the environment
 the size, and the input.
 
 Sizes are the 1280x820 default, 1920x1080, and the whole 3640x1920 root window
-("maximized"). Conditions:
+("maximized"). The condition names below are historical: they describe the
+harness while `FORCE_SHM=1` was the shipped default. The harness now names the
+shipped default `default` and keeps the old guard as `force-shm`; the no-guard
+control is `no-guard`. The historical names stay in the tables they measured.
 
 | Name | Environment | What it tests |
 | --- | --- | --- |
@@ -350,12 +365,73 @@ button figure, measured again with the corrected probe and the old hover CSS.
 
 The four conditions and the idle/scroll samples are the required matrix. The
 resize burst, the fifth condition, and the latency probe were added to answer the
-workaround decision: resize is the controlled full-window CPU workload,
+guard decision: resize is the controlled full-window CPU workload,
 `disable-dmabuf-only` is the configuration a changed default would produce, and
 latency is the quantity the report is actually about. The compositor stop, the
 Chrome app window, and the minimal WebKitGTK page are diagnostic controls, not
 shipped conditions: each removes one candidate so the remaining large-window cost
 can be attributed. None of them changes product behaviour.
+
+### After the guard change
+
+The shipped default now disables the DMABUF renderer. The matrix below was
+recorded on the host above with the corrected probe and the button-overlay fix
+in place. `default` is the shipped guard; `force-shm` is the previous
+`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` guard, reproduced by setting
+`WEBKIT_DISABLE_DMABUF_RENDERER=0` and `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`;
+`no-guard` sets both variables to zero and is the white-screen control.
+
+#### Cost
+
+| Condition | Size | Scroll renderer % | Resize renderer % | White |
+| --- | --- | --- | --- | --- |
+| default | 1280x820 | 14.2 | 68.5 | no |
+| default | 1920x1080 | 8.1 | 71.7 | no |
+| default | 3640x1920 | 7.7 | 37.4 | no |
+| force-shm | 1280x820 | 40.2 | 177.7 | no |
+| no-guard | 1280x820 | 3.7 | 2.4 | yes |
+
+The `no-guard` cell is intentionally unpopulated: a blank view has no rows to
+import into, and the white classification is the measurement. The previous
+guard's resize figure matches the historical 180.2%, so the renderer term is
+comparable; its scroll figure is lower than the historical 56.9% because the
+button-overlay fix removed the page-wide hover paint from that workload.
+
+#### Interaction latency
+
+| Condition | Size | Row hover | Row click | Import hover |
+| --- | --- | --- | --- | --- |
+| default | 1280x820 | 24.6 ms | 141.5 ms | 15.7 ms |
+| default | 3640x1920 | 97.6 ms | 213.9 ms | 91.8 ms |
+| force-shm | 1280x820 | 50.5 ms | 152.5 ms | 43.4 ms |
+| force-shm | 3640x1920 | 133.7 ms | 241.0 ms | 124.1 ms |
+
+Medians of the trials that detected a change: eight of eight for every cell
+except the first `default` 1280x820 row run, which detected none and was
+repeated; the repeat is the row above. The click figure includes the local
+server round-trip and the detail-pane rebuild. The new guard is lower on every
+probe; the default-size row hover and Import hover are the clearest wins.
+
+#### White-screen check
+
+| Condition | Sizes measured | Outcome |
+| --- | --- | --- |
+| default | all three | pass |
+| force-shm | 1280x820 | pass |
+| no-guard | 1280x820 | fail, the blank view reproduces |
+
+The shipped default renders at all three sizes. The no-guard control returns to
+the same blank view the historical `shm-0` cell recorded.
+
+#### What this changes
+
+The guard's job is still to keep WebKitGTK off the DMABUF path; the shipped
+spelling is now the DMABUF-disabled one. At 1280x820 the default-size renderer
+cost is 14.2% of a core while scrolling and 68.5% during the resize burst,
+against 40.2% and 177.7% for the previous guard on the same build. The
+corrected-probe latency is lower on every arm. The maximised lag is not part of
+this comparison: the button-overlay fix removed the page-wide paint, and the
+remaining 91.8-97.6 ms at 3640x1920 is the row and empty-page floor.
 
 ## White-screen check
 
@@ -367,9 +443,13 @@ can be attributed. None of them changes product behaviour.
 | `disable-dmabuf-only` | 1280x820, maximized | rendered | pass |
 | `browser` | all three | rendered | not applicable |
 
+In this table `default` is the historical forced-SHM guard; the shipped
+DMABUF-disabled default's cells are under "After the guard change".
+
 With `WEBKIT_DMABUF_RENDERER_FORCE_SHM=0` the window is pure white at all three
-sizes: 100% of captured pixels at or above the floor. The shipped default and
-the DMABUF-disabled configurations render the page in every cell measured.
+sizes: 100% of captured pixels at or above the floor. The historical forced-SHM
+default and the DMABUF-disabled configurations render the page in every cell
+measured.
 
 That also settles the spelling question. If WebKit read the variable by
 presence rather than by value, `=0` would have kept the forced shared-memory
@@ -427,16 +507,17 @@ renderer environment value tested here removes the maximised cost. The button
 overlay fix above removes the page-wide component; the remaining 125-132 ms at
 3640x1920 is the row and empty-page floor.
 
-**Recommendation.** Keep a Linux guard. The measured default-size win favors
-replacing `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` with
-`WEBKIT_DISABLE_DMABUF_RENDERER=1` under the same `setdefault`: it renders,
-keeps WebKit off the white-screen path, and cuts default-size hover and CPU. It
-does not fix the maximised lag, so it should not be sold as that fix. The
-page-wide hover paint is fixed in `SHELL_CSS`: the button focus helper is hidden
-and replaced by a non-animated overlay that keeps the same hover and focus
-fills. The host pair is recorded above: the Import button falls from 643.4 to
-125.4 ms at 3640x1920 and from 64.0 to 39.7 ms at 1280x820, with the row body
-unchanged. The decision to change the renderer default remains the maintainer's.
+**Decision.** The Linux window ships
+`WEBKIT_DISABLE_DMABUF_RENDERER=1` under `setdefault`
+([ADR-0015](../adr/0015-linux-disables-the-webkit-dmabuf-renderer.md)). The
+guard renders the page on the validated host, keeps WebKit off the white-screen
+path, and cuts default-size renderer CPU. It does not fix the maximised lag; the
+page-wide hover paint is fixed in `SHELL_CSS` by hiding the button focus helper
+and replacing it with a non-animated overlay that keeps the same hover and
+focus fills. The host pair is recorded above: the Import button falls from
+643.4 to 125.4 ms at 3640x1920 and from 64.0 to 39.7 ms at 1280x820, with the
+row body unchanged. The post-change white-screen and latency cells are under
+"After the guard change"; the forced-SHM guard remains the documented fallback.
 
 ## Limits
 
@@ -471,5 +552,12 @@ unchanged. The decision to change the renderer default remains the maintainer's.
   cells are one-off diagnostic controls, not part of the shipped procedure. They
   use the maintainer's picom configuration (xrender, no shadows, blur, or
   fading); another compositor configuration can change the absolute numbers.
+- The shipped guard's white-screen check covers all three sizes; the no-guard
+  control is one 1280x820 cell. The failure was previously reproduced at all
+  three sizes with the forced-SHM guard removed.
+- Unverified third-party reports describe the DMABUF-disabled path crashing or
+  partially painting on some WebKitGTK 2.54 and newer NVIDIA driver
+  combinations. They were not reproduced on the validated host; they are why
+  the forced-SHM guard remains the documented fallback.
 - The GPU columns are whole-device and include the rest of the desktop.
 
