@@ -15,6 +15,8 @@ from stemforge.application import (
     ExportBatchItemState,
     ExportBatchResult,
     ExportedFile,
+    ImportedFile,
+    SavedOriginal,
     ServiceEngines,
     WorkspaceService,
 )
@@ -61,10 +63,17 @@ def _commit_source(
     *,
     title: str = TITLE,
     gain_db: float = 0.0,
+    native: bytes | None = None,
+    origin_kind: OriginKind = OriginKind.FILE,
 ) -> str:
     staging = store.stage("source-job")
     canonical = staging / "canonical.wav"
     canonical.write_bytes(b"fake canonical audio")
+    files = [_entry(canonical, "canonical")]
+    if native is not None:
+        native_path = staging / "native.flac"
+        native_path.write_bytes(native)
+        files.insert(0, _entry(native_path, "native"))
     store.commit_source(
         staging,
         SOURCE_ID,
@@ -73,6 +82,10 @@ def _commit_source(
             "kind": "source",
             "source_id": SOURCE_ID,
             "created_at": datetime(2026, 11, 16, 9, 0, tzinfo=UTC).isoformat(),
+            "origin": "https://www.youtube.com/watch?v=abc"
+            if origin_kind is OriginKind.YOUTUBE
+            else "/music/song.wav",
+            "origin_kind": origin_kind.value,
             "gain_db": gain_db,
             "metadata": {
                 "title": title,
@@ -85,7 +98,7 @@ def _commit_source(
                 "sample_rate": 44_100,
                 "channels": 2,
             },
-            "files": [_entry(canonical, "canonical")],
+            "files": files,
         },
     )
     return SOURCE_ID
@@ -521,6 +534,157 @@ def test_preview_export_returns_the_next_free_name_without_writing(tmp_path: Pat
     assert preview == destination / f"{TITLE} (2).wav"
     assert not preview.exists()
     assert list(destination.iterdir()) == [destination / f"{TITLE}.wav"]
+
+
+# ---------------------------------------------------------------------------
+# Save original
+# ---------------------------------------------------------------------------
+
+
+class _ExplodingMedia:
+    """A media engine that fails if Save original ever probes or encodes."""
+
+    def __getattr__(self, name: str) -> object:
+        raise AssertionError(f"Save original touched the media engine: {name}")
+
+
+def test_imported_file_reports_the_native_suffix_and_size(tmp_path: Path) -> None:
+    native = b"native flac bytes"
+    service, store, _, workspace = _service(tmp_path)
+    _commit_source(store, native=native)
+    track = _add_track(store, workspace)
+
+    imported = service.imported_file(track)
+
+    assert imported == ImportedFile(base_name=TITLE, suffix=".flac", size_bytes=len(native))
+
+
+def test_imported_file_is_none_without_a_native_role(tmp_path: Path) -> None:
+    service, store, _, workspace = _service(tmp_path)
+    _commit_source(store)
+    track = _add_track(store, workspace)
+
+    assert service.imported_file(track) is None
+
+
+def test_imported_file_is_none_for_a_youtube_source(tmp_path: Path) -> None:
+    service, store, _, workspace = _service(tmp_path)
+    _commit_source(store, native=b"downloaded webm", origin_kind=OriginKind.YOUTUBE)
+    track = _add_track(store, workspace)
+
+    assert service.imported_file(track) is None
+
+
+def test_submit_save_original_queues_its_own_job_kind_and_identity(tmp_path: Path) -> None:
+    service, store, runner, workspace = _service(tmp_path)
+    _commit_source(store, native=b"native flac bytes")
+    track = _add_track(store, workspace)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    job_id = service.submit_save_original(
+        track,
+        destination,
+        destination_name="Chosen.flac",
+    )
+
+    assert job_id == "job-export"
+    assert len(runner.submitted) == 1
+    job = runner.submitted[0]
+    assert job.kind is JobKind.SAVE_ORIGINAL
+    assert job.title == TITLE
+    assert job.identity == (
+        JobKind.SAVE_ORIGINAL.value,
+        track.track_id,
+        str(destination),
+        "Chosen.flac",
+    )
+
+
+def test_submit_save_original_never_touches_the_media_engine(tmp_path: Path) -> None:
+    service, store, runner, workspace = _service(tmp_path, media=_ExplodingMedia())
+    _commit_source(store, native=b"native flac bytes")
+    track = _add_track(store, workspace)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    service.submit_save_original(track, destination)
+
+    assert len(runner.submitted) == 1
+    job = runner.submitted[0]
+    result = job.run(
+        JobContext(
+            job_id="job-export",
+            kind=JobKind.SAVE_ORIGINAL,
+            cancel=CancelToken(),
+            log=LOG,
+            update=lambda *args, **kwargs: None,
+        )
+    )
+    assert result["path"] == str(destination / f"{TITLE}.flac")
+    assert (destination / f"{TITLE}.flac").read_bytes() == b"native flac bytes"
+
+
+def test_submit_save_original_refuses_a_youtube_source_before_queueing(tmp_path: Path) -> None:
+    service, store, runner, workspace = _service(tmp_path)
+    _commit_source(store, native=b"downloaded webm", origin_kind=OriginKind.YOUTUBE)
+    track = _add_track(store, workspace)
+
+    with pytest.raises(StemForgeError) as raised:
+        service.submit_save_original(track, tmp_path)
+
+    assert raised.value.code == errors.EXPORT_ORIGINAL_UNAVAILABLE
+    assert raised.value.detail == "not_local"
+    assert runner.submitted == []
+
+
+def test_submit_save_original_refuses_a_missing_native_file(tmp_path: Path) -> None:
+    service, store, runner, workspace = _service(tmp_path)
+    _commit_source(store)
+    track = _add_track(store, workspace)
+
+    with pytest.raises(StemForgeError) as raised:
+        service.submit_save_original(track, tmp_path)
+
+    assert raised.value.code == errors.EXPORT_ORIGINAL_UNAVAILABLE
+    assert raised.value.detail == "missing"
+    assert runner.submitted == []
+
+
+def test_save_original_result_reads_the_finished_job_keys(tmp_path: Path) -> None:
+    service, _, runner, _workspace = _service(tmp_path)
+    output = tmp_path / "Song.flac"
+    output.write_bytes(b"original")
+    runner.snapshot_value = JobSnapshot(
+        job_id="job-original",
+        kind=JobKind.SAVE_ORIGINAL,
+        state=JobState.SUCCEEDED,
+        progress=1.0,
+        stage="Writing file",
+        result_keys={
+            "path": str(output),
+            "size": str(len(b"original")),
+            "sha256": hashlib.sha256(b"original").hexdigest(),
+        },
+    )
+
+    result = service.save_original_result("job-original")
+
+    assert isinstance(result, SavedOriginal)
+    assert result.path == output
+    assert result.size_bytes == 8
+    assert result.sha256 == hashlib.sha256(b"original").hexdigest()
+
+
+def test_save_original_result_is_none_while_the_job_is_unfinished(tmp_path: Path) -> None:
+    service, _, runner, _workspace = _service(tmp_path)
+    runner.snapshot_value = JobSnapshot(
+        job_id="job-original",
+        kind=JobKind.SAVE_ORIGINAL,
+        state=JobState.RUNNING,
+    )
+
+    assert service.save_original_result("job-original") is None
 
 
 class _TaglessMedia:

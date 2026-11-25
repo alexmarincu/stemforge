@@ -160,6 +160,25 @@ class ExportedFile:
 
 
 @dataclass(frozen=True, slots=True)
+class ImportedFile:
+    """The local Source's Native file as the sheet's Imported file block reads it."""
+
+    base_name: str
+    suffix: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class SavedOriginal:
+    """The file one finished Save original Job copied, for the toast and Retry."""
+
+    job_id: str
+    path: Path
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class ExportBatchItem:
     """One planned output and the outcome the batch recorded for it."""
 

@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from stemforge.integration.dialogs import (
+    NATIVE_SAVE_FILTERS,
     SAVE_AUDIO_EXTENSIONS,
     SAVE_FILTERS,
     NativeSaveDialog,
@@ -63,8 +64,24 @@ def test_each_format_has_one_strict_filter() -> None:
 def test_filter_lookup_accepts_an_extension_with_or_without_a_dot() -> None:
     assert save_filter_for("wav") == SAVE_FILTERS[".wav"]
     assert save_filter_for(".FLAC") == SAVE_FILTERS[".flac"]
+    assert save_filter_for("m4a", native=True) == NATIVE_SAVE_FILTERS[".m4a"]
     with pytest.raises(ValueError, match="unsupported export suffix"):
         save_filter_for(".ogg")
+    with pytest.raises(ValueError, match="unsupported export suffix"):
+        save_filter_for(".ogg", native=True)
+
+
+def test_every_native_suffix_has_a_strict_filter() -> None:
+    assert NATIVE_SAVE_FILTERS == {
+        ".wav": "WAV audio (*.wav)",
+        ".flac": "FLAC audio (*.flac)",
+        ".mp3": "MP3 audio (*.mp3)",
+        ".m4a": "M4A audio (*.m4a)",
+    }
+    for suffix, value in NATIVE_SAVE_FILTERS.items():
+        match = _FILTER_GRAMMAR.fullmatch(value)
+        assert match is not None, value
+        assert match.group(2) == f"*{suffix}"
 
 
 @pytest.mark.parametrize("suffix", SAVE_AUDIO_EXTENSIONS)
@@ -149,6 +166,41 @@ async def test_a_typed_extension_is_case_insensitive_when_it_matches(
     assert selection is not None
     assert selection.path == tmp_path / "Song.flac"
     assert selection.corrected is False
+
+
+async def test_a_native_m4a_selection_uses_its_own_filter_and_keeps_its_suffix(
+    tmp_path: Path,
+) -> None:
+    chosen = tmp_path / "Song.m4a"
+    backend = FakeSaveBackend([str(chosen)])
+    dialog = NativeSaveDialog(backend=backend)
+
+    selection = await dialog.save_audio_file(
+        default_name="Song.m4a",
+        suffix=".m4a",
+        native=True,
+    )
+
+    assert selection == SaveSelection(path=chosen, corrected=False, typed_name=chosen.name)
+    assert backend.calls == [("Song.m4a", None, (NATIVE_SAVE_FILTERS[".m4a"],))]
+
+
+async def test_a_typed_wrong_audio_extension_is_replaced_by_the_native_suffix(
+    tmp_path: Path,
+) -> None:
+    chosen = tmp_path / "Song.wav"
+    dialog = NativeSaveDialog(backend=FakeSaveBackend([str(chosen)]))
+
+    selection = await dialog.save_audio_file(
+        default_name="Song.flac",
+        suffix=".flac",
+        native=True,
+    )
+
+    assert selection is not None
+    assert selection.path == tmp_path / "Song.flac"
+    assert selection.corrected is True
+    assert selection.typed_name == "Song.wav"
 
 
 async def test_a_missing_extension_is_appended(tmp_path: Path) -> None:

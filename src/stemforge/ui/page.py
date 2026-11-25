@@ -65,6 +65,11 @@ from stemforge.ui.components.export import (
     ExportSpec,
     ExportStatusBar,
     ExportSuccess,
+    SaveOriginalFailure,
+    SaveOriginalNotice,
+    SaveOriginalSpec,
+    SaveOriginalStatusBar,
+    SaveOriginalSuccess,
 )
 from stemforge.ui.components.pitch import PitchCard
 from stemforge.ui.components.separation import SeparationCard
@@ -369,6 +374,7 @@ SHELL_CSS: Final = (
 .sf-format-size { font-size: 10.5px; color: var(--muted); }
 .sf-export-summary { border-top: 1px solid var(--line); padding-top: 8px;
   display: flex; flex-direction: column; gap: 2px; }
+.sf-imported-action { align-self: flex-start; margin-top: 4px; }
 .sf-export-footer { display: flex; justify-content: flex-end; gap: 8px;
   border-top: 1px solid var(--line); padding-top: 10px; }
 .sf-export-confirm { font-weight: 600; }
@@ -545,11 +551,16 @@ class WorkspacePage:
         self._show_all_stems: set[str] = set()
         self._export_jobs: dict[str, ExportSpec] = {}
         self._export_batches: dict[str, ExportBatchSpec] = {}
-        self._export_notice: ExportNotice | ExportBatchNotice | None = None
+        self._save_original_jobs: dict[str, SaveOriginalSpec] = {}
+        self._export_notice: ExportNotice | ExportBatchNotice | SaveOriginalNotice | None = None
         self._export_status = ExportStatusBar()
         self._export_batch_status = ExportBatchStatusBar()
+        self._save_original_status = SaveOriginalStatusBar()
         self._folder_dialog: FolderDialog = (
             context.folder_dialog if context.folder_dialog is not None else NativeFolderDialog()
+        )
+        self._save_dialog: SaveAudioFileDialog = (
+            context.save_dialog if context.save_dialog is not None else NativeSaveDialog()
         )
         self._unavailable_previews: set[tuple[str, str]] = set()
         self._pitch = PitchCard(
@@ -575,10 +586,11 @@ class WorkspacePage:
         self._separation_jobs: dict[str, str] = {}
         self._export_sheet = ExportSheet(
             self.service,
-            context.save_dialog if context.save_dialog is not None else NativeSaveDialog(),
+            self._save_dialog,
             self._folder_dialog,
             on_job_started=self._export_job_started,
             on_batch_started=self._export_batch_job_started,
+            on_save_original_started=self._save_original_job_started,
             diagnostics=context.diagnostics,
             clipboard=context.clipboard,
             open_path=context.open_path,
@@ -1750,6 +1762,17 @@ class WorkspacePage:
                     clipboard=self.context.clipboard,
                     open_path=self.context.open_path,
                 )
+            elif isinstance(notice, SaveOriginalSuccess | SaveOriginalFailure):
+                self._save_original_status.build(
+                    notice,
+                    busy=self._busy(),
+                    on_retry=self._retry_save_original,
+                    on_choose_location=self._choose_save_original_location,
+                    on_dismiss=self._dismiss_export,
+                    diagnostics=self.context.diagnostics,
+                    clipboard=self.context.clipboard,
+                    open_path=self.context.open_path,
+                )
             elif notice is not None:
                 self._export_status.build(
                     notice,
@@ -2107,6 +2130,115 @@ class WorkspacePage:
             return
         self._export_batch_job_started(job_id, replace(spec, target_keys=tuple(keys)))
 
+    def _save_original_job_started(self, job_id: str, spec: SaveOriginalSpec) -> None:
+        self._save_original_jobs[job_id] = spec
+        self._export_notice = None
+        self._watch_job(job_id)
+        self._job_signature = None
+        self._job_bar_visible = True
+        self._job_bar.refresh()
+        self._refresh_all()
+
+    def _finish_save_original_job(self, snapshot: JobView) -> None:
+        spec = self._save_original_jobs.pop(snapshot.job_id, None)
+        if spec is None:
+            return
+        if snapshot.state.value == "succeeded":
+            result = self.service.save_original_result(snapshot.job_id)
+            if result is None:
+                self._export_notice = SaveOriginalFailure(
+                    spec,
+                    failure=JobFailure(errors.INTERNAL_UNEXPECTED),
+                )
+            else:
+                self._export_notice = SaveOriginalSuccess(spec, result.path)
+                toast(
+                    formatting.SAVE_ORIGINAL_SAVED_TO.format(path=result.path),
+                    type="positive",
+                )
+        elif snapshot.state.value == "failed":
+            failure = JobFailure.from_job(
+                snapshot,
+                fallback_code=errors.INTERNAL_UNEXPECTED,
+            )
+            self._export_notice = SaveOriginalFailure(spec, failure=failure)
+            reason = (
+                "export"
+                if failure.code == errors.STORAGE_DISK_FULL
+                else formatting.reason_from_detail(failure.detail)
+            )
+            toast(
+                formatting.copy_for(
+                    failure.code,
+                    reason,
+                    context=failure.context,
+                ).headline,
+                type="negative",
+            )
+        elif snapshot.state.value == "cancelled":
+            toast(formatting.SAVE_ORIGINAL_CANCELLED, type="info")
+        self._job_bar.refresh()
+        self._refresh_all()
+
+    def _retry_save_original(self) -> None:
+        notice = self._export_notice
+        if not isinstance(notice, SaveOriginalFailure) or self._busy():
+            return
+        spec = notice.spec
+        try:
+            job_id = self.service.submit_save_original(
+                spec.track_id,
+                spec.destination_dir,
+                destination_name=spec.destination_name,
+            )
+        except StemForgeError as error:
+            self._export_notice = SaveOriginalFailure(
+                spec,
+                failure=JobFailure.from_error(error),
+            )
+            self._job_bar.refresh()
+            return
+        self._save_original_job_started(job_id, spec)
+
+    async def _choose_save_original_location(self) -> None:
+        notice = self._export_notice
+        if not isinstance(notice, SaveOriginalFailure) or self._busy():
+            return
+        spec = notice.spec
+        selection = await self._save_dialog.save_audio_file(
+            default_name=spec.destination_name,
+            suffix=spec.suffix,
+            directory=spec.destination_dir,
+            native=True,
+        )
+        if selection is None:
+            return
+        updated = replace(
+            spec,
+            destination_dir=selection.path.parent,
+            destination_name=selection.path.name,
+            corrected=selection.corrected,
+        )
+        if selection.corrected:
+            toast(
+                formatting.SAVE_ORIGINAL_EXTENSION_CHANGED.format(suffix=updated.suffix),
+                type="info",
+            )
+        try:
+            job_id = self.service.submit_save_original(
+                updated.track_id,
+                updated.destination_dir,
+                destination_name=updated.destination_name,
+            )
+        except StemForgeError as error:
+            self._export_notice = SaveOriginalFailure(
+                updated,
+                failure=JobFailure.from_error(error),
+            )
+            self._job_bar.refresh()
+            return
+        self._save_original_job_started(job_id, updated)
+
     def _export_job_started(self, job_id: str, spec: ExportSpec) -> None:
         self._export_jobs[job_id] = spec
         self._export_notice = None
@@ -2298,6 +2430,9 @@ class WorkspacePage:
                 continue
             if snapshot.kind.value == "export_batch":
                 self._finish_export_batch_job(snapshot)
+                continue
+            if snapshot.kind.value == "save_original":
+                self._finish_save_original_job(snapshot)
                 continue
             retry = self._import_retries.pop(job_id, None)
             if snapshot.state.value == "succeeded":

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import hashlib
+import json
 import logging
 import threading
 from collections.abc import Iterator, Mapping, Sequence
@@ -33,11 +34,13 @@ from stemforge.engines.media import (
 )
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import (
+    NATIVE_SAVE_FILTERS,
     SAVE_FILTERS,
     NativeSaveDialog,
     normalize_selected_paths,
 )
 from stemforge.jobs.runner import JobRunner
+from stemforge.pipeline import save_original_job
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
 from stemforge.ui import page
@@ -472,7 +475,9 @@ async def test_the_sheet_is_format_only_and_keeps_the_entry_point_source(
         # The entry point chooses the source; the sheet does not.
         assert _count(user, "export-target-master") == 0
         assert _count(user, "export-target-stem:vocals") == 0
-        await user.should_not_see("Save original")
+        await user.should_see("Imported file")
+        await user.should_see(marker="save-original")
+        assert _only(user, "imported-file-meta").text.startswith("WAV · ")
         await user.should_not_see("Export 5 files")
         assert _count(user, "export-batch-source") == 0
         await user.should_not_see("batch")
@@ -891,6 +896,215 @@ async def test_playback_and_ab_stay_enabled_during_an_export_job(harness: Harnes
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
         assert _enabled(user, "export-action") is True
         assert _enabled(user, "add-audio") is True
+
+
+# ---------------------------------------------------------------------------
+# Save original (ADR 0017)
+# ---------------------------------------------------------------------------
+
+
+async def test_save_original_copies_the_native_file_and_opens_its_own_save_request(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page, name="Song.flac")
+        source_id = harness.service.snapshot().tracks[0].source_id
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        await _open_sheet(user, workspace_page)
+        await user.should_see("Imported file")
+        assert _only(user, "imported-file-meta").text.startswith("FLAC · ")
+        destination = harness.root / "exports"
+        destination.mkdir()
+        chosen = destination / "Saved original.flac"
+        harness.save_backend.results = [str(chosen)]
+
+        user.find(marker="save-original").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        assert harness.save_backend.calls == [
+            (
+                "Song.flac",
+                None,
+                (NATIVE_SAVE_FILTERS[".flac"],),
+            )
+        ]
+        native = harness.artifacts.sources_dir / source_id / "native.flac"
+        assert chosen.read_bytes() == native.read_bytes()
+        _assert_no_partial(destination)
+        await user.should_see(marker="save-original-success")
+        assert str(chosen) in _only(user, "save-original-destination").text
+        assert sorted(job.kind.value for job in harness.runner.jobs()) == [
+            "import_local",
+            "save_original",
+        ]
+
+
+async def test_cancelling_the_save_original_dialog_starts_no_job(harness: Harness) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+        await _open_sheet(user, workspace_page)
+        harness.save_backend.results = [None]
+
+        user.find(marker="save-original").click()
+        await asyncio.sleep(0.05)
+
+        assert [job.kind.value for job in harness.runner.jobs()] == ["import_local"]
+        assert _sheet_open(workspace_page)
+        await user.should_see(marker="save-original")
+
+
+async def test_save_original_is_not_offered_for_a_stem_target(harness: Harness) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        harness.add_separation(source_id)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        user.find(marker="output-export-vocals").click()
+        await asyncio.sleep(0.05)
+
+        assert _only(user, "export-source-label").text == "Vocals"
+        assert _count(user, "imported-file") == 0
+        assert _count(user, "save-original") == 0
+
+
+async def test_save_original_is_not_offered_for_a_render_target(harness: Harness) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        render_key = harness.add_render(source_id, semitones=3)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        user.find(marker=f"output-tab-{render_key}").click()
+        await asyncio.sleep(0.05)
+        user.find(marker="output-export-master").click()
+        await asyncio.sleep(0.05)
+
+        assert "+3" in _only(user, "export-source-label").text
+        assert _count(user, "imported-file") == 0
+        assert _count(user, "save-original") == 0
+
+
+async def test_save_original_is_not_offered_for_a_youtube_source(harness: Harness) -> None:
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        source_id = harness.service.snapshot().tracks[0].source_id
+        manifest_path = harness.artifacts.sources_dir / source_id / "source.json"
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        payload["origin_kind"] = "youtube"
+        manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+
+        await _open_sheet(user, workspace_page)
+
+        assert _only(user, "export-source-label").text == "Original"
+        assert _count(user, "imported-file") == 0
+        assert _count(user, "save-original") == 0
+
+
+async def test_a_failed_save_original_offers_retry_at_the_same_destination(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_commit = save_original_job._commit_without_overwrite
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+        destination = harness.root / "exports"
+        destination.mkdir()
+        harness.save_backend.results = [str(destination / "Song.wav")]
+        calls = 0
+
+        def fail_once(partial: Path, **kwargs: object) -> Path:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise PermissionError(errno.EACCES, "injected destination failure")
+            return real_commit(partial, **kwargs)
+
+        monkeypatch.setattr(save_original_job, "_commit_without_overwrite", fail_once)
+        await _open_sheet(user, workspace_page)
+        user.find(marker="save-original").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        await user.should_see(marker="save-original-failure")
+        await user.should_see("Couldn't save the file to exports.")
+        await user.should_see(marker="save-original-choose-location")
+        _assert_no_partial(destination)
+
+        user.find(marker="save-original-retry").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
+
+        await user.should_see(marker="save-original-success")
+        assert (destination / "Song.wav").read_bytes().startswith(b"fake source bytes")
+
+
+async def test_choosing_another_location_reopens_the_native_save_dialog(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_commit = save_original_job._commit_without_overwrite
+    async for user, workspace_page in _open_page(harness):
+        track_id = await _import(harness, user, workspace_page)
+        with user:
+            workspace_page.poll()
+        user.find(marker=f"track-row-{track_id}").click()
+        await asyncio.sleep(0.05)
+        first = harness.root / "first"
+        first.mkdir()
+        second = harness.root / "second"
+        second.mkdir()
+        harness.save_backend.results = [str(first / "Song.wav"), str(second / "Song.wav")]
+
+        calls = 0
+
+        def fail_once(partial: Path, **kwargs: object) -> Path:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise PermissionError(errno.EACCES, "injected destination failure")
+            return real_commit(partial, **kwargs)
+
+        monkeypatch.setattr(save_original_job, "_commit_without_overwrite", fail_once)
+        await _open_sheet(user, workspace_page)
+        user.find(marker="save-original").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+
+        user.find(marker="save-original-choose-location").click()
+        await asyncio.sleep(0.05)
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
+
+        assert harness.save_backend.calls[-1] == (
+            "Song.wav",
+            str(first),
+            (NATIVE_SAVE_FILTERS[".wav"],),
+        )
+        await user.should_see(marker="save-original-success")
+        assert (second / "Song.wav").is_file()
 
 
 # ---------------------------------------------------------------------------

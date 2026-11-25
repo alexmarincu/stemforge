@@ -83,6 +83,7 @@ EXPECTED_CODES = frozenset(
         "media.encode_failed",
         "media.validation_failed",
         "export.write_failed",
+        "export.original_unavailable",
         "logging.open_failed",
         "storage.disk_full",
         "storage.cache_full",

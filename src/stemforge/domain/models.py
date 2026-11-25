@@ -40,6 +40,7 @@ class JobKind(StrEnum):
     RENDER_PITCH = "render_pitch"
     EXPORT = "export"
     EXPORT_BATCH = "export_batch"
+    SAVE_ORIGINAL = "save_original"
     MODEL_INSTALL = "model_install"
 
 

@@ -232,6 +232,7 @@ JOB_LABELS: Final[Mapping[str, str]] = MappingProxyType(
         JobKind.RENDER_PITCH.value: "Rendering",
         JobKind.EXPORT.value: "Exporting",
         JobKind.EXPORT_BATCH.value: "Exporting",
+        JobKind.SAVE_ORIGINAL.value: "Saving original",
         JobKind.MODEL_INSTALL.value: "Downloading model",
     }
 )
@@ -294,6 +295,16 @@ EXPORT_EXTENSION_CHANGED: Final = "Extension changed to {suffix} for {label}."
 EXPORT_FORMAT_WAV24: Final = "WAV 24-bit"
 EXPORT_FORMAT_FLAC24: Final = "FLAC 24-bit"
 EXPORT_FORMAT_MP3_320: Final = "MP3 320"
+
+# The single-mode sheet's Imported file block and the Save original Job.
+IMPORTED_FILE_LABEL: Final = "Imported file"
+IMPORTED_FILE_UNCHANGED: Final = "The file you imported, unchanged."
+IMPORTED_FILE_META: Final = "{format} · {size}"
+SAVE_ORIGINAL_ACTION: Final = "Save original file…"
+SAVE_ORIGINAL_CANCELLED: Final = "Save original cancelled."
+SAVE_ORIGINAL_SAVED_TO: Final = "Original file saved to {path}"
+SAVE_ORIGINAL_EXTENSION_CHANGED: Final = "Extension changed to {suffix} for the imported file."
+SAVE_ORIGINAL_CHOOSE_LOCATION: Final = "Choose another location…"
 
 # The one batch Export entry point, sheet, results bar, and recovery actions.
 OUTPUTS_EXPORT_ALL: Final = "Export all outputs"
@@ -458,6 +469,10 @@ COPY_BY_CODE: Final[Mapping[str, ErrorCopy]] = MappingProxyType(
             "Couldn't save the file.",
             "Try another folder; the details are in the job log.",
         ),
+        errors.EXPORT_ORIGINAL_UNAVAILABLE: ErrorCopy(
+            "The imported file is no longer available.",
+            "Import the Track again.",
+        ),
         errors.STORAGE_DISK_FULL: ErrorCopy(
             "Not enough disk space.",
             "Clear cached audio to make room.",
@@ -567,6 +582,18 @@ REASON_COPY: Final[Mapping[tuple[str, str], ErrorCopy]] = MappingProxyType(
         (errors.EXPORT_WRITE_FAILED, "other"): ErrorCopy(
             "Couldn't save the file.",
             "Try another folder; the details are in the job log.",
+        ),
+        (errors.EXPORT_ORIGINAL_UNAVAILABLE, "missing"): ErrorCopy(
+            "The imported file is no longer in StemForge's cache.",
+            "Import the Track again.",
+        ),
+        (errors.EXPORT_ORIGINAL_UNAVAILABLE, "changed"): ErrorCopy(
+            "The imported file has changed since it was imported.",
+            "Import the Track again to make a fresh copy.",
+        ),
+        (errors.EXPORT_ORIGINAL_UNAVAILABLE, "not_local"): ErrorCopy(
+            "This Track came from YouTube. There's no imported file to save.",
+            "Choose a local Track.",
         ),
         (errors.LICENSING_OPEN_FAILED, "log"): ErrorCopy(
             "Couldn't open the log file.",
@@ -831,6 +858,14 @@ def format_bytes(size: int) -> str:
 def cache_cleared_message(freed_bytes: int) -> str:
     """The one sentence both Clear cached audio surfaces show."""
     return SETTINGS_CACHE_CLEARED.format(size=format_bytes(freed_bytes))
+
+
+def imported_file_meta(suffix: str, size_bytes: int) -> str:
+    """The Imported file block's container and size, e.g. ``FLAC · 12.3 MB``."""
+    return IMPORTED_FILE_META.format(
+        format=suffix.lstrip(".").upper(),
+        size=format_bytes(size_bytes),
+    )
 
 
 def file_count_label(count: int) -> str:

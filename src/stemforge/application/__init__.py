@@ -17,6 +17,7 @@ from .views import (
     ExportBatchItemState,
     ExportBatchResult,
     ExportedFile,
+    ImportedFile,
     JobKindValue,
     JobView,
     LicenceFiles,
@@ -25,6 +26,7 @@ from .views import (
     PreflightView,
     PreviewTarget,
     RemoveOutcome,
+    SavedOriginal,
     SeparationSet,
 )
 
@@ -36,6 +38,7 @@ __all__ = [
     "ExportFormat",
     "ExportTarget",
     "ExportedFile",
+    "ImportedFile",
     "JobKindValue",
     "JobView",
     "LicenceFiles",
@@ -44,6 +47,7 @@ __all__ = [
     "PreflightView",
     "PreviewTarget",
     "RemoveOutcome",
+    "SavedOriginal",
     "SeparationSet",
     "ServiceEngines",
     "WorkspaceService",

@@ -36,7 +36,7 @@ from stemforge.integration import shell
 from stemforge.integration.shell import SystemPathOpener
 from stemforge.jobs.job import JobContext
 from stemforge.models import ModelConsent, ModelStore
-from stemforge.pipeline import export_job, import_job, model_job
+from stemforge.pipeline import export_job, import_job, model_job, save_original_job
 from stemforge.platform import preflight
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
@@ -274,6 +274,36 @@ def _write_failed(probe: Probe) -> str:
     ).code
 
 
+def _original_unavailable(probe: Probe) -> str:
+    artifacts = ArtifactStore(probe.paths)
+    staging = artifacts.stage("catalogue-original")
+    canonical = staging / "canonical.wav"
+    canonical.write_bytes(b"canonical")
+    data = canonical.read_bytes()
+    artifacts.commit_source(
+        staging,
+        "src-original-catalogue",
+        {
+            "schema_version": 1,
+            "kind": "source",
+            "source_id": "src-original-catalogue",
+            "created_at": datetime.now(UTC).isoformat(),
+            "origin_kind": "file",
+            "files": [
+                {
+                    "path": "canonical.wav",
+                    "role": "canonical",
+                    "size": len(data),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                }
+            ],
+        },
+    )
+    return _raised(
+        lambda: save_original_job.require_native_file(artifacts, "src-original-catalogue")
+    )
+
+
 def _disk_full(probe: Probe) -> str:
     del probe
     return _raised(lambda: artifact_module._raise_wrapped(OSError(errno.ENOSPC, "full"), "write"))
@@ -452,6 +482,7 @@ TRIGGERS: dict[str, Callable[[Probe], str]] = {
     errors.MEDIA_ENCODE_FAILED: _encode_failed,
     errors.MEDIA_VALIDATION_FAILED: _validation_failed,
     errors.EXPORT_WRITE_FAILED: _write_failed,
+    errors.EXPORT_ORIGINAL_UNAVAILABLE: _original_unavailable,
     errors.STORAGE_DISK_FULL: _disk_full,
     errors.STORAGE_CACHE_FULL: _cache_full,
     errors.STORAGE_PERMISSION_DENIED: _permission_denied,
