@@ -10,7 +10,14 @@ from pathlib import Path
 import pytest
 
 from stemforge import errors
-from stemforge.application import ExportedFile, ServiceEngines, WorkspaceService
+from stemforge.application import (
+    ExportBatchItem,
+    ExportBatchItemState,
+    ExportBatchResult,
+    ExportedFile,
+    ServiceEngines,
+    WorkspaceService,
+)
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.models import (
@@ -24,7 +31,7 @@ from stemforge.domain.models import (
 from stemforge.domain.workspace import Workspace
 from stemforge.engines.media import ExportFormat, MediaInfo
 from stemforge.errors import StemForgeError
-from stemforge.jobs.job import JobContext
+from stemforge.jobs.job import Job, JobContext
 from stemforge.jobs.models import JobSnapshot
 from stemforge.pipeline.export_job import ExportTarget as ExportJobTarget
 from stemforge.pipeline.export_job import resolve_export_target, run_export_job
@@ -143,11 +150,11 @@ class RecordingRunner:
     """A submit/snapshot double; no Job ever executes in these tests."""
 
     def __init__(self) -> None:
-        self.submitted = []
+        self.submitted: list[Job] = []
         self.snapshot_value: JobSnapshot | None = None
         self.next_id = "job-export"
 
-    def submit(self, job: object) -> str:
+    def submit(self, job: Job) -> str:
         self.submitted.append(job)
         return self.next_id
 
@@ -156,23 +163,30 @@ class RecordingRunner:
             raise KeyError(job_id)
         return self.snapshot_value
 
+    def jobs(self) -> list[JobSnapshot]:
+        return [
+            JobSnapshot(job_id=self.next_id, kind=job.kind, state=JobState.QUEUED)
+            for job in self.submitted
+        ]
+
 
 def _service(
     tmp_path: Path,
     *,
     with_media: bool = True,
+    media: object | None = None,
 ) -> tuple[WorkspaceService, ArtifactStore, RecordingRunner, Workspace]:
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     store = ArtifactStore(paths)
     runner = RecordingRunner()
     workspace = Workspace()
-    media = object() if with_media else None
+    engine = media if media is not None else (object() if with_media else None)
     service = WorkspaceService(
         SettingsStore(paths),
         paths=paths,
         artifacts=store,
         runner=runner,  # type: ignore[arg-type]
-        engines=ServiceEngines(media=media),  # type: ignore[arg-type]
+        engines=ServiceEngines(media=engine),  # type: ignore[arg-type]
         workspace=workspace,
     )
     return service, store, runner, workspace
@@ -609,3 +623,288 @@ def test_mp3_verification_covers_every_tag_field_the_writer_writes(
 
     assert raised.value.code == errors.MEDIA_VALIDATION_FAILED
     assert set(raised.value.context["fields"]) >= {"album_artist", "composer", "disc"}
+
+
+# ---------------------------------------------------------------------------
+# Batch Export
+# ---------------------------------------------------------------------------
+
+
+def test_export_batch_targets_uses_the_active_version_in_card_order(tmp_path: Path) -> None:
+    service, store, _, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store)
+    _commit_render(
+        store,
+        "render-stems",
+        scope="stems",
+        semitones=2,
+        roles=("vocals", "drums", "bass", "other", "instrumental"),
+        gain_db=0.0,
+        minute=3,
+    )
+    track = _add_track(store, workspace)
+
+    original = service.export_batch_targets(track, "original")
+    rendered = service.export_batch_targets(track, "render-stems")
+
+    assert [target.key for target in original] == [
+        "stem:vocals",
+        "instrumental",
+        "stem:drums",
+        "stem:bass",
+        "stem:other",
+    ]
+    assert [target.key for target in rendered] == [
+        "render:render-stems:vocals",
+        "render:render-stems:instrumental",
+        "render:render-stems:drums",
+        "render:render-stems:bass",
+        "render:render-stems:other",
+    ]
+
+
+def test_submit_export_batch_queues_one_export_batch_job_in_plan_order(
+    tmp_path: Path,
+) -> None:
+    service, store, runner, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store)
+    track = _add_track(store, workspace)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    job_id = service.submit_export_batch(
+        track,
+        "original",
+        ExportFormat.FLAC24,
+        destination,
+    )
+
+    assert job_id == "job-export"
+    assert len(runner.submitted) == 1
+    job = runner.submitted[0]
+    assert job.kind is JobKind.EXPORT_BATCH
+    assert job.title == TITLE
+    assert job.identity == (
+        JobKind.EXPORT_BATCH.value,
+        track.track_id,
+        "original",
+        ExportFormat.FLAC24.value,
+        str(destination),
+        "stem:vocals",
+        "instrumental",
+        "stem:drums",
+        "stem:bass",
+        "stem:other",
+    )
+
+
+def test_submit_export_batch_keeps_plan_order_for_a_subset(tmp_path: Path) -> None:
+    service, store, runner, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store)
+    track = _add_track(store, workspace)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    service.submit_export_batch(
+        track,
+        "original",
+        ExportFormat.WAV24,
+        destination,
+        target_keys=("stem:other", "stem:vocals"),
+    )
+
+    assert runner.submitted[0].identity[-2:] == ("stem:vocals", "stem:other")
+
+
+def test_submit_export_batch_refuses_the_original_or_a_missing_target(
+    tmp_path: Path,
+) -> None:
+    service, store, runner, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store)
+    track = _add_track(store, workspace)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    with pytest.raises(StemForgeError) as raised:
+        service.submit_export_batch(
+            track,
+            "original",
+            ExportFormat.WAV24,
+            destination,
+            target_keys=("master",),
+        )
+
+    assert raised.value.code == errors.MEDIA_PROBE_FAILED
+    assert runner.submitted == []
+
+
+def test_submit_export_batch_refuses_a_version_with_fewer_than_one_output(
+    tmp_path: Path,
+) -> None:
+    service, store, runner, workspace = _service(tmp_path)
+    _commit_source(store)
+    track = _add_track(store, workspace)
+
+    with pytest.raises(StemForgeError) as raised:
+        service.submit_export_batch(
+            track,
+            "original",
+            ExportFormat.WAV24,
+            tmp_path / "exports",
+        )
+
+    assert raised.value.code == errors.INTERNAL_UNEXPECTED
+    assert runner.submitted == []
+
+
+def test_the_batch_outcome_exists_before_the_job_runs(tmp_path: Path) -> None:
+    service, store, _, workspace = _service(tmp_path)
+    _commit_source(store)
+    _commit_separation(store)
+    track = _add_track(store, workspace)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    job_id = service.submit_export_batch(
+        track,
+        "original",
+        ExportFormat.WAV24,
+        destination,
+    )
+    result = service.export_batch_result(job_id)
+
+    assert result is not None
+    assert result.track_id == track.track_id
+    assert result.source_id == SOURCE_ID
+    assert result.version_key == "original"
+    assert result.format is ExportFormat.WAV24
+    assert result.destination_dir == destination
+    assert [item.key for item in result.items] == [
+        "stem:vocals",
+        "instrumental",
+        "stem:drums",
+        "stem:bass",
+        "stem:other",
+    ]
+    assert all(item.state is ExportBatchItemState.NOT_EXPORTED for item in result.items)
+    assert result.written == ()
+    assert result.remaining_keys == tuple(item.key for item in result.items)
+
+
+def test_export_batch_result_is_none_for_an_unknown_job(tmp_path: Path) -> None:
+    service, _, _, _workspace = _service(tmp_path)
+
+    assert service.export_batch_result("missing") is None
+
+
+def test_a_batch_submission_without_media_is_coded_internal(tmp_path: Path) -> None:
+    service, store, runner, workspace = _service(tmp_path, with_media=False)
+    _commit_source(store)
+    _commit_separation(store)
+    track = _add_track(store, workspace)
+
+    with pytest.raises(StemForgeError) as raised:
+        service.submit_export_batch(
+            track,
+            "original",
+            ExportFormat.WAV24,
+            tmp_path / "exports",
+        )
+
+    assert raised.value.code == errors.INTERNAL_UNEXPECTED
+    assert runner.submitted == []
+
+
+def test_the_batch_run_writes_outcomes_into_the_service_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from stemforge.domain.cancellation import CancelToken
+    from stemforge.engines.media import MediaInfo
+    from stemforge.jobs.job import JobContext
+    from stemforge.pipeline import export_batch_job
+
+    class Probe:
+        def probe(self, path: Path) -> MediaInfo:
+            del path
+            return MediaInfo(
+                codec="pcm_s24le",
+                sample_rate=44_100,
+                channels=2,
+                duration_s=120.0,
+                format="wav",
+                tags={},
+                bit_depth=24,
+            )
+
+    def fake_run(ctx: JobContext, **kwargs: object) -> SimpleNamespace:
+        del ctx
+        target = kwargs["target"]
+        assert isinstance(target, ExportJobTarget)
+        return SimpleNamespace(path=Path("/exports") / f"{target.key}.wav")
+
+    service, store, runner, workspace = _service(tmp_path, media=Probe())
+    _commit_source(store)
+    _commit_separation(store)
+    track = _add_track(store, workspace)
+    destination = tmp_path / "exports"
+    destination.mkdir()
+    monkeypatch.setattr(export_batch_job, "run_export_job", fake_run)
+
+    job_id = service.submit_export_batch(
+        track,
+        "original",
+        ExportFormat.WAV24,
+        destination,
+    )
+    job = runner.submitted[0]
+
+    def update(fraction: float, stage: str | None, detail: str | None) -> None:
+        del fraction, stage, detail
+
+    job.run(
+        JobContext(
+            job_id=job_id,
+            kind=JobKind.EXPORT_BATCH,
+            cancel=CancelToken(),
+            log=LOG,
+            update=update,
+        )
+    )
+    result = service.export_batch_result(job_id)
+
+    assert result is not None
+    assert [item.state for item in result.items] == [ExportBatchItemState.WRITTEN] * 5
+    assert [item.path.name for item in result.written] == [
+        "stem:vocals.wav",
+        "instrumental.wav",
+        "stem:drums.wav",
+        "stem:bass.wav",
+        "stem:other.wav",
+    ]
+
+
+def test_batch_retry_keys_include_every_failed_item() -> None:
+    result = ExportBatchResult(
+        track_id="track",
+        source_id="source",
+        version_key="original",
+        format=ExportFormat.WAV24,
+        destination_dir=Path("/exports"),
+        items=(
+            ExportBatchItem("stem:vocals", "Vocals", ExportBatchItemState.WRITTEN),
+            ExportBatchItem("instrumental", "Instrumental", ExportBatchItemState.FAILED),
+            ExportBatchItem("stem:drums", "Drums", ExportBatchItemState.NOT_EXPORTED),
+        ),
+    )
+
+    # A vanished target is worth retrying after a fresh Separation, so the
+    # failed set is not filtered by the error's retryable flag.
+    assert result.retry_keys == ("instrumental",)
+    assert result.remaining_keys == ("instrumental", "stem:drums")

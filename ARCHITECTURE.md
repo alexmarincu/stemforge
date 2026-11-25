@@ -214,7 +214,7 @@ contract.
 | `ui` (package) | The NiceGUI page, theme tokens, formatting, error copy, failure view, and feature cards. | `page.py`, `theme.py`, `formatting.py`, `failure.py`, `toast.py`, `components/` | `application`, `integration`, `domain`, `errors` |
 | `application` (package) | The UI's one facade, shared Workspace state, Job ledger, and per-feature collaborators. | `service.py` (`WorkspaceService`), `state.py` (`WorkspaceState`, `JobLedger`), `views.py`, `collaborators/` | `pipeline`, `jobs`, `engines`, `artifacts`, `models`, `settings`, `domain`, `platform`, `errors` |
 | `integration` (package) | The OS edge: native dialogs, the media route, window configuration, path opener, diagnostics. | `dialogs.py`, `media.py`, `window.py`, `shell.py`, `diagnostics.py`, `assets.py` | `artifacts`, `models`, `settings`, `pipeline.export_names`, `platform`, `errors` |
-| `pipeline` (package) | The Job bodies and pure helpers: import, YouTube import, Separation, Pitch Render, Export, model install. | `import_job.py`, `youtube_job.py`, `separation_job.py`, `pitch_job.py`, `export_job.py`, `export_names.py`, `model_job.py`, `gain.py`, `source_manifest.py` | `jobs`, `engines`, `artifacts`, `models`, `settings`, `domain`, `worker_protocol`, `errors` |
+| `pipeline` (package) | The Job bodies and pure helpers: import, YouTube import, Separation, Pitch Render, Export, model install. | `import_job.py`, `youtube_job.py`, `separation_job.py`, `pitch_job.py`, `export_job.py`, `export_batch_job.py`, `export_names.py`, `model_job.py`, `gain.py`, `source_manifest.py` | `jobs`, `engines`, `artifacts`, `models`, `settings`, `domain`, `worker_protocol`, `errors` |
 | `jobs` (package) | Job values, the runner thread, immutable snapshots, cancellation. | `job.py`, `runner.py`, `models.py` | `domain`, `platform`, `errors` |
 | `engines` (package) | Adapters for FFmpeg/ffprobe, Rubber Band, the Separation worker, and yt-dlp. | `media.py`, `pitch.py`, `separation.py`, `youtube.py` | `domain`, `worker_protocol`, `platform`, `errors` |
 | `artifacts.py` (module) | The cache layout, manifest parsing, staging, promotion, lookup, and LRU eviction. | `ArtifactStore` | `platform`, `errors` |
@@ -493,6 +493,36 @@ file.
 The result carries the path, format, size, SHA-256, metadata, cover, and the manifest
 that was logged. The UI shows success or the coded failure; it never reads the cache
 store directly.
+
+#### Batch Export
+
+A batch exports every output of one Artifact set — the version tab the Outputs card shows,
+never the Original — in one format and to one existing folder. It is **one `EXPORT_BATCH`
+Job**, not N Export Jobs (ADR 0015), so the Job bar shows aggregate progress, Cancel stops
+the whole batch, and the runner records one identity and one history entry.
+
+1. `WorkspaceService.export_batch_targets` plans the active version in card order: Vocals,
+   Instrumental, Drums, Bass, Other. A two-output Separation exports two files; a stems
+   Render exports five; the master and other versions are never mixed in.
+2. `NativeFolderDialog` returns a trusted absolute existing directory. The sheet shows it
+   with a "Choose folder…" action and remembers it as the preferred export directory; the
+   Job still never creates a directory.
+3. The batch probes each planned target once, sums their durations into a single WAV-24
+   estimate, and checks free space before writing the first file. Each item keeps its own
+   free-space check as a backstop.
+4. The wrapper runs `run_export_job` per item, mapping item progress into one aggregate
+   fraction. The existing Windows-safe base name and ` (2)` collision sequence apply flat
+   in the chosen folder; nothing is overwritten.
+5. Every item outcome is written to a lock-guarded `ExportService` record as it finishes.
+   The runner's `result_keys` are only recorded on success, so they cannot carry the list.
+6. An item-level failure is recorded and the rest continue; after the loop the batch fails
+   with the first failure's code and a count context. A destination-level failure (disk
+   full or write failure) stops the batch and marks the rest not exported. Cancel removes
+   the current partial, keeps written files, and marks the rest not exported.
+7. The results bar lists every item as written, failed with its coded copy, or not
+   exported. Failed-only Retry and not-written-only "Export remaining N" resubmit a subset
+   to the same folder and format, so completing a failed or cancelled batch never creates
+   duplicate ` (2)` files.
 
 ### 6.7 Cancellation and shutdown
 

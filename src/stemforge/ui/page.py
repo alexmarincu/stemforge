@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -28,6 +28,9 @@ from nicegui.events import NativeEventArguments
 from stemforge import __version__, errors
 from stemforge.application import (
     SEPARATION_OUTPUT_ROLES,
+    ExportBatchItem,
+    ExportBatchItemState,
+    ExportBatchResult,
     JobView,
     PitchSet,
     PreflightView,
@@ -38,6 +41,8 @@ from stemforge.domain.models import OriginKind, RenderScope, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import (
     AudioFileDialog,
+    FolderDialog,
+    NativeFolderDialog,
     NativeSaveDialog,
     SaveAudioFileDialog,
     filter_drop_paths,
@@ -51,6 +56,9 @@ from stemforge.ui.components.diagnostics import (
     error_details,
 )
 from stemforge.ui.components.export import (
+    ExportBatchNotice,
+    ExportBatchSpec,
+    ExportBatchStatusBar,
     ExportFailure,
     ExportNotice,
     ExportSheet,
@@ -376,6 +384,24 @@ SHELL_CSS: Final = (
 .sf-exportbar-detail { font-size: 10.5px; color: var(--muted); }
 .sf-exportbar-code { font-size: 10.5px; color: var(--bad-dim);
   font-family: var(--mono); }
+.sf-exportbar.is-cancelled { background: var(--warn-bg); border-top-color: var(--warn-line); }
+.sf-exportbar.is-cancelled .sf-exportbar-icon { color: var(--warn); }
+.sf-exportbar-batch { flex-direction: column; align-items: stretch; gap: 6px;
+  padding: 8px 16px; }
+.sf-exportbar-head { display: flex; align-items: center; gap: 10px; }
+.sf-exportbar-items { display: flex; flex-direction: column; gap: 3px;
+  padding-left: 26px; }
+.sf-exportbar-item { display: flex; align-items: flex-start; gap: 6px; }
+.sf-exportbar-item-icon { margin-top: 2px; flex: none; color: var(--dim); }
+.sf-exportbar-item-icon.is-good { color: var(--good); }
+.sf-exportbar-item-icon.is-bad { color: var(--bad-text); }
+.sf-exportbar-item-main { display: flex; flex-direction: column; gap: 1px;
+  min-width: 0; }
+.sf-exportbar-item-label { font-size: 11px; font-weight: 600; color: var(--text); }
+.sf-exportbar-item-detail { font-size: 10.5px; color: var(--muted);
+  overflow-wrap: anywhere; }
+.sf-export-folder { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sf-export-folder-path { overflow-wrap: anywhere; }
 """
 )
 
@@ -387,6 +413,7 @@ class UiContext:
     service: WorkspaceService
     dialogs: AudioFileDialog
     save_dialog: SaveAudioFileDialog | None = None
+    folder_dialog: FolderDialog | None = None
     open_path: PathOpener | None = None
     show_recovery: bool = False
     recovery_dismissed: bool = False
@@ -517,8 +544,13 @@ class WorkspacePage:
         self._active_key: dict[str, str] = {}
         self._show_all_stems: set[str] = set()
         self._export_jobs: dict[str, ExportSpec] = {}
-        self._export_notice: ExportNotice | None = None
+        self._export_batches: dict[str, ExportBatchSpec] = {}
+        self._export_notice: ExportNotice | ExportBatchNotice | None = None
         self._export_status = ExportStatusBar()
+        self._export_batch_status = ExportBatchStatusBar()
+        self._folder_dialog: FolderDialog = (
+            context.folder_dialog if context.folder_dialog is not None else NativeFolderDialog()
+        )
         self._unavailable_previews: set[tuple[str, str]] = set()
         self._pitch = PitchCard(
             self.service,
@@ -544,7 +576,9 @@ class WorkspacePage:
         self._export_sheet = ExportSheet(
             self.service,
             context.save_dialog if context.save_dialog is not None else NativeSaveDialog(),
+            self._folder_dialog,
             on_job_started=self._export_job_started,
+            on_batch_started=self._export_batch_job_started,
             diagnostics=context.diagnostics,
             clipboard=context.clipboard,
             open_path=context.open_path,
@@ -1201,8 +1235,24 @@ class WorkspacePage:
         with ui.element("section").classes("sf-card").mark("outputs"):
             with ui.element("div").classes("sf-card-head"):
                 ui.label(formatting.OUTPUTS_TITLE).classes("sf-card-title")
-                if sets:
-                    self._version_tabs(track, sets, active_key)
+                with ui.element("div").classes("sf-actions"):
+                    if sets:
+                        self._version_tabs(track, sets, active_key)
+                    batch_targets = self.service.export_batch_targets(track, active_key)
+                    export_all = (
+                        ui.button(
+                            formatting.OUTPUTS_EXPORT_ALL,
+                            icon="file_download",
+                            on_click=lambda _=None: self._open_export_batch(
+                                track, version_key=active_key
+                            ),
+                            color=None,
+                        )
+                        .props("flat dense no-caps")
+                        .classes("sf-control")
+                        .mark("outputs-export-all")
+                    )
+                    export_all.set_enabled(not self._busy() and len(batch_targets) >= 2)
             if not rows or all(row.preview is None for row in rows):
                 ui.label(formatting.OUTPUTS_UNAVAILABLE).classes("sf-unavailable").mark(
                     "preview-unavailable"
@@ -1687,9 +1737,22 @@ class WorkspacePage:
     def _job_bar(self) -> None:
         snapshot = self._active_job()
         if snapshot is None:
-            if self._export_notice is not None:
+            notice = self._export_notice
+            if isinstance(notice, ExportBatchNotice):
+                self._export_batch_status.build(
+                    notice,
+                    busy=self._busy(),
+                    on_retry=self._retry_export_batch,
+                    on_remaining=self._export_remaining_batch,
+                    on_choose_folder=self._choose_export_batch_folder,
+                    on_dismiss=self._dismiss_export,
+                    diagnostics=self.context.diagnostics,
+                    clipboard=self.context.clipboard,
+                    open_path=self.context.open_path,
+                )
+            elif notice is not None:
                 self._export_status.build(
-                    self._export_notice,
+                    notice,
                     busy=self._busy(),
                     on_retry=self._retry_export,
                     on_dismiss=self._dismiss_export,
@@ -1701,15 +1764,20 @@ class WorkspacePage:
             return
         with ui.element("div").classes("sf-jobbar").mark("job-bar"):
             ui.element("span").classes("sf-dot is-run")
-            ui.label(
-                formatting.JOB_STAGE.format(
-                    label=self._job_label(snapshot.kind.value),
-                    stage=snapshot.stage or formatting.JOB_STARTING,
-                )
-            ).classes("sf-job-text").mark("job-stage")
+            label = self._job_label(snapshot.kind.value)
+            stage = snapshot.stage or formatting.JOB_STARTING
+            template = (
+                formatting.JOB_STAGE_INLINE
+                if snapshot.kind.value == "export_batch"
+                else formatting.JOB_STAGE
+            )
+            ui.label(template.format(label=label, stage=stage)).classes("sf-job-text").mark(
+                "job-stage"
+            )
             # Local imports keep their filename out of the bar until the Track
-            # exists; YouTube's wait countdown and byte progress are user-facing.
-            if snapshot.kind.value == "import_youtube" and snapshot.detail:
+            # exists; YouTube's wait countdown and a batch's current output are
+            # user-facing.
+            if snapshot.kind.value in {"import_youtube", "export_batch"} and snapshot.detail:
                 ui.label(snapshot.detail).classes("sf-job-detail").mark("job-detail")
             ui.linear_progress(value=float(snapshot.progress), show_value=False).classes(
                 "sf-job-progress"
@@ -1924,6 +1992,121 @@ class WorkspacePage:
             return
         self._export_sheet.open(track, target_key=export_key, busy=False)
 
+    def _open_export_batch(self, track: Track, *, version_key: str) -> None:
+        if self._busy():
+            return
+        self._export_sheet.open_batch(track, version_key=version_key, busy=False)
+
+    def _export_batch_job_started(self, job_id: str, spec: ExportBatchSpec) -> None:
+        self._export_batches[job_id] = spec
+        self._export_notice = None
+        self._watch_job(job_id)
+        self._job_signature = None
+        self._job_bar_visible = True
+        self._job_bar.refresh()
+        self._refresh_all()
+
+    def _finish_export_batch_job(self, snapshot: JobView) -> None:
+        spec = self._export_batches.pop(snapshot.job_id, None)
+        if spec is None:
+            return
+        result = self.service.export_batch_result(snapshot.job_id)
+        if result is None:
+            # The record is created before submission; a missing one can only
+            # mean a defensive path. Keep every planned item visible.
+            result = ExportBatchResult(
+                track_id=spec.track_id,
+                source_id=spec.source_id,
+                version_key=spec.version_key,
+                format=spec.fmt,
+                destination_dir=spec.destination_dir,
+                items=tuple(
+                    ExportBatchItem(
+                        key=key,
+                        label=key,
+                        state=ExportBatchItemState.NOT_EXPORTED,
+                    )
+                    for key in spec.target_keys
+                ),
+            )
+        cancelled = snapshot.state.value == "cancelled"
+        failure = (
+            JobFailure.from_job(snapshot, fallback_code=errors.INTERNAL_UNEXPECTED)
+            if snapshot.state.value == "failed"
+            else None
+        )
+        aborted = failure is not None and failure.code in errors.EXPORT_BATCH_ABORT_CODES
+        notice = ExportBatchNotice(
+            spec,
+            result,
+            cancelled=cancelled,
+            aborted=aborted,
+            failure=failure,
+        )
+        self._export_notice = notice
+        headline = formatting.export_batch_headline(
+            written=len(result.written),
+            failed=len(result.failed),
+            not_exported=len(result.not_exported),
+            cancelled=cancelled,
+            destination=result.destination_dir,
+        )
+        if result.items and len(result.written) == len(result.items):
+            toast(headline, type="positive")
+        elif cancelled:
+            toast(headline, type="info")
+        else:
+            toast(headline, type="negative")
+        self._job_bar.refresh()
+        self._refresh_all()
+
+    def _retry_export_batch(self) -> None:
+        notice = self._export_notice
+        if not isinstance(notice, ExportBatchNotice) or self._busy():
+            return
+        keys = notice.result.retry_keys
+        if keys:
+            self._resubmit_export_batch(notice.spec, keys)
+
+    def _export_remaining_batch(self) -> None:
+        notice = self._export_notice
+        if not isinstance(notice, ExportBatchNotice) or self._busy():
+            return
+        keys = notice.result.remaining_keys
+        if keys:
+            self._resubmit_export_batch(notice.spec, keys)
+
+    async def _choose_export_batch_folder(self) -> None:
+        notice = self._export_notice
+        if not isinstance(notice, ExportBatchNotice) or self._busy():
+            return
+        folder = await self._folder_dialog.choose_folder(directory=notice.spec.destination_dir)
+        if folder is None:
+            return
+        with contextlib.suppress(OSError):
+            self.service.remember_export_dir(folder)
+        keys = notice.result.remaining_keys
+        if keys:
+            self._resubmit_export_batch(replace(notice.spec, destination_dir=folder), keys)
+
+    def _resubmit_export_batch(
+        self,
+        spec: ExportBatchSpec,
+        keys: Sequence[str],
+    ) -> None:
+        try:
+            job_id = self.service.submit_export_batch(
+                spec.track_id,
+                spec.version_key,
+                spec.fmt,
+                spec.destination_dir,
+                target_keys=keys,
+            )
+        except StemForgeError as error:
+            self._show_error(error)
+            return
+        self._export_batch_job_started(job_id, replace(spec, target_keys=tuple(keys)))
+
     def _export_job_started(self, job_id: str, spec: ExportSpec) -> None:
         self._export_jobs[job_id] = spec
         self._export_notice = None
@@ -1975,7 +2158,7 @@ class WorkspacePage:
 
     def _retry_export(self) -> None:
         notice = self._export_notice
-        if notice is None or self._busy():
+        if not isinstance(notice, ExportFailure) or self._busy():
             return
         spec = notice.spec
         try:
@@ -2002,7 +2185,7 @@ class WorkspacePage:
     def _choose_export_folder(self) -> None:
         """Reopen the sheet at the failed destination for another location."""
         notice = self._export_notice
-        if notice is None or self._busy():
+        if not isinstance(notice, ExportFailure) or self._busy():
             return
         track = next(
             (
@@ -2112,6 +2295,9 @@ class WorkspacePage:
                 continue
             if snapshot.kind.value == "export":
                 self._finish_export_job(snapshot)
+                continue
+            if snapshot.kind.value == "export_batch":
+                self._finish_export_batch_job(snapshot)
                 continue
             retry = self._import_retries.pop(job_id, None)
             if snapshot.state.value == "succeeded":
@@ -2331,6 +2517,11 @@ class WorkspacePage:
             for job_id, spec in self._export_jobs.items()
             if spec.track_id != track.track_id
         }
+        self._export_batches = {
+            job_id: spec
+            for job_id, spec in self._export_batches.items()
+            if spec.track_id != track.track_id
+        }
         if self._export_notice is not None and self._export_notice.spec.track_id == track.track_id:
             self._export_notice = None
         self._unavailable_previews = {
@@ -2405,6 +2596,10 @@ class WorkspacePage:
             elif snapshot.kind.value == "export":
                 export_spec = self._export_jobs.get(snapshot.job_id)
                 if export_spec is not None and export_spec.track_id == track_id:
+                    return True
+            elif snapshot.kind.value == "export_batch":
+                batch_spec = self._export_batches.get(snapshot.job_id)
+                if batch_spec is not None and batch_spec.track_id == track_id:
                     return True
         return False
 

@@ -210,6 +210,7 @@ def test_job_kinds_and_states_match_the_decision_record() -> None:
         "separate",
         "render_pitch",
         "export",
+        "export_batch",
         "model_install",
     }
     assert {state.value for state in JobState} == {
