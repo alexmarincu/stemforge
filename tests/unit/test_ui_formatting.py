@@ -281,7 +281,7 @@ def test_batch_headline_reads_the_per_item_counts() -> None:
             cancelled=False,
             destination=destination,
         )
-        == "Exported 5 files to /music/exports"
+        == f"Exported 5 files to {destination}"
     )
     assert (
         formatting.export_batch_headline(
@@ -291,7 +291,7 @@ def test_batch_headline_reads_the_per_item_counts() -> None:
             cancelled=False,
             destination=destination,
         )
-        == "Exported 1 file to /music/exports"
+        == f"Exported 1 file to {destination}"
     )
     assert (
         formatting.export_batch_headline(
