@@ -58,6 +58,12 @@ A long-running local operation with observable progress and cancellation: import
 
 The pretrained parameters of the separation model. They are a third-party download, not part of StemForge's licensed bundle, and are not covered by its GPL-3.0 licence.
 
+## Native file
+
+The untouched file an Import copies into the Cache before decoding to canonical audio. For a local Import it is the user's own file; for a YouTube Import it is the downloaded media.
+
+_Avoid_: Raw file, source file; "original" alone, which names the Outputs card's canonical master.
+
 ## Partial
 
 A file that is still being written and has not been promoted to an Artifact. Partials are never played, exported, or counted as cached audio, and they do not survive a restart.
@@ -87,6 +93,12 @@ The explicit action that produces a Pitch shift Artifact set from a Track's orig
 A launch-time environment override that keeps the native window's web view on a renderer path known to paint correctly on a given host. It protects against a blank view; it is not a performance setting and does not change the page.
 
 _Avoid_: workaround, fix
+
+## Save original
+
+Copying a local Source's Native file to a location the user chooses, byte for byte and with the Native file's extension. It never encodes, rewrites tags, applies gain, resamples, or downmixes, and it is not an Export because the Native file is not an Artifact.
+
+_Avoid_: Passthrough export, native export, raw export.
 
 ## Separation
 
