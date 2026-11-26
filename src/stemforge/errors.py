@@ -1,8 +1,9 @@
 """The single error type the UI sees, and the stable code taxonomy.
 
 Codes are stable dotted strings.
-User-facing copy does not live here: ``ui/formatting.py`` maps ``(code, reason)``
-to every headline and hint, and an exception's ``message`` is log-only.
+User-facing copy does not live here: the locale catalog owns it, ``ui/formatting.py``
+maps ``(code, reason)`` to the catalog rows, and an exception's ``message`` is
+log-only.
 """
 
 from __future__ import annotations

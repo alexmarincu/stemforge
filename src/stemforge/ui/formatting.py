@@ -1,9 +1,9 @@
-"""Formatting helpers and the ``(code, reason)`` error copy table.
+"""Formatting helpers and the ``(code, reason)`` error copy contract.
 
-User-visible page copy resolves through the English catalog; this module keeps
-the formatting helpers and the coded error table. ``errors.py`` stays copy-free.
-Every code has an entry so a newer worker's unknown code falls back to
-``internal.unexpected``.
+Coded error copy resolves through the locale catalog: this module maps a stable
+code and reason to its catalog message IDs and composes the dynamic sentences.
+``errors.py`` stays copy-free. Every code resolves, so a newer worker's unknown
+code falls back to ``internal.unexpected``.
 """
 
 from __future__ import annotations
@@ -336,7 +336,7 @@ SEPARATION_ROLE_LABELS: Final[Mapping[str, str]] = MappingProxyType(
 
 @dataclass(frozen=True, slots=True)
 class ErrorCopy:
-    """One sentence of plain English and exactly one recovery action."""
+    """One rendered headline and exactly one recovery action."""
 
     headline: str
     action: str
@@ -647,57 +647,72 @@ def copy_for(
     base = _base_copy(code, reason)
     result = base
     if code == errors.IMPORT_NO_AUDIO_STREAM and origin is OriginKind.YOUTUBE:
-        result = ErrorCopy("This video has no audio track.", "Choose a video with audio.")
+        result = ErrorCopy(
+            i18n.t("error.import.no_audio_stream.video.headline"),
+            i18n.t("error.import.no_audio_stream.video.action"),
+        )
     elif code in {errors.IMPORT_TOO_LONG, errors.IMPORT_YOUTUBE_TOO_LONG}:
         seconds = _number(context, "duration_s")
         if seconds is not None:
             duration = format_duration(seconds)
-            if code == errors.IMPORT_TOO_LONG:
-                result = ErrorCopy(
-                    f"This track is {duration} long. The limit is 30:00.",
-                    base.action,
-                )
-            else:
-                result = ErrorCopy(
-                    f"This video is {duration} — longer than the 15-minute limit.",
-                    base.action,
-                )
+            key = (
+                "error.import.too_long.duration.headline"
+                if code == errors.IMPORT_TOO_LONG
+                else "error.import.youtube_too_long.duration.headline"
+            )
+            result = ErrorCopy(i18n.t(key, duration=duration), base.action)
     elif code == errors.EXPORT_WRITE_FAILED:
         folder = _folder_name(context)
         if folder is not None:
-            result = ErrorCopy(f"Couldn't save the file to {folder}.", base.action)
+            result = ErrorCopy(
+                i18n.t("error.export.write_failed.folder.headline", folder=folder),
+                base.action,
+            )
     elif code == errors.STORAGE_DISK_FULL:
         folder = _folder_name(context)
         required = _number(context, "required")
         free = _number(context, "free")
         if reason == "export" and folder is not None and required is not None:
             result = ErrorCopy(
-                f"Not enough space at {folder}. This file needs about "
-                f"{format_bytes(round(required))}.",
+                i18n.t(
+                    "error.storage.disk_full.export.headline",
+                    folder=folder,
+                    required=format_bytes(round(required)),
+                ),
                 base.action,
             )
         elif required is not None and free is not None:
             result = ErrorCopy(
-                "Not enough disk space. This import needs about "
-                f"{format_bytes(round(required))} and only "
-                f"{format_bytes(round(free))} is free.",
+                i18n.t(
+                    "error.storage.disk_full.import.headline",
+                    required=format_bytes(round(required)),
+                    free=format_bytes(round(free)),
+                ),
                 base.action,
             )
     elif code == errors.STORAGE_PERMISSION_DENIED:
         path = _path_label(context)
         if path is not None:
-            result = ErrorCopy(f"StemForge can't write to {path}.", base.action)
+            result = ErrorCopy(
+                i18n.t("error.storage.permission_denied.path.headline", path=path),
+                base.action,
+            )
     if len(result.headline) > MAX_HEADLINE_LENGTH:
         return base
     return result
 
 
 def _base_copy(code: str, reason: str | None) -> ErrorCopy:
-    if reason is not None:
-        specific = REASON_COPY.get((code, reason))
-        if specific is not None:
-            return specific
-    return COPY_BY_CODE.get(code, COPY_BY_CODE[errors.INTERNAL_UNEXPECTED])
+    """Render the code's base row, or its reason-specific row when one exists."""
+    if reason is not None and (code, reason) in REASON_COPY:
+        return _catalog_copy(f"error.{code}.reason.{reason}")
+    known_code = code if code in errors.ALL_CODES else errors.INTERNAL_UNEXPECTED
+    return _catalog_copy(f"error.{known_code}")
+
+
+def _catalog_copy(key: str) -> ErrorCopy:
+    """Render one error headline and action from the catalog."""
+    return ErrorCopy(i18n.t(f"{key}.headline"), i18n.t(f"{key}.action"))
 
 
 def _number(context: Mapping[str, object] | None, key: str) -> float | None:
@@ -764,7 +779,10 @@ def fatal_copy(code: str, *, path: str | None = None) -> ErrorCopy:
         errors.PREFLIGHT_STORAGE_UNWRITABLE,
         errors.STORAGE_PERMISSION_DENIED,
     }:
-        return ErrorCopy(f"StemForge can't write to {path}.", copy.action)
+        return ErrorCopy(
+            i18n.t(f"error.{code}.path.headline", path=path),
+            copy.action,
+        )
     return copy
 
 
