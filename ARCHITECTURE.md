@@ -214,7 +214,7 @@ contract.
 | `ui` (package) | The NiceGUI page, theme tokens, formatting, error copy, failure view, and feature cards. | `page.py`, `theme.py`, `formatting.py`, `failure.py`, `toast.py`, `components/` | `application`, `integration`, `domain`, `errors` |
 | `application` (package) | The UI's one facade, shared Workspace state, Job ledger, and per-feature collaborators. | `service.py` (`WorkspaceService`), `state.py` (`WorkspaceState`, `JobLedger`), `views.py`, `collaborators/` | `pipeline`, `jobs`, `engines`, `artifacts`, `models`, `settings`, `domain`, `platform`, `errors` |
 | `integration` (package) | The OS edge: native dialogs, the media route, window configuration, path opener, diagnostics. | `dialogs.py`, `media.py`, `window.py`, `shell.py`, `diagnostics.py`, `assets.py` | `artifacts`, `models`, `settings`, `pipeline.export_names`, `platform`, `errors` |
-| `pipeline` (package) | The Job bodies and pure helpers: import, YouTube import, Separation, Pitch Render, Export, model install. | `import_job.py`, `youtube_job.py`, `separation_job.py`, `pitch_job.py`, `export_job.py`, `export_batch_job.py`, `export_names.py`, `model_job.py`, `gain.py`, `source_manifest.py` | `jobs`, `engines`, `artifacts`, `models`, `settings`, `domain`, `worker_protocol`, `errors` |
+| `pipeline` (package) | The Job bodies and pure helpers: import, YouTube import, Separation, Pitch Render, Export, Save original, model install. | `import_job.py`, `youtube_job.py`, `separation_job.py`, `pitch_job.py`, `export_job.py`, `export_batch_job.py`, `save_original_job.py`, `export_names.py`, `model_job.py`, `gain.py`, `source_manifest.py` | `jobs`, `engines`, `artifacts`, `models`, `settings`, `domain`, `worker_protocol`, `errors` |
 | `jobs` (package) | Job values, the runner thread, immutable snapshots, cancellation. | `job.py`, `runner.py`, `models.py` | `domain`, `platform`, `errors` |
 | `engines` (package) | Adapters for FFmpeg/ffprobe, Rubber Band, the Separation worker, and yt-dlp. | `media.py`, `pitch.py`, `separation.py`, `youtube.py` | `domain`, `worker_protocol`, `platform`, `errors` |
 | `artifacts.py` (module) | The cache layout, manifest parsing, staging, promotion, lookup, and LRU eviction. | `ArtifactStore` | `platform`, `errors` |
@@ -524,6 +524,29 @@ the whole batch, and the runner records one identity and one history entry.
    to the same folder and format, so completing a failed or cancelled batch never creates
    duplicate ` (2)` files.
 
+#### Save original
+
+Save original is a sibling of Export, not an Export format (ADR 0017). It copies a local
+Source's Native file — the untouched file the Import cached — byte for byte to a
+user-chosen destination. It never probes, decodes, encodes, rewrites tags, applies gain,
+resamples, or downmixes.
+
+1. The single-mode Export sheet shows the Imported file block only on the Original target
+   of a local Source. A YouTube Source is refused because its native file is the
+   downloaded container, not a file the user supplied.
+2. `WorkspaceService.imported_file` reads the manifest's `native` entry for the block's
+   extension and size without hashing or probing. `submit_save_original` runs the
+   local-only guard before it queues anything.
+3. The Job re-reads the manifest, verifies the recorded size, checks free space against
+   the Native file's own size, and copies to a destination `.partial` while hashing. The
+   recorded SHA-256 must match or the partial is removed and the Job fails
+   `export.original_unavailable`/`changed`.
+4. The partial is `fsync`ed and renamed with the same collision handling as Export. A
+   missing manifest, native role, or file is `.../missing`; cancellation removes the
+   partial. The result carries the path, size, and SHA-256.
+5. Retry reuses the same destination; "Choose another location…" reopens the native save
+   dialog. The batch sheet never includes Save original.
+
 ### 6.7 Cancellation and shutdown
 
 `CancelToken` wraps a `threading.Event` and raises `JobCancelled` at checkpoints. It
@@ -540,7 +563,8 @@ import `jobs`.
   with a five-second timeout, and logs if it is still alive. Settings are saved
   afterwards; a settings write failure is logged, not raised.
 - Every pipeline function discards `staging/<job_id>/` on an exception, including
-  cancellation, before the exception leaves. Export also removes the destination partial.
+  cancellation, before the exception leaves. Export and Save original also remove the
+  destination partial.
 - The window has no close veto: closing it ends the app immediately, and the runner stop
   is the last chance to clean the active Job's staging.
 

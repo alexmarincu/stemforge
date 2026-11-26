@@ -7,14 +7,17 @@ Export for the current listening target — so the sheet never asks the user to
 re-pick an artifact. It then opens the native save dialog through the injected
 seam, which owns the strict filter and the extension repair. In its batch mode
 one format is chosen for the whole Artifact set, the source is the set's output
-list, and the native folder dialog replaces the save dialog. There is no "Save
-original" and no second player.
+list, and the native folder dialog replaces the save dialog.
+
+For a local Source's Original target, the single-mode sheet also offers the
+Imported file block: Save original copies the Native file unchanged and is its
+own Job, not an Export format (ADR 0017).
 
 A failed Export is never a modal error: the page's one Job bar shows progress
 while the Job runs, then the inline status bar shows the destination on success
 or the coded error with Retry. Retry re-submits the same spec without reopening
 the sheet or the save dialog. A batch leaves a per-item results bar instead
-(ADR 0015).
+(ADR 0015); Save original uses its own sibling bar.
 """
 
 from __future__ import annotations
@@ -65,9 +68,11 @@ _MB_PER_MINUTE: Final[Mapping[ExportFormat, float]] = {
     ExportFormat.MP3_320: 2.4,
 }
 DEFAULT_FORMAT: Final = ExportFormat.WAV24
+ORIGINAL_TARGET_KEY: Final = "master"
 
 JobStarted = Callable[[str, "ExportSpec"], None]
 BatchStarted = Callable[[str, "ExportBatchSpec"], None]
+SaveOriginalStarted = Callable[[str, "SaveOriginalSpec"], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +130,36 @@ class ExportFailure:
 type ExportNotice = ExportSuccess | ExportFailure
 
 
+@dataclass(frozen=True, slots=True)
+class SaveOriginalSpec:
+    """Everything Retry or another location needs, without reopening the sheet."""
+
+    track_id: str
+    suffix: str
+    destination_dir: Path
+    destination_name: str
+    corrected: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SaveOriginalSuccess:
+    """One finished Save original that copied its destination."""
+
+    spec: SaveOriginalSpec
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class SaveOriginalFailure:
+    """One finished Save original that failed; Retry reuses the same spec."""
+
+    spec: SaveOriginalSpec
+    failure: JobFailure
+
+
+type SaveOriginalNotice = SaveOriginalSuccess | SaveOriginalFailure
+
+
 class ExportSheet:
     """The one Export sheet for a page; the format choice is remembered per Track."""
 
@@ -136,6 +171,7 @@ class ExportSheet:
         *,
         on_job_started: JobStarted,
         on_batch_started: BatchStarted,
+        on_save_original_started: SaveOriginalStarted,
         diagnostics: DiagnosticsProvider | None = None,
         clipboard: ClipboardWriter | None = None,
         open_path: PathOpener | None = None,
@@ -145,6 +181,7 @@ class ExportSheet:
         self._folder_dialog = folder_dialog
         self._on_job_started = on_job_started
         self._on_batch_started = on_batch_started
+        self._on_save_original_started = on_save_original_started
         self._diagnostics = diagnostics
         self._clipboard = clipboard
         self._open_path = open_path
@@ -221,6 +258,20 @@ class ExportSheet:
         if self._dialog is not None:
             self._dialog.close()
 
+    def _run_in_sheet(self, callback: Callable[[], None]) -> None:
+        """Run a post-dialog callback in the sheet's still-live slot.
+
+        An awaited dialog resumes in the button slot that ``_render(busy=True)``
+        replaced, so page-level updates such as ``ui.page_title`` need a live
+        element to resolve the client.
+        """
+        dialog = self._dialog
+        if dialog is None:
+            callback()
+            return
+        with dialog:
+            callback()
+
     def _render(self, *, busy: bool) -> None:
         body = self._body
         track = self._track
@@ -241,6 +292,7 @@ class ExportSheet:
             ui.label(formatting.EXPORT_FORMAT_LABEL).classes("sf-versions-label")
             self._format_rows(track)
             self._summary(track, selected_target)
+            self._imported_file_block(track, selected_target, busy=busy)
             self._submit_error_block()
             self._footer(busy=busy, can_submit=True)
 
@@ -332,6 +384,37 @@ class ExportSheet:
                 ui.label(self._destination_label()).classes("sf-fact-value").mark(
                     "export-destination-hint"
                 )
+
+    def _imported_file_block(
+        self,
+        track: Track,
+        target: ExportTarget,
+        *,
+        busy: bool,
+    ) -> None:
+        """Offer Save original only on the Original target of a local Source."""
+        if target.key != ORIGINAL_TARGET_KEY:
+            return
+        imported = self._service.imported_file(track)
+        if imported is None:
+            return
+        with ui.element("div").classes("sf-export-summary").mark("imported-file"):
+            ui.label(formatting.IMPORTED_FILE_LABEL).classes("sf-versions-label")
+            ui.label(formatting.imported_file_meta(imported.suffix, imported.size_bytes)).classes(
+                "sf-fact"
+            ).mark("imported-file-meta")
+            ui.label(formatting.IMPORTED_FILE_UNCHANGED).classes("sf-fact")
+            save = (
+                ui.button(
+                    formatting.SAVE_ORIGINAL_ACTION,
+                    on_click=self._confirm_save_original,
+                    color=None,
+                )
+                .props("flat dense no-caps size=sm")
+                .classes("sf-imported-action")
+                .mark("save-original")
+            )
+            save.set_enabled(not busy and not self._saving)
 
     def _submit_error_block(self) -> None:
         if self._submit_error is None:
@@ -450,7 +533,56 @@ class ExportSheet:
             return
         self._submit_error = None
         self.close()
-        self._on_job_started(job_id, spec)
+        self._run_in_sheet(lambda: self._on_job_started(job_id, spec))
+
+    async def _confirm_save_original(self) -> None:
+        track = self._track
+        if track is None or self._saving:
+            return
+        imported = self._service.imported_file(track)
+        if imported is None:
+            return
+        self._saving = True
+        self._render(busy=True)
+        selection = await self._save_dialog.save_audio_file(
+            default_name=f"{imported.base_name}{imported.suffix}",
+            suffix=imported.suffix,
+            directory=self._default_directory(),
+            native=True,
+        )
+        self._saving = False
+        if selection is None:
+            self._render(busy=False)
+            return
+        body = self._body
+        if selection.corrected and body is not None:
+            with body:
+                toast(
+                    formatting.SAVE_ORIGINAL_EXTENSION_CHANGED.format(
+                        suffix=imported.suffix,
+                    ),
+                    type="info",
+                )
+        spec = SaveOriginalSpec(
+            track_id=track.track_id,
+            suffix=imported.suffix,
+            destination_dir=selection.path.parent,
+            destination_name=selection.path.name,
+            corrected=selection.corrected,
+        )
+        try:
+            job_id = self._service.submit_save_original(
+                track,
+                spec.destination_dir,
+                destination_name=spec.destination_name,
+            )
+        except StemForgeError as error:
+            self._submit_error = JobFailure.from_error(error)
+            self._render(busy=False)
+            return
+        self._submit_error = None
+        self.close()
+        self._run_in_sheet(lambda: self._on_save_original_started(job_id, spec))
 
     async def _confirm_batch(self) -> None:
         track = self._track
@@ -484,7 +616,7 @@ class ExportSheet:
             return
         self._submit_error = None
         self.close()
-        self._on_batch_started(job_id, spec)
+        self._run_in_sheet(lambda: self._on_batch_started(job_id, spec))
 
     async def _choose_batch_folder(self) -> None:
         if self._saving:
@@ -646,6 +778,122 @@ class ExportStatusBar:
                 )
                 .props("flat dense no-caps size=sm")
                 .mark("export-dismiss")
+            )
+
+
+class SaveOriginalStatusBar:
+    """The inline success/failure surface for a finished Save original Job."""
+
+    def build(
+        self,
+        notice: SaveOriginalNotice,
+        *,
+        busy: bool,
+        on_retry: Callable[[], None],
+        on_choose_location: Callable[[], object],
+        on_dismiss: Callable[[], None],
+        diagnostics: DiagnosticsProvider | None = None,
+        clipboard: ClipboardWriter | None = None,
+        open_path: PathOpener | None = None,
+    ) -> None:
+        if isinstance(notice, SaveOriginalSuccess):
+            self._success(notice, on_dismiss=on_dismiss)
+            return
+        self._failure(
+            notice,
+            busy=busy,
+            on_retry=on_retry,
+            on_choose_location=on_choose_location,
+            on_dismiss=on_dismiss,
+            diagnostics=diagnostics,
+            clipboard=clipboard,
+            open_path=open_path,
+        )
+
+    def _success(
+        self,
+        notice: SaveOriginalSuccess,
+        *,
+        on_dismiss: Callable[[], None],
+    ) -> None:
+        with ui.element("div").classes("sf-exportbar is-success").mark("save-original-success"):
+            ui.icon("check", size="sm").classes("sf-exportbar-icon")
+            with ui.element("div").classes("sf-exportbar-main"):
+                ui.label(formatting.SAVE_ORIGINAL_SAVED_TO.format(path=notice.path)).classes(
+                    "sf-exportbar-title"
+                ).mark("save-original-destination")
+                if notice.spec.corrected:
+                    ui.label(
+                        formatting.SAVE_ORIGINAL_EXTENSION_CHANGED.format(
+                            suffix=notice.spec.suffix,
+                        )
+                    ).classes("sf-exportbar-detail").mark("save-original-correction")
+            (
+                ui.button(
+                    formatting.EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None
+                )
+                .props("flat dense no-caps size=sm")
+                .mark("save-original-dismiss")
+            )
+
+    def _failure(
+        self,
+        notice: SaveOriginalFailure,
+        *,
+        busy: bool,
+        on_retry: Callable[[], None],
+        on_choose_location: Callable[[], object],
+        on_dismiss: Callable[[], None],
+        diagnostics: DiagnosticsProvider | None,
+        clipboard: ClipboardWriter | None,
+        open_path: PathOpener | None,
+    ) -> None:
+        failure = notice.failure
+        code = failure.code or errors.INTERNAL_UNEXPECTED
+        reason = (
+            "export"
+            if code == errors.STORAGE_DISK_FULL
+            else formatting.reason_from_detail(failure.detail)
+        )
+        copy = formatting.copy_for(code, reason, context=failure.context)
+        with ui.element("div").classes("sf-exportbar is-failure").mark("save-original-failure"):
+            ui.icon("error_outline", size="sm").classes("sf-exportbar-icon")
+            with ui.element("div").classes("sf-exportbar-main"):
+                ui.label(copy.headline).classes("sf-exportbar-title").mark("save-original-headline")
+                ui.label(copy.action).classes("sf-exportbar-detail")
+                error_details(
+                    code=code,
+                    marker="save-original-error",
+                    job_id=failure.job_id,
+                    log_path=failure.log_path,
+                    diagnostics=diagnostics,
+                    clipboard=clipboard,
+                    open_path=open_path,
+                )
+            if failure.retryable:
+                retry = (
+                    ui.button(formatting.RETRY, on_click=lambda _=None: on_retry())
+                    .props("unelevated dense no-caps size=sm")
+                    .mark("save-original-retry")
+                )
+                retry.set_enabled(not busy)
+            if code in {errors.EXPORT_WRITE_FAILED, errors.STORAGE_DISK_FULL}:
+                choose = (
+                    ui.button(
+                        formatting.SAVE_ORIGINAL_CHOOSE_LOCATION,
+                        on_click=lambda _=None: on_choose_location(),
+                        color=None,
+                    )
+                    .props("flat dense no-caps size=sm")
+                    .mark("save-original-choose-location")
+                )
+                choose.set_enabled(not busy)
+            (
+                ui.button(
+                    formatting.EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None
+                )
+                .props("flat dense no-caps size=sm")
+                .mark("save-original-dismiss")
             )
 
 

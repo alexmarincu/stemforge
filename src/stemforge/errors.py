@@ -50,6 +50,7 @@ MEDIA_VALIDATION_FAILED: Final = "media.validation_failed"
 
 # export.*
 EXPORT_WRITE_FAILED: Final = "export.write_failed"
+EXPORT_ORIGINAL_UNAVAILABLE: Final = "export.original_unavailable"
 
 # logging.*
 LOGGING_OPEN_FAILED: Final = "logging.open_failed"
@@ -110,6 +111,7 @@ ALL_CODES: Final[frozenset[str]] = frozenset(
         MEDIA_ENCODE_FAILED,
         MEDIA_VALIDATION_FAILED,
         EXPORT_WRITE_FAILED,
+        EXPORT_ORIGINAL_UNAVAILABLE,
         LOGGING_OPEN_FAILED,
         STORAGE_DISK_FULL,
         STORAGE_CACHE_FULL,

@@ -10,7 +10,13 @@ from types import MappingProxyType
 
 from stemforge import errors
 from stemforge.application.state import JobLedger, WorkspaceState
-from stemforge.application.views import ExportBatchItem, ExportBatchResult, ExportedFile
+from stemforge.application.views import (
+    ExportBatchItem,
+    ExportBatchResult,
+    ExportedFile,
+    ImportedFile,
+    SavedOriginal,
+)
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.models import ExportBatchItemState, JobKind, JobState, Track
 from stemforge.engines.media import ExportFormat, MediaTool
@@ -23,7 +29,8 @@ from stemforge.pipeline.export_batch_job import (
 )
 from stemforge.pipeline.export_job import ExportTarget, resolve_export_target, run_export_job
 from stemforge.pipeline.export_job import export_targets as enumerate_export_targets
-from stemforge.pipeline.export_names import unique_export_path
+from stemforge.pipeline.export_names import suggest_base_name, unique_export_path
+from stemforge.pipeline.save_original_job import require_native_file, run_save_original_job
 from stemforge.settings import SettingsStore
 
 
@@ -329,6 +336,85 @@ class ExportService:
             ExportFormat(fmt).suffix,
         )
 
+    def imported_file(self, track: Track | str) -> ImportedFile | None:
+        """Read the manifest's native entry for the sheet, without hashing or probing.
+
+        A YouTube Source is omitted because its native file is the downloaded
+        container, not a file the user supplied.
+        """
+        found = self._find_track(track)
+        if found is None:
+            return None
+        try:
+            native = require_native_file(self._artifacts, found.source_id)
+        except StemForgeError:
+            return None
+        return ImportedFile(
+            base_name=suggest_base_name(found.title),
+            suffix=native.suffix,
+            size_bytes=native.size_bytes,
+        )
+
+    def submit_save_original(
+        self,
+        track: Track | str,
+        destination_dir: Path | str,
+        *,
+        destination_name: str | None = None,
+    ) -> str:
+        """Guard the Source as local, then queue the copy Job.
+
+        The local-only guard runs before submission, so a direct call for a
+        YouTube Source fails ``export.original_unavailable``/``not_local``
+        instead of queuing a Job that can never succeed. No media engine is
+        needed: the Job copies the Native file and never probes or encodes.
+        """
+        found = self._find_track(track)
+        if found is None:
+            raise KeyError(track.track_id if isinstance(track, Track) else track)
+
+        require_native_file(self._artifacts, found.source_id)
+        destination = Path(destination_dir).expanduser().absolute()
+        job = Job(
+            kind=JobKind.SAVE_ORIGINAL,
+            identity=(
+                JobKind.SAVE_ORIGINAL.value,
+                found.track_id,
+                str(destination),
+                destination_name or "-",
+            ),
+            title=found.title,
+            run=self._save_original_run(
+                found,
+                destination,
+                destination_name,
+            ),
+        )
+        return self._ledger.submit(
+            job,
+            track_id=found.track_id,
+            source_id=found.source_id,
+        )
+
+    def save_original_result(self, job_id: str) -> SavedOriginal | None:
+        """Read the runner's result keys once the Job reports success."""
+        try:
+            snapshot = self._ledger.snapshot(job_id)
+        except KeyError:
+            return None
+        if snapshot.state is not JobState.SUCCEEDED:
+            return None
+        keys = snapshot.result_keys
+        try:
+            return SavedOriginal(
+                job_id=job_id,
+                path=Path(keys["path"]),
+                size_bytes=int(keys["size"]),
+                sha256=keys["sha256"],
+            )
+        except (KeyError, ValueError):
+            return None
+
     def _export_run(
         self,
         target: ExportTarget,
@@ -356,6 +442,29 @@ class ExportService:
                 "gain_db": f"{result.gain_db:.6f}",
                 "sha256": result.sha256,
                 "manifest": json.dumps(result.manifest, sort_keys=True, ensure_ascii=False),
+            }
+
+        return run
+
+    def _save_original_run(
+        self,
+        track: Track,
+        destination: Path,
+        destination_name: str | None,
+    ) -> JobRun:
+        def run(ctx: JobContext) -> Mapping[str, str]:
+            result = run_save_original_job(
+                ctx,
+                artifacts=self._artifacts,
+                source_id=track.source_id,
+                title=track.title,
+                destination_dir=destination,
+                destination_name=destination_name,
+            )
+            return {
+                "path": str(result.path),
+                "size": str(result.size_bytes),
+                "sha256": result.sha256,
             }
 
         return run

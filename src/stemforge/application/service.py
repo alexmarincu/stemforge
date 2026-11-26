@@ -47,10 +47,12 @@ from .state import JobLedger, WorkspaceState
 from .views import (
     ExportBatchResult,
     ExportedFile,
+    ImportedFile,
     LicenceFiles,
     PitchSet,
     PreviewTarget,
     RemoveOutcome,
+    SavedOriginal,
     SeparationSet,
 )
 
@@ -439,6 +441,28 @@ class WorkspaceService:
     ) -> Path:
         """The filename the Job would write, without creating anything."""
         return self._export.preview_export(track, target, fmt, destination_dir)
+
+    def imported_file(self, track: Track | str) -> ImportedFile | None:
+        """The local Source's Imported file facts, or ``None`` when there is none."""
+        return self._export.imported_file(track)
+
+    def submit_save_original(
+        self,
+        track: Track | str,
+        destination_dir: Path | str,
+        *,
+        destination_name: str | None = None,
+    ) -> str:
+        """Submit one Save original Job and return its id."""
+        return self._export.submit_save_original(
+            track,
+            destination_dir,
+            destination_name=destination_name,
+        )
+
+    def save_original_result(self, job_id: str) -> SavedOriginal | None:
+        """Return the copied file's facts, or ``None`` before success."""
+        return self._export.save_original_result(job_id)
 
     # -- Model -------------------------------------------------------------
 

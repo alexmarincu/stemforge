@@ -421,10 +421,11 @@ px weight 600, its summary 11.5 px, its metadata 10.5 px mono, and its notice 11
 
 **States.** A long document scrolls inside its own `pre`, not in the page. The consent dialog is a
 one-time gate; declining disables the YouTube surfaces for the session rather than showing the
-dialog again.
+dialog again. The single-mode Export sheet's Imported file block reuses the summary column and
+places one flat action at its start; it is secondary to the format choice and the Export button.
 
-**Classes.** `sf-export-modal`, `sf-export-body`, `sf-export-footer`, `sf-export-confirm`;
-`sf-settings`, `sf-settings-mark`, `sf-licence-text`; `sf-youtube-modal`, `sf-gate`,
+**Classes.** `sf-export-modal`, `sf-export-body`, `sf-export-footer`, `sf-export-confirm`,
+`sf-imported-action`; `sf-settings`, `sf-settings-mark`, `sf-licence-text`; `sf-youtube-modal`, `sf-gate`,
 `sf-gate-title`, `sf-gate-summary`, `sf-gate-meta`, `sf-gate-notice`.
 
 **Do.** Use a dialog for a flow that needs confirmation: Export, YouTube consent, remove, licence

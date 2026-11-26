@@ -38,7 +38,7 @@ The local summary of versions, paths, settings, and recent log lines a user copi
 
 ## Export
 
-Copying an Artifact out of StemForge to a location on disk the user chooses. An Export always writes a new file and never overwrites an existing one; exporting an Artifact set writes each of its outputs into one chosen folder.
+Copying an Artifact out of StemForge to a location on disk the user chooses. An Export always writes a new file and never overwrites an existing one; exporting an Artifact set writes each of its outputs into one chosen folder. Saving a local Source's Native file is a separate operation, not an Export.
 
 ## Import
 
@@ -57,6 +57,18 @@ A long-running local operation with observable progress and cancellation: import
 ## Model weights
 
 The pretrained parameters of the separation model. They are a third-party download, not part of StemForge's licensed bundle, and are not covered by its GPL-3.0 licence.
+
+## Native file
+
+The untouched file an Import copies into the Cache before decoding to canonical audio. For a local Import it is the user's own file; for a YouTube Import it is the downloaded media.
+
+_Avoid_: Raw file, source file; "original" alone, which names the Outputs card's canonical master.
+
+## Original
+
+The unshifted master Artifact of a Track, presented first in Outputs. It is the canonical audio, not the Native file.
+
+_Avoid_: Source file, raw file.
 
 ## Partial
 
@@ -87,6 +99,12 @@ The explicit action that produces a Pitch shift Artifact set from a Track's orig
 A launch-time environment override that keeps the native window's web view on a renderer path known to paint correctly on a given host. It protects against a blank view; it is not a performance setting and does not change the page.
 
 _Avoid_: workaround, fix
+
+## Save original
+
+Copying a local Source's Native file to a location the user chooses, byte for byte and with the Native file's extension. It never encodes, rewrites tags, applies gain, resamples, or downmixes, and it is not an Export because the Native file is not an Artifact.
+
+_Avoid_: Passthrough export, native export, raw export.
 
 ## Separation
 

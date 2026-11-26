@@ -261,6 +261,26 @@ def test_the_level_adjusted_badge_is_quiet_and_exact() -> None:
 
 def test_every_job_kind_has_a_bar_label() -> None:
     assert set(formatting.JOB_LABELS) == {kind.value for kind in JobKind}
+    assert formatting.JOB_LABELS["save_original"] == "Saving original"
+
+
+def test_save_original_copy_uses_the_glossary_terms() -> None:
+    copy = " ".join(
+        {
+            formatting.IMPORTED_FILE_LABEL,
+            formatting.IMPORTED_FILE_UNCHANGED,
+            formatting.SAVE_ORIGINAL_ACTION,
+            formatting.SAVE_ORIGINAL_CANCELLED,
+            formatting.SAVE_ORIGINAL_SAVED_TO,
+            formatting.SAVE_ORIGINAL_EXTENSION_CHANGED,
+            formatting.SAVE_ORIGINAL_CHOOSE_LOCATION,
+        }
+    ).lower()
+
+    assert "save original" in copy
+    assert "imported file" in copy
+    for avoided in ("passthrough", "native export", "raw export"):
+        assert avoided not in copy
 
 
 def test_batch_confirm_and_remaining_are_singular_at_one() -> None:

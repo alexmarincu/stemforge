@@ -11,9 +11,9 @@ the folder chooser for a batch Export.
 * open extensions are matched case-insensitively and with surrounding
   whitespace ignored, and anything outside the audio set is a coded selection
   error;
-* a save name is Windows-safe and always carries the chosen format's extension.
-  A known audio extension the user typed is replaced, never used to switch the
-  chosen format;
+* a save name is Windows-safe and always carries the chosen suffix. A known
+  audio extension the user typed is replaced, never used to switch the chosen
+  Export format or the Native file's container;
 * a folder choice must be an absolute existing directory; the Job still refuses
   to create one.
 
@@ -45,6 +45,15 @@ SAVE_FILTERS: Final[dict[str, str]] = {
     ".wav": "WAV 24 bit (*.wav)",
     ".flac": "FLAC 24 bit (*.flac)",
     ".mp3": "MP3 320 kbps (*.mp3)",
+}
+
+# Save original copies the Native file, so its filter names the audio container
+# rather than one of the three Export formats.
+NATIVE_SAVE_FILTERS: Final[dict[str, str]] = {
+    ".wav": "WAV audio (*.wav)",
+    ".flac": "FLAC audio (*.flac)",
+    ".mp3": "MP3 audio (*.mp3)",
+    ".m4a": "M4A audio (*.m4a)",
 }
 
 # Extensions that mean "audio" when a user types one into the save dialog. A
@@ -98,7 +107,7 @@ class AudioFileDialog(Protocol):
 
 
 class SaveAudioFileDialog(Protocol):
-    """What the export sheet needs from a save dialog."""
+    """What Export and Save original need from a save dialog."""
 
     async def save_audio_file(
         self,
@@ -106,6 +115,7 @@ class SaveAudioFileDialog(Protocol):
         default_name: str,
         suffix: str,
         directory: Path | None = None,
+        native: bool = False,
     ) -> SaveSelection | None: ...
 
 
@@ -211,7 +221,7 @@ class PywebviewSaveBackend:
 
 
 class NativeSaveDialog:
-    """Chooses one export destination through the native save dialog."""
+    """Chooses one file destination through the native save dialog."""
 
     def __init__(self, backend: SaveDialogBackend | None = None) -> None:
         self._backend = backend if backend is not None else PywebviewSaveBackend()
@@ -222,20 +232,23 @@ class NativeSaveDialog:
         default_name: str,
         suffix: str,
         directory: Path | None = None,
+        native: bool = False,
     ) -> SaveSelection | None:
         """Return a trusted destination, or ``None`` when the user cancelled.
 
         The dialog is seeded with a sanitised default name and the chosen
-        format's filter. Whatever the user types comes back through
-        :func:`normalize_save_path`, so Linux's missing extension and a typed
-        wrong extension are both repaired here rather than in the sheet.
+        suffix's filter. ``native`` selects the Imported file's container
+        wording instead of an Export format's. Whatever the user types comes
+        back through :func:`normalize_save_path`, so Linux's missing extension
+        and a typed wrong extension are both repaired here rather than in the
+        sheet.
         """
         normalized = normalize_save_name(default_name, suffix)
         target_dir = directory if directory is not None and directory.is_dir() else None
         raw = await self._backend.save_file(
             default_name=normalized.name,
             directory=str(target_dir) if target_dir is not None else None,
-            file_types=(save_filter_for(suffix),),
+            file_types=(save_filter_for(suffix, native=native),),
         )
         if not raw:
             return None
@@ -331,9 +344,12 @@ def filter_drop_paths(paths: Iterable[object]) -> DropSelection:
     return DropSelection(accepted=tuple(accepted), ignored=ignored)
 
 
-def save_filter_for(suffix: str) -> str:
-    """Return the strict pywebview filter for one export suffix."""
-    return SAVE_FILTERS[_normalize_save_suffix(suffix)]
+def save_filter_for(suffix: str, *, native: bool = False) -> str:
+    """Return the strict pywebview filter for one Export or Native suffix."""
+    normalized = _normalize_save_suffix(suffix)
+    if native:
+        return NATIVE_SAVE_FILTERS[normalized]
+    return SAVE_FILTERS[normalized]
 
 
 def normalize_save_name(name: str, suffix: str) -> SaveName:
@@ -432,6 +448,6 @@ def _normalize_save_suffix(suffix: str) -> str:
         raise ValueError("save suffix must not be empty")
     if not value.startswith("."):
         value = f".{value}"
-    if value not in SAVE_FILTERS:
+    if value not in SAVE_FILTERS and value not in NATIVE_SAVE_FILTERS:
         raise ValueError(f"unsupported export suffix: {suffix!r}")
     return value
