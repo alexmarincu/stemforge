@@ -1,4 +1,4 @@
-"""The Romanian catalog is complete, structurally sound, and on-vocabulary."""
+"""The Romanian catalogue is complete, structurally sound, and on-vocabulary."""
 
 from __future__ import annotations
 

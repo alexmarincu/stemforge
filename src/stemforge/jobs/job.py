@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.models import JobKind
-from stemforge.domain.progress import Progress
+from stemforge.domain.progress import CodedText, Progress
 
 __all__ = ["CancelToken", "Job", "JobContext", "JobRun", "ProgressUpdate"]
 
@@ -102,14 +102,13 @@ class JobContext:
         value = float(fraction)
         if not math.isfinite(value):
             raise ValueError("progress must be finite")
-        self._update(
-            Progress(
-                fraction=value,
-                stage=stage,
-                stage_code=stage_code,
-                stage_context=stage_context or {},
-                detail=detail,
-                detail_code=detail_code,
-                detail_context=detail_context or {},
-            )
+        stage_text = (
+            None if stage is None else CodedText(stage, code=stage_code, context=stage_context)
         )
+        if detail is None:
+            detail_text = None
+        elif isinstance(detail, CodedText):
+            detail_text = detail
+        else:
+            detail_text = CodedText(detail, code=detail_code, context=detail_context)
+        self._update(Progress(fraction=value, stage=stage_text, detail=detail_text))

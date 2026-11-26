@@ -15,8 +15,10 @@ from types import MappingProxyType
 from typing import Final, Protocol
 
 from stemforge.artifacts import RemoveReport
+from stemforge.domain.display import LabelRef
 from stemforge.domain.models import ExportBatchItemState as ExportBatchItemState
 from stemforge.domain.models import RenderScope, Track
+from stemforge.domain.progress import CodedText
 from stemforge.domain.roles import INSTRUMENTAL_ROLE
 from stemforge.engines.media import ExportFormat
 
@@ -81,25 +83,13 @@ class JobView(Protocol):
     def progress(self) -> float: ...
 
     @property
-    def stage(self) -> str: ...
-
-    @property
-    def stage_code(self) -> str | None: ...
-
-    @property
-    def stage_context(self) -> Mapping[str, object]: ...
+    def stage(self) -> CodedText: ...
 
     @property
     def created_at(self) -> datetime: ...
 
     @property
-    def detail(self) -> str | None: ...
-
-    @property
-    def detail_code(self) -> str | None: ...
-
-    @property
-    def detail_context(self) -> Mapping[str, object]: ...
+    def detail(self) -> CodedText | None: ...
 
     @property
     def active(self) -> bool: ...
@@ -148,8 +138,7 @@ class PreviewTarget:
     key: str
     url: str
     gain_db: float = 0.0
-    label_key: str = ""
-    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    label: LabelRef = field(default_factory=LabelRef)
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,8 +182,7 @@ class ExportBatchItem:
     error_code: str | None = None
     error_detail: str | None = None
     error_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
-    label_key: str = ""
-    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    label: LabelRef = field(default_factory=LabelRef)
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,11 +267,10 @@ class LicenceFiles:
 class PitchSet:
     """One immutable Render set as version tabs and A/B see it.
 
-    ``label_key`` and ``label_context`` carry the tab text (``+3``, or
-    ``+3 master`` / ``+3 stems`` when both scopes exist at one semitone);
-    the UI renders them at display time. ``based_on_earlier_separation``
-    records that the set's recorded input hashes no longer match the current
-    Stems; such a set stays listed and selectable.
+    ``label`` carries the tab text (``+3``, or ``+3 master`` / ``+3 stems`` when
+    both scopes exist at one semitone); the UI renders it at display time.
+    ``based_on_earlier_separation`` records that the set's recorded input hashes
+    no longer match the current Stems; such a set stays listed and selectable.
     """
 
     render_key: str
@@ -291,8 +278,7 @@ class PitchSet:
     scope: RenderScope
     created_at: datetime
     based_on_earlier_separation: bool = False
-    label_key: str = ""
-    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    label: LabelRef = field(default_factory=LabelRef)
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,5 +295,4 @@ class SeparationSet:
     created_at: datetime
     stem_roles: tuple[str, ...]
     based_on_earlier_separation: bool = False
-    label_key: str = ""
-    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    label: LabelRef = field(default_factory=LabelRef)

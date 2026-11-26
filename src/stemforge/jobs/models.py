@@ -13,6 +13,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from stemforge.domain.models import JobKind, JobState
+from stemforge.domain.progress import CodedText
 
 __all__ = ["JobKind", "JobSnapshot", "JobState"]
 
@@ -27,12 +28,8 @@ class JobSnapshot:
     kind: JobKind
     state: JobState
     progress: float = 0.0
-    stage: str = ""
-    stage_code: str | None = None
-    stage_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
-    detail: str | None = None
-    detail_code: str | None = None
-    detail_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    stage: CodedText = field(default_factory=lambda: CodedText(""))
+    detail: CodedText | None = None
     title: str = ""
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
@@ -44,6 +41,31 @@ class JobSnapshot:
     log_path: Path | None = None
     result_keys: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     cancel_requested: bool = False
+
+    def __post_init__(self) -> None:
+        """Wrap plain strings so old callers keep the value type's contract."""
+        if not isinstance(self.stage, CodedText):
+            object.__setattr__(self, "stage", CodedText(self.stage))
+        if self.detail is not None and not isinstance(self.detail, CodedText):
+            object.__setattr__(self, "detail", CodedText(self.detail))
+
+    @property
+    def stage_code(self) -> str | None:
+        """The stage's stable code, if its publisher supplied one."""
+        return self.stage.code
+
+    @property
+    def stage_context(self) -> Mapping[str, object]:
+        return self.stage.context
+
+    @property
+    def detail_code(self) -> str | None:
+        """The detail's stable code, if its publisher supplied one."""
+        return self.detail.code if self.detail is not None else None
+
+    @property
+    def detail_context(self) -> Mapping[str, object]:
+        return self.detail.context if self.detail is not None else MappingProxyType({})
 
     @property
     def active(self) -> bool:

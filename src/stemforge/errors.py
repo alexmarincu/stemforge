@@ -1,8 +1,8 @@
 """The single error type the UI sees, and the stable code taxonomy.
 
 Codes are stable dotted strings.
-User-facing copy does not live here: the locale catalog owns it, ``ui/formatting.py``
-maps ``(code, reason)`` to the catalog rows, and an exception's ``message`` is
+User-facing copy does not live here: the locale catalogue owns it, ``ui/formatting.py``
+maps ``(code, reason)`` to the catalogue rows, and an exception's ``message`` is
 log-only.
 """
 

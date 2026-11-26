@@ -240,6 +240,36 @@ def test_a_system_preference_resolves_from_the_host_locale(
     assert "Language: ro (system)" in text
 
 
+def test_a_romanian_override_reports_the_effective_language(app_paths: AppPaths) -> None:
+    settings = SettingsStore(app_paths)
+    settings.set_language("ro")
+
+    text = diagnostics.collect_diagnostics(app_paths, settings=settings)
+
+    assert "Language: ro (override)" in text
+
+
+def test_a_damaged_romanian_catalog_reports_english_and_keeps_the_override(
+    app_paths: AppPaths, tmp_path: Path
+) -> None:
+    from stemforge import i18n
+
+    catalog_dir = tmp_path / "catalogs"
+    catalog_dir.mkdir()
+    (catalog_dir / "en.json").write_text('{"app.name": "StemForge"}', encoding="utf-8")
+    (catalog_dir / "ro.json").write_text("{not json", encoding="utf-8")
+    settings = SettingsStore(app_paths)
+    settings.set_language("ro")
+
+    text = diagnostics.collect_diagnostics(
+        app_paths,
+        settings=settings,
+        translator=i18n.Translator(catalog_dir=catalog_dir),
+    )
+
+    assert "Language: en (override)" in text
+
+
 def test_cli_diagnostics_report_writes_the_same_text(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -63,8 +63,7 @@ class _BatchOutcomeRecord:
             ExportBatchItem(
                 key=target.key,
                 state=ExportBatchItemState.NOT_EXPORTED,
-                label_key=target.label_key,
-                label_context=target.label_context,
+                label=target.label,
             )
             for target in targets
         ]
@@ -74,8 +73,7 @@ class _BatchOutcomeRecord:
             key=outcome.key,
             state=outcome.state,
             path=outcome.path,
-            label_key=outcome.label_key,
-            label_context=outcome.label_context,
+            label=outcome.label,
             error_code=outcome.error.code if outcome.error is not None else None,
             error_detail=outcome.error.detail if outcome.error is not None else None,
             error_context=(

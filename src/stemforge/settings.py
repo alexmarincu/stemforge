@@ -105,7 +105,7 @@ class SettingsStore:
 
     def set_language(self, preference: str) -> None:
         """Persist the Behaviour → Language preference (``system``/``en``/``ro``)."""
-        normalized = _language_or_system(preference)
+        normalized = i18n.normalize_preference(preference)
         with self._lock:
             if normalized == self._settings.language:
                 return
@@ -302,7 +302,7 @@ class SettingsStore:
             recent=recent,
             export_dir=export_dir,
             first_run=first_run,
-            language=_language_or_system(payload.get("language", i18n.SYSTEM_PREFERENCE)),
+            language=i18n.normalize_preference(payload.get("language", i18n.SYSTEM_PREFERENCE)),
             cache_cap_bytes=cache_cap_bytes,
             model_consent=_parse_model_consent(payload),
             youtube_enabled=youtube_enabled,
@@ -360,6 +360,23 @@ class SettingsStore:
         self._settings = settings
 
 
+def read_language(paths: AppPaths) -> str | None:
+    """Read the persisted Interface language without creating or repairing settings.
+
+    The pre-window fatal path can run after environment setup failed, so this is
+    read-only and best-effort: an absent, unreadable, or damaged document yields
+    ``None`` and the caller falls back to System.
+    """
+    try:
+        raw = (paths.config / SETTINGS_FILENAME).read_text(encoding="utf-8")
+        payload: object = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    return i18n.normalize_preference(payload.get("language", i18n.SYSTEM_PREFERENCE))
+
+
 def _to_payload(settings: Settings) -> dict[str, object]:
     return {
         "schema_version": settings.schema_version,
@@ -398,19 +415,6 @@ def _to_payload(settings: Settings) -> dict[str, object]:
             else None
         ),
     }
-
-
-def _language_or_system(value: object) -> str:
-    """Read the persisted Interface language leniently; a bad value means system.
-
-    Language is additive and recoverable in place: an unknown value must not
-    move the whole document aside and lose recent files or consent.
-    """
-    allowed = {i18n.SYSTEM_PREFERENCE, *i18n.LOCALES}
-    if isinstance(value, str) and value in allowed:
-        return value
-    _LOG.warning("unknown Interface language %r; using system", value)
-    return i18n.SYSTEM_PREFERENCE
 
 
 def _parse_youtube_acknowledged(payload: Mapping[str, object]) -> bool:

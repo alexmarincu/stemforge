@@ -19,11 +19,12 @@ import pytest
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge import __version__, errors
-from stemforge.application import ServiceEngines, WorkspaceService
+from stemforge.application import PreviewTarget, ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
 from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.errors import StemForgeError
+from stemforge.jobs import Job, JobKind, JobState
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
@@ -271,6 +272,81 @@ async def test_the_language_row_is_first_and_persists_without_reloading(
         assert harness.language_changes == ["en"]
         assert i18n.preference() == "en"
         assert app.config.language == "en-GB"
+
+
+async def test_the_system_option_shows_the_system_language_not_the_override(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from stemforge import i18n
+
+    harness.settings.set_language("en")
+    monkeypatch.setattr(i18n, "system_locale", lambda: "ro_RO.UTF-8")
+
+    async for user, _workspace_page in _open_page(harness):
+        await _open_settings(user)
+
+        select = _only(user, "language-select")
+        assert select.value == "en"
+        assert select.options["system"] == "System (Română)"
+
+
+async def test_a_language_change_persists_and_reloads_the_page(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reloads: list[bool] = []
+    monkeypatch.setattr(page.ui.navigate, "reload", lambda: reloads.append(True))
+    harness.context.on_language_change = None
+
+    async for user, _workspace_page in _open_page(harness):
+        await _open_settings(user)
+
+        _only(user, "language-select").set_value("ro")
+        await asyncio.sleep(0.1)
+
+        assert harness.service.language_preference() == "ro"
+        assert reloads == [True]
+
+
+async def test_a_rebuilt_page_keeps_a_running_job_and_starts_without_a_preview(
+    harness: Harness,
+) -> None:
+    """A reload rebuilds transient page state; the service and Job ledger survive.
+
+    The player is page-owned, so Preview starts empty on the rebuilt page even
+    while the shared runner keeps the running Job.
+    """
+    gate = threading.Event()
+
+    def wait(ctx) -> None:
+        gate.wait(10)
+        return None
+
+    job_id = harness.runner.submit(
+        Job(kind=JobKind.SEPARATE, identity=("reload-survival",), run=wait)
+    )
+    try:
+        for _ in range(300):
+            if harness.runner.snapshot(job_id).state is JobState.RUNNING:
+                break
+            await asyncio.sleep(0.01)
+        assert harness.runner.snapshot(job_id).state is JobState.RUNNING
+
+        async for user, first in _open_page(harness):
+            first._loaded_track_id = "preview-track"
+            first._loaded_preview = PreviewTarget(key="preview", url="/media/preview.mp3")
+            assert _only(user, "player") is not None
+
+        async for user, second in _open_page(harness):
+            assert second is not first
+            assert second._loaded_track_id is None
+            assert second._loaded_preview is None
+            assert _only(user, "player") is not None
+            running = [item for item in harness.service.jobs() if item.job_id == job_id]
+            assert len(running) == 1
+            assert running[0].state is JobState.RUNNING
+    finally:
+        gate.set()
+        assert await asyncio.to_thread(harness.runner.wait_idle, 10) is True
 
 
 async def test_open_licences_folder_calls_the_injected_opener(harness: Harness) -> None:

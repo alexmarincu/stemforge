@@ -27,7 +27,7 @@ from uuid import uuid4
 from stemforge import errors
 from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.models import JobState
-from stemforge.domain.progress import Progress
+from stemforge.domain.progress import CodedText, Progress
 from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.jobs.job import Job, JobContext, ProgressUpdate
 from stemforge.jobs.models import JobSnapshot
@@ -54,12 +54,8 @@ class _Entry:
     created_at: datetime
     state: JobState = JobState.QUEUED
     progress: float = 0.0
-    stage: str = ""
-    stage_code: str | None = None
-    stage_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
-    detail: str | None = None
-    detail_code: str | None = None
-    detail_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    stage: CodedText = field(default_factory=lambda: CodedText(""))
+    detail: CodedText | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error_code: str | None = None
@@ -76,11 +72,7 @@ class _Entry:
             state=self.state,
             progress=self.progress,
             stage=self.stage,
-            stage_code=self.stage_code,
-            stage_context=self.stage_context,
             detail=self.detail,
-            detail_code=self.detail_code,
-            detail_context=self.detail_context,
             title=self.job.title,
             created_at=self.created_at,
             started_at=self.started_at,
@@ -314,8 +306,6 @@ class JobRunner:
                 entry.result_keys = keys
                 entry.finished_at = datetime.now(UTC)
                 entry.detail = None
-                entry.detail_code = None
-                entry.detail_context = MappingProxyType({})
                 self._cond.notify_all()
             job_log.info("job succeeded in %.2fs", elapsed)
             _LOG.info("job %s %s succeeded in %.2fs", entry.job_id, entry.job.kind.value, elapsed)
@@ -413,12 +403,8 @@ class JobRunner:
                     entry.progress = clamped
                 if progress.stage is not None:
                     entry.stage = progress.stage
-                    entry.stage_code = progress.stage_code
-                    entry.stage_context = MappingProxyType(dict(progress.stage_context))
                 if progress.detail is not None:
                     entry.detail = progress.detail
-                    entry.detail_code = progress.detail_code
-                    entry.detail_context = MappingProxyType(dict(progress.detail_context))
                 self._cond.notify_all()
 
         return update

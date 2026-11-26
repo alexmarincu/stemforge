@@ -153,9 +153,12 @@ def collect_diagnostics(
     job_id: str | None = None,
     app_log_path: Path | None = None,
     now: datetime | None = None,
+    translator: i18n.Translator | None = None,
 ) -> str:
     """Read the normal app seams and render the report.
 
+    ``translator`` defaults to a fresh one so the reported Interface language is
+    the one the catalogue actually resolves, including a damaged-catalogue fallback.
     Every optional read is best-effort: a fatal storage failure still has to
     produce a copyable report, so an unreadable cache or model store degrades to
     zero/absent rather than raising.
@@ -179,6 +182,10 @@ def collect_diagnostics(
     job_log_path = _job_log_path(job_facts, jobs, job_id)
     ram = _total_ram_bytes()
     disk_free = _disk_free(paths)
+    active_language = i18n.Translator() if translator is None else translator
+    effective_language = active_language.set_language(
+        values.language, system_locale=i18n.system_locale()
+    )
 
     facts = DiagnosticsFacts(
         version=_version(),
@@ -210,7 +217,7 @@ def collect_diagnostics(
         cache_cap_setting=_format_bytes(values.cache_cap_bytes),
         export_dir=str(values.export_dir) if values.export_dir is not None else "-",
         first_run=values.first_run,
-        interface_language=i18n.resolve_language(values.language, i18n.system_locale()),
+        interface_language=effective_language,
         language_source="system" if values.language == i18n.SYSTEM_PREFERENCE else "override",
         model=model_fact,
         jobs=job_facts,

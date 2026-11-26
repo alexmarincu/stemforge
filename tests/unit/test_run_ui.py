@@ -164,7 +164,7 @@ def test_startup_resolves_the_system_preference_from_the_host_locale(
         monkeypatch.setenv(name, environment.get(name, ""))
     settings = SettingsStore(AppPaths.for_home(tmp_path / "home").ensure())
 
-    __main__._initialize_language(settings)
+    __main__._initialize_language(settings=settings)
 
     assert i18n.preference() == "system"
     assert i18n.language() == expected
@@ -194,10 +194,13 @@ def test_run_ui_uses_the_persisted_language_and_passes_it_to_nicegui(
 
 
 def test_the_page_language_attribute_follows_the_framework_language() -> None:
-    from nicegui import Client, app
+    from nicegui import Client, app, ui
 
     from stemforge.ui import page
 
+    # NiceGUI's user simulation clears the global page registry; register this
+    # module's builder again so the assertion does not depend on test order.
+    ui.page("/")(page.index)
     i18n.set_language("ro", system_locale="ro_RO.UTF-8")
     app.config.language = i18n.framework_language(i18n.language())
 

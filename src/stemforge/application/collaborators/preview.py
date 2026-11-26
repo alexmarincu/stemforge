@@ -10,7 +10,7 @@ from stemforge.application.renders import RenderView, render_views
 from stemforge.application.state import WorkspaceState
 from stemforge.application.views import SEPARATION_OUTPUT_ROLES, PreviewTarget
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.display import ORIGINAL_LABEL_KEY, role_label_key
+from stemforge.domain.display import ORIGINAL_LABEL_KEY, LabelRef, role_label_key
 from stemforge.domain.models import RenderScope, Track
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
 
@@ -77,7 +77,7 @@ class PreviewService:
             key=f"render:{view.artifact.render_key}:{role}",
             url=url,
             gain_db=view.artifact.gain_db,
-            label_key=ORIGINAL_LABEL_KEY if role == "original" else role_label_key(role),
+            label=LabelRef(key=ORIGINAL_LABEL_KEY if role == "original" else role_label_key(role)),
         )
 
     def pitch_preview_target(self, track: Track, render_key: str) -> PreviewTarget | None:
@@ -111,7 +111,7 @@ class PreviewService:
             key=f"{set_key}:{stem}",
             url=url,
             gain_db=artifact.gain_db,
-            label_key=role_label_key(stem),
+            label=LabelRef(key=role_label_key(stem)),
         )
 
     def _preview_targets(self, track: Track) -> tuple[PreviewTarget, ...]:
@@ -123,7 +123,7 @@ class PreviewService:
                     key="original",
                     url=source_url,
                     gain_db=track.gain_db,
-                    label_key=ORIGINAL_LABEL_KEY,
+                    label=LabelRef(key=ORIGINAL_LABEL_KEY),
                 )
             )
         for view in render_views(self._artifacts, track.source_id):
@@ -135,8 +135,7 @@ class PreviewService:
                     key=view.artifact.render_key,
                     url=url,
                     gain_db=view.artifact.gain_db,
-                    label_key=view.label_key,
-                    label_context=view.label_context,
+                    label=view.label,
                 )
             )
         return tuple(targets)

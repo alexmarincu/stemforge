@@ -32,6 +32,7 @@ from stemforge.application import (
 )
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.display import LabelRef
 from stemforge.engines.media import (
     CanonicalMetadata,
     DecodeResult,
@@ -1477,7 +1478,7 @@ async def test_batch_items_render_their_label_key(
         key="stem:vocals",
         state=ExportBatchItemState.WRITTEN,
         path=destination / "Song - Vocals.wav",
-        label_key="role.vocals",
+        label=LabelRef(key="role.vocals"),
     )
     result = ExportBatchResult(
         track_id="track",

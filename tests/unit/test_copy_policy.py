@@ -1,8 +1,8 @@
-"""User-facing copy resolves through the locale catalogs.
+"""User-facing copy resolves through the locale catalogues.
 
-The page shell, components, preflight chrome, and fatal copy render catalog keys
-with ``i18n.t``; the English catalog is the only copy source and the Romanian
-catalog mirrors every key. A prose literal at a copy sink, a catalog key missing
+The page shell, components, preflight chrome, and fatal copy render catalogue keys
+with ``i18n.t``; the English catalogue is the only copy source and the Romanian
+catalogue mirrors every key. A prose literal at a copy sink, a catalogue key missing
 from either locale, a glossary synonym, a cedilla, or a term-table violation is a
 defect.
 """
@@ -325,8 +325,8 @@ def test_components_have_no_prose_literals_at_copy_sinks() -> None:
         for line, sink, text in _alt_literals(tree):
             violations.append(f"{relative}:{line}: {sink} takes {text!r}")
     assert not violations, (
-        "Component copy resolves through i18n.t and the English catalog; "
-        "render a catalog key instead of an inline literal.\n" + "\n".join(violations)
+        "Component copy resolves through i18n.t and the English catalogue; "
+        "render a catalogue key instead of an inline literal.\n" + "\n".join(violations)
     )
 
 
@@ -342,8 +342,8 @@ def test_page_shell_has_no_prose_literals_at_copy_sinks() -> None:
         for line, sink, text in _alt_literals(tree):
             violations.append(f"{relative}:{line}: {sink} takes {text!r}")
     assert not violations, (
-        "Page-shell copy resolves through i18n.t and the English catalog; "
-        "render a catalog key instead of an inline literal.\n" + "\n".join(violations)
+        "Page-shell copy resolves through i18n.t and the English catalogue; "
+        "render a catalogue key instead of an inline literal.\n" + "\n".join(violations)
     )
 
 
@@ -365,7 +365,7 @@ def test_every_runtime_catalog_key_exists_in_both_locales() -> None:
             for line, key in _missing_catalog_keys(tree, catalog):
                 violations.append(f"{relative}:{line}: {key!r} is missing from {name}")
     assert not violations, (
-        "Every i18n.t key used at runtime must exist in both locale catalogs.\n"
+        "Every i18n.t key used at runtime must exist in both locale catalogues.\n"
         + "\n".join(violations)
     )
 
@@ -383,7 +383,7 @@ def test_runtime_sources_reference_no_formatting_copy_constant() -> None:
             if name not in FORMATTING_NON_COPY_CONSTANTS:
                 violations.append(f"{relative}: formatting.{name}")
     assert not violations, (
-        "User-visible copy lives in the catalogs; formatting.py owns helpers only.\n"
+        "User-visible copy lives in the catalogues; formatting.py owns helpers only.\n"
         + "\n".join(violations)
     )
 
@@ -463,7 +463,7 @@ def test_a_missing_catalog_key_is_rejected() -> None:
 def test_the_english_catalog_uses_the_glossary_vocabulary() -> None:
     violations = _catalog_synonyms(_load_catalog(ENGLISH_CATALOG))
     assert not violations, (
-        "The English catalog must use the glossary's terms, not their avoided synonyms.\n"
+        "The English catalogue must use the glossary's terms, not their avoided synonyms.\n"
         + "\n".join(f"en.json {key}: {word!r}" for key, word in violations)
     )
 

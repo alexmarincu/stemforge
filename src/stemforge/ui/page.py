@@ -37,7 +37,7 @@ from stemforge.application import (
     PreviewTarget,
     WorkspaceService,
 )
-from stemforge.domain.display import role_label_key
+from stemforge.domain.display import LabelRef, role_label_key
 from stemforge.domain.models import JobKind, OriginKind, RenderScope, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import (
@@ -511,42 +511,6 @@ def _render_unconfigured() -> None:
     with ui.column().classes("absolute-center items-center gap-2"):
         ui.label(i18n.t("app.name")).classes("text-3xl font-bold")
         ui.label(i18n.t("app.tagline")).classes("text-base")
-
-
-def _role_label(role: str) -> str:
-    """The display name for one Separation output role."""
-    return formatting.role_label(role)
-
-
-def _export_batch_headline(
-    *,
-    written: int,
-    failed: int,
-    not_exported: int,
-    cancelled: bool,
-    destination: Path | None = None,
-) -> str:
-    """The one results sentence for a batch's terminal outcome."""
-    total = written + failed + not_exported
-    if cancelled:
-        return i18n.t("page.export_batch.cancelled", written=written, total=total)
-    if total and written == total and destination is not None:
-        return i18n.t("page.export_batch.success", count=written, path=destination)
-    if total == 0:
-        return i18n.t("page.export_batch.none")
-    if not_exported:
-        return i18n.t(
-            "page.export_batch.partial_stopped",
-            written=written,
-            total=total,
-            count=failed + not_exported,
-        )
-    return i18n.t(
-        "page.export_batch.partial_failed",
-        count=failed,
-        written=written,
-        total=total,
-    )
 
 
 class WorkspacePage:
@@ -1066,10 +1030,7 @@ class WorkspacePage:
         item = next((view for view in sets if view.render_key == key), None)
         if item is None:
             return i18n.t("common.original")
-        return formatting.display_label(
-            item.label_key,
-            item.label_context,
-        )
+        return formatting.label_text(item.label)
 
     def _version_rows(self, track: Track) -> tuple[tuple[OutputRow, ...], str]:
         sets = self.service.pitch_sets(track)
@@ -1113,7 +1074,7 @@ class WorkspacePage:
                 rows.append(
                     OutputRow(
                         key=role,
-                        name=_role_label(role),
+                        name=formatting.role_label(role),
                         badges=self._badges_for(role),
                         preview=self.service.separation_preview_target(track, set_key, role),
                         export_key=exports.get(("separation", role, None)),
@@ -1143,7 +1104,7 @@ class WorkspacePage:
             rows.append(
                 OutputRow(
                     key=role,
-                    name=_role_label(role),
+                    name=formatting.role_label(role),
                     badges=self._badges_for(role, shift=shift),
                     preview=self.service.pitch_render_preview_target(track, item.render_key, role),
                     export_key=exports.get((RenderScope.STEMS.value, role, item.render_key)),
@@ -1264,10 +1225,7 @@ class WorkspacePage:
                     )
                     (
                         ui.button(
-                            formatting.display_label(
-                                latest.label_key,
-                                latest.label_context,
-                            )
+                            formatting.label_text(latest.label)
                             if latest is not None
                             else i18n.t("page.ab_latest_fallback"),
                             on_click=lambda _=None: self._select_ab(track, "latest"),
@@ -1390,10 +1348,7 @@ class WorkspacePage:
                     classes += " is-active"
                 if item.based_on_earlier_separation:
                     classes += " is-stale"
-                label = formatting.display_label(
-                    item.label_key,
-                    item.label_context,
-                )
+                label = formatting.label_text(item.label)
                 text = (
                     i18n.t("page.version_tab_stale", label=label)
                     if item.based_on_earlier_separation
@@ -2116,7 +2071,7 @@ class WorkspacePage:
                     ExportBatchItem(
                         key=key,
                         state=ExportBatchItemState.NOT_EXPORTED,
-                        label_key=role_label_key(key.rsplit(":", 1)[-1]),
+                        label=LabelRef(key=role_label_key(key.rsplit(":", 1)[-1])),
                     )
                     for key in spec.target_keys
                 ),
@@ -2136,7 +2091,7 @@ class WorkspacePage:
             failure=failure,
         )
         self._export_notice = notice
-        headline = _export_batch_headline(
+        headline = formatting.export_batch_headline(
             written=len(result.written),
             failed=len(result.failed),
             not_exported=len(result.not_exported),
@@ -2903,14 +2858,7 @@ class WorkspacePage:
         if failure is not None and failure != errors.SEPARATION_MODEL_MISSING:
             return i18n.t("page.track_status_failed"), "is-bad"
         latest = self._latest_render(track)
-        latest_label = (
-            formatting.display_label(
-                latest.label_key,
-                latest.label_context,
-            )
-            if latest is not None
-            else ""
-        )
+        latest_label = formatting.label_text(latest.label) if latest is not None else ""
         if self.service.has_separation(track):
             if latest is not None:
                 return (
@@ -2980,10 +2928,7 @@ class WorkspacePage:
                 ui.label(
                     i18n.t(
                         "page.rendered_label",
-                        label=formatting.display_label(
-                            latest.label_key,
-                            latest.label_context,
-                        ),
+                        label=formatting.label_text(latest.label),
                     )
                     if latest is not None
                     else i18n.t("page.signal_not_rendered")

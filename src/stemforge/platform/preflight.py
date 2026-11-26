@@ -195,7 +195,7 @@ def format_human(report: PreflightReport) -> str:
 class NativeChrome:
     """The dialog text the Interface language owns.
 
-    This module cannot import the catalog, so ``__main__`` resolves every field
+    This module cannot import the catalogue, so ``__main__`` resolves every field
     and passes the result in; no English copy lives here.
     """
 

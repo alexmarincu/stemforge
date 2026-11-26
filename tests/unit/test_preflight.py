@@ -1234,6 +1234,52 @@ def test_no_window_opens_on_a_fatal_preflight(
 
 
 @pytest.mark.unit
+def test_a_configuration_failure_uses_the_saved_language_for_the_fatal_box(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from stemforge import __main__ as entry
+    from stemforge import i18n
+    from stemforge.settings import SettingsStore
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("STEMFORGE_HOME", str(home))
+    SettingsStore(AppPaths.from_environment().ensure()).set_language("en")
+    monkeypatch.setattr(i18n, "system_locale", lambda: "ro_RO.UTF-8")
+    shown: list[preflight.FatalMessage] = []
+    monkeypatch.setattr(
+        entry.preflight, "show_fatal_message", lambda message, **k: shown.append(message)
+    )
+
+    args = entry._build_parser().parse_args([])
+    code = entry._configuration_failure(args, OSError("blocked"))
+
+    assert code == preflight.EXIT_STORAGE_UNWRITABLE
+    assert len(shown) == 1
+    assert shown[0].title == "StemForge can't start"
+    assert shown[0].body.startswith("StemForge can't write to ")
+
+
+@pytest.mark.unit
+def test_a_configuration_failure_falls_back_to_system_without_readable_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from stemforge import __main__ as entry
+    from stemforge import i18n
+
+    monkeypatch.setenv("STEMFORGE_HOME", str(tmp_path / "empty-home"))
+    monkeypatch.setattr(i18n, "system_locale", lambda: "ro_RO.UTF-8")
+    shown: list[preflight.FatalMessage] = []
+    monkeypatch.setattr(
+        entry.preflight, "show_fatal_message", lambda message, **k: shown.append(message)
+    )
+
+    args = entry._build_parser().parse_args([])
+    entry._configuration_failure(args, OSError("blocked"))
+
+    assert shown[0].title == "StemForge nu poate porni"
+
+
+@pytest.mark.unit
 def test_second_instance_shows_the_native_message_and_exits_zero(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

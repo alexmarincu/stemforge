@@ -1,8 +1,8 @@
-"""The neutral Interface-language layer backed by per-locale JSON catalogs.
+"""The neutral Interface-language layer backed by per-locale JSON catalogues.
 
 English is the source locale and the per-key fallback. A message is either a
 string with ``{named}`` placeholders or a plural map carrying the locale's forms;
-``count`` selects the form. Catalogs are data, so this module imports neither
+``count`` selects the form. Catalogues are data, so this module imports neither
 NiceGUI nor another StemForge package and can be used before the window exists.
 """
 
@@ -50,7 +50,7 @@ Message = str | Mapping[str, str]
 
 @dataclass(frozen=True, slots=True)
 class Locale:
-    """Display metadata and the plural system one catalog follows."""
+    """Display metadata and the plural system one catalogue follows."""
 
     code: str
     autonym: str
@@ -90,7 +90,7 @@ _PLURAL_RULES: Mapping[str, Callable[[int], str]] = MappingProxyType(
 
 
 class Translator:
-    """One process-wide or test-scoped view of the locale catalogs."""
+    """One process-wide or test-scoped view of the locale catalogues."""
 
     def __init__(self, *, catalog_dir: Path | None = None) -> None:
         self._catalog_dir = Path(catalog_dir) if catalog_dir is not None else _catalog_dir()
@@ -132,7 +132,7 @@ class Translator:
     def has_message(self, message_id: str) -> bool:
         """Whether the source locale defines ``message_id``.
 
-        A renderer uses this to prefer a code's catalog copy and fall back to the
+        A renderer uses this to prefer a code's catalogue copy and fall back to the
         English string a snapshot already carries when the code is unknown.
         """
         return message_id in self._english
@@ -145,14 +145,14 @@ class Translator:
             fallback = self._english.get(message_id)
             if fallback is not None:
                 _LOG.warning(
-                    "message %r is missing from the %s catalog; using English",
+                    "message %r is missing from the %s catalogue; using English",
                     message_id,
                     self._language,
                 )
                 entry = fallback
                 locale_code = SOURCE_LOCALE
         if entry is None:
-            _LOG.warning("message %r is missing from the English catalog", message_id)
+            _LOG.warning("message %r is missing from the English catalogue", message_id)
             return message_id
         return _render(message_id, entry, locale_code, placeholders)
 
@@ -200,7 +200,7 @@ def preference() -> str:
 
 
 def locale_info(code: str) -> Locale:
-    """The autonym and plural rule for one shipped catalog."""
+    """The autonym and plural rule for one shipped catalogue."""
     return LOCALES[code]
 
 
@@ -209,7 +209,7 @@ def system_locale() -> str | None:
 
     ``LC_ALL`` wins over ``LC_MESSAGES`` and ``LANG``; when none is set the
     stdlib locale is the fallback. Windows reports a display name such as
-    ``Romanian_Romania``, so a Romanian system normalises to the catalog code.
+    ``Romanian_Romania``, so a Romanian system normalises to the catalogue code.
     """
     value: str | None = None
     for variable in ("LC_ALL", "LC_MESSAGES", "LANG"):
@@ -241,7 +241,7 @@ def _normalize_system_locale(value: object) -> str | None:
 
 
 def framework_language(code: str) -> Literal["ro", "en-GB"]:
-    """Map a catalog code to the language NiceGUI's Quasar layer expects."""
+    """Map a catalogue code to the language NiceGUI's Quasar layer expects."""
     return "ro" if code == "ro" else "en-GB"
 
 
@@ -256,7 +256,7 @@ def normalize_preference(value: object) -> str:
 
 
 def resolve_language(preference: object, system_locale: str | None = None) -> str:
-    """Resolve one preference and host locale to the effective catalog code."""
+    """Resolve one preference and host locale to the effective catalogue code."""
     normalized = normalize_preference(preference)
     if normalized != SYSTEM_PREFERENCE:
         return normalized
@@ -304,22 +304,22 @@ def _load_catalog(path: Path, locale: Locale) -> dict[str, Message] | None:
     try:
         raw = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
-        _LOG.warning("locale catalog %s is unreadable (%s); using English", path, exc)
+        _LOG.warning("locale catalogue %s is unreadable (%s); using English", path, exc)
         return None
     try:
         payload: object = json.loads(raw)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        _LOG.warning("locale catalog %s is damaged (%s); using English", path, exc)
+        _LOG.warning("locale catalogue %s is damaged (%s); using English", path, exc)
         return None
     if not isinstance(payload, dict):
-        _LOG.warning("locale catalog %s is damaged (not a JSON object); using English", path)
+        _LOG.warning("locale catalogue %s is damaged (not a JSON object); using English", path)
         return None
 
     entries: dict[str, Message] = {}
     forms = set(locale.plural_forms)
     for key, value in payload.items():
         if not isinstance(key, str) or not key:
-            _LOG.warning("locale catalog %s is damaged (invalid key); using English", path)
+            _LOG.warning("locale catalogue %s is damaged (invalid key); using English", path)
             return None
         if isinstance(value, str):
             entries[key] = value
@@ -331,7 +331,7 @@ def _load_catalog(path: Path, locale: Locale) -> dict[str, Message] | None:
         ):
             entries[key] = MappingProxyType(dict(value))
             continue
-        _LOG.warning("locale catalog %s is damaged (entry %r); using English", path, key)
+        _LOG.warning("locale catalogue %s is damaged (entry %r); using English", path, key)
         return None
     return entries
 

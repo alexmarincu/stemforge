@@ -9,7 +9,7 @@ from stemforge.application.identity import separation_key
 from stemforge.application.state import JobLedger, WorkspaceState
 from stemforge.application.views import SeparationSet
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.display import SEPARATION_LABEL_KEY
+from stemforge.domain.display import SEPARATION_LABEL_KEY, LabelRef
 from stemforge.domain.models import JobKind, Track
 from stemforge.domain.roles import STEM_ROLES
 from stemforge.engines.media import MediaTool
@@ -59,7 +59,7 @@ class SeparationService:
                 created_at=artifact.created_at,
                 stem_roles=STEM_ROLES,
                 based_on_earlier_separation=False,
-                label_key=SEPARATION_LABEL_KEY,
+                label=LabelRef(key=SEPARATION_LABEL_KEY),
             ),
         )
 

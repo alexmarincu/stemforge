@@ -2,7 +2,7 @@
 
 The approved Romanian renderings for every glossary term that appears in the
 interface, plus the interface vocabulary that names actions and sections. This
-file is the translation contract: the Romanian catalog uses these renderings, and
+file is the translation contract: the Romanian catalogue uses these renderings, and
 the copy policy test rejects the avoided forms.
 
 `GLOSSARY.md` remains the canonical English vocabulary. This table is its Romanian
@@ -132,7 +132,7 @@ everything else. The **other** form takes **de** before the noun.
 | 0, 2–19, 101–119, 201–219, … | few | `2 fișiere`, `19 stemuri`, `101 stemuri` |
 | 20–100, 120–199, … | other | `20 de fișiere`, `120 de stemuri`, `20 de minute` |
 
-The English catalog uses **one** and **other** only. A plural entry is an object
+The English catalogue uses **one** and **other** only. A plural entry is an object
 with the locale's forms, not a set of singular/plural constants.
 
 ## Diacritics and punctuation
@@ -153,7 +153,7 @@ tags; licence documents and their file names.
 
 ## Avoided renderings
 
-The copy policy may test for these forms in the Romanian catalog:
+The copy policy may test for these forms in the Romanian catalogue:
 
 - **pistă** for a Track or Stem; only **pistă audio** for an audio stream.
 - **încarcă**, **adaugă**, **ingerează** for Import.
