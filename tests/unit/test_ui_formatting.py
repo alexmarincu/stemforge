@@ -2,17 +2,44 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.domain.models import JobKind, OriginKind, Source, SourceMetadata, Track
 from stemforge.ui import formatting
 
 pytestmark = pytest.mark.unit
+
+ENGLISH_CATALOG = (
+    Path(__file__).resolve().parents[2] / "src" / "stemforge" / "i18n" / "catalogs" / "en.json"
+)
+
+
+def _english_catalog() -> dict[str, object]:
+    payload: object = json.loads(ENGLISH_CATALOG.read_text(encoding="utf-8"))
+    assert isinstance(payload, dict)
+    return payload
+
+
+def _catalog_translator(tmp_path: Path, overrides: Mapping[str, str]) -> i18n.Translator:
+    payload = _english_catalog()
+    payload.update(overrides)
+    (tmp_path / "en.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    language = i18n.Translator(catalog_dir=tmp_path)
+    assert language.set_language("en") == "en"
+    return language
+
+
+def _template(key: str) -> str:
+    value = _english_catalog()[key]
+    assert isinstance(value, str)
+    return value
 
 
 def test_duration_is_m_ss_and_handles_hours() -> None:
@@ -230,6 +257,107 @@ def test_dynamic_copy_never_exceeds_the_headline_cap() -> None:
     assert len(copy.headline) <= formatting.MAX_HEADLINE_LENGTH
     assert copy.headline.startswith("Not enough space at a-very-long-export-folder-")
     assert "…" in copy.headline
+
+
+@pytest.mark.parametrize(
+    ("key", "placeholder"),
+    [
+        ("error.import.too_long.duration.headline", "{duration}"),
+        ("error.import.youtube_too_long.duration.headline", "{duration}"),
+        ("error.export.write_failed.folder.headline", "{folder}"),
+        ("error.storage.disk_full.export.headline", "{folder}"),
+        ("error.storage.disk_full.export.headline", "{required}"),
+        ("error.storage.disk_full.import.headline", "{required}"),
+        ("error.storage.disk_full.import.headline", "{free}"),
+        ("error.storage.permission_denied.path.headline", "{path}"),
+        ("error.preflight.storage_unwritable.path.headline", "{path}"),
+    ],
+)
+def test_dynamic_error_templates_carry_named_placeholders(key: str, placeholder: str) -> None:
+    assert placeholder in _template(key)
+
+
+def test_dynamic_sentences_render_their_catalog_templates() -> None:
+    duration = formatting.copy_for(errors.IMPORT_TOO_LONG, context={"duration_s": 1_872.0})
+    video_duration = formatting.copy_for(
+        errors.IMPORT_YOUTUBE_TOO_LONG, context={"duration_s": 1_450.0}
+    )
+    folder = formatting.copy_for(
+        errors.EXPORT_WRITE_FAILED,
+        "permission",
+        context={"path": "/home/alex/exports"},
+    )
+    export_space = formatting.copy_for(
+        errors.STORAGE_DISK_FULL,
+        "export",
+        context={"path": "/home/alex/exports", "required": 120_000_000},
+    )
+    import_space = formatting.copy_for(
+        errors.STORAGE_DISK_FULL,
+        context={"path": "/home/alex/stemforge", "required": 120_000_000, "free": 10_485_760},
+    )
+    permission = formatting.copy_for(
+        errors.STORAGE_PERMISSION_DENIED,
+        context={"path": "/home/alex/stemforge"},
+    )
+    video_no_audio = formatting.copy_for(errors.IMPORT_NO_AUDIO_STREAM, origin=OriginKind.YOUTUBE)
+
+    assert duration.headline == _template("error.import.too_long.duration.headline").format(
+        duration="31:12"
+    )
+    assert video_duration.headline == _template(
+        "error.import.youtube_too_long.duration.headline"
+    ).format(duration="24:10")
+    assert folder.headline == _template("error.export.write_failed.folder.headline").format(
+        folder="exports"
+    )
+    assert export_space.headline == _template("error.storage.disk_full.export.headline").format(
+        folder="exports", required="114.4 MB"
+    )
+    assert import_space.headline == _template("error.storage.disk_full.import.headline").format(
+        required="114.4 MB", free="10.0 MB"
+    )
+    assert permission.headline == _template("error.storage.permission_denied.path.headline").format(
+        path="/home/alex/stemforge"
+    )
+    assert video_no_audio.headline == _template("error.import.no_audio_stream.video.headline")
+    assert video_no_audio.action == _template("error.import.no_audio_stream.video.action")
+
+
+def test_a_dynamic_sentence_reads_the_catalog_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    language = _catalog_translator(
+        tmp_path,
+        {"error.import.too_long.duration.headline": "Catalog says {duration}."},
+    )
+    monkeypatch.setattr(formatting, "i18n", language)
+
+    copy = formatting.copy_for(errors.IMPORT_TOO_LONG, context={"duration_s": 1_872.0})
+
+    assert copy.headline == "Catalog says 31:12."
+
+
+def test_a_dynamic_headline_at_the_cap_falls_back_to_the_catalog_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    language = _catalog_translator(
+        tmp_path,
+        {
+            "error.import.too_long.headline": "Catalog base headline.",
+            "error.import.too_long.action": "Catalog base action.",
+            "error.import.too_long.duration.headline": (
+                "This track is {duration} long, which is far beyond the thirty-minute "
+                "limit this build allows for a local import."
+            ),
+        },
+    )
+    monkeypatch.setattr(formatting, "i18n", language)
+
+    copy = formatting.copy_for(errors.IMPORT_TOO_LONG, context={"duration_s": 1_872.0})
+
+    assert len(copy.headline) <= formatting.MAX_HEADLINE_LENGTH
+    assert (copy.headline, copy.action) == ("Catalog base headline.", "Catalog base action.")
 
 
 def test_dynamic_copy_falls_back_when_context_is_missing() -> None:
