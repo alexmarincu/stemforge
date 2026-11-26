@@ -17,7 +17,7 @@ __all__ = [
     "DETAIL_EXPORT_CHECKING_DESTINATION",
     "DETAIL_EXPORT_VERIFYING_TAGS",
     "DETAIL_EXPORT_WRITING_FILE",
-    "DETAIL_IMPORT_SOURCE_FILE",
+    "DETAIL_IMPORT_NATIVE_FILE",
     "DETAIL_MODEL_ALREADY_INSTALLED",
     "DETAIL_MODEL_DOWNLOAD_PROGRESS",
     "DETAIL_PITCH_CACHED_RENDER",
@@ -171,7 +171,7 @@ STAGE_CODES: Final[frozenset[str]] = frozenset(
     }
 )
 
-DETAIL_IMPORT_SOURCE_FILE: Final = "job.detail.import.source_file"
+DETAIL_IMPORT_NATIVE_FILE: Final = "job.detail.import.native_file"
 
 DETAIL_YOUTUBE_RESOLVING_METADATA: Final = "job.detail.youtube.resolving_metadata"
 DETAIL_YOUTUBE_METADATA_RESOLVED: Final = "job.detail.youtube.metadata_resolved"
@@ -219,7 +219,7 @@ DETAIL_MODEL_DOWNLOAD_PROGRESS: Final = "job.detail.model.download_progress"
 
 DETAIL_CODES: Final[frozenset[str]] = frozenset(
     {
-        DETAIL_IMPORT_SOURCE_FILE,
+        DETAIL_IMPORT_NATIVE_FILE,
         DETAIL_YOUTUBE_RESOLVING_METADATA,
         DETAIL_YOUTUBE_METADATA_RESOLVED,
         DETAIL_YOUTUBE_DOWNLOAD_COMPLETE,

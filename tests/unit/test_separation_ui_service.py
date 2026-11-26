@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.models import (
@@ -241,7 +241,7 @@ def test_export_targets_cover_vocals_instrumental_and_the_three_secondary_stems(
         "bass",
         "other",
     }
-    assert {target.role: target.label for target in targets} == {
+    assert {target.role: i18n.t(target.label_key) for target in targets} == {
         "vocals": "Vocals",
         "instrumental": "Instrumental",
         "drums": "Drums",

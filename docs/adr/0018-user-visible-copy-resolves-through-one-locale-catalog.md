@@ -46,18 +46,28 @@ platform rendering is a risk for near-zero gain); a source hash per translation
 entry (rejected: churn for one locale, while structural CI catches the real
 failure, an orphaned or missing key).
 
-**Consequences:** every user-visible string must resolve through a catalog ID; the
-copy-policy test moves its source from the UI copy module to the English catalog
-and requires catalog keys at call sites. The UI copy module keeps formatting and
-code-to-message mapping, not prose. Job snapshots gain stage and detail codes plus
-a detail context alongside the English strings that logs and the headless CLI
-keep. Application and pipeline layers return stable role and kind keys; filename
-role labels stay English so a Romanian interface still writes
-`Song - Vocals.flac`. Tests pin English explicitly rather than reading the host
-locale; a Romanian page-render smoke test and catalog-parity tests guard the
-translation. `GLOSSARY.md` gains **Interface language**, and
+**Consequences:** every user-visible string resolves through a catalog ID; no
+parallel English copy table remains. The English catalog is the source and the
+Romanian catalog mirrors it, including the locale's plural shape. The UI copy
+module keeps formatting, the code-to-message mapping, and display-key
+realisation, not prose. Job snapshots gain stage and detail codes plus a detail
+context alongside the English strings that logs and the headless CLI keep.
+Application and pipeline layers return stable role and kind keys instead of
+pre-rendered labels; filename role labels stay English so a Romanian interface
+still writes `Song - Vocals.flac`. Tests pin English explicitly rather than
+reading the host locale; a Romanian page-render smoke test, the catalog structure
+tests, and the copy-policy test guard the translation across the page shell,
+components, preflight chrome, and fatal copy. The shipped selector offers System,
+English, and Română under Settings → Behaviour, persisted as `system`/`en`/`ro`;
+System resolves the OS locale at each launch, and an unknown value falls back to
+`system` without corrupt-setting recovery. Changing the language reloads the page
+while the Workspace and Jobs survive. CLI output, including `--preflight`, stays
+English while the native fatal and already-running dialog chrome follows the
+Interface language. Logs, the diagnostics report body, preflight report messages,
+exported filenames and audio tags, native file-dialog filter descriptions, and
+licence documents remain English. `GLOSSARY.md` gains **Interface language**, and
 `docs/i18n/ro/terms.md` records the approved Romanian renderings and the forms the
 copy policy rejects. Translator credits live in `TRANSLATORS.md` and one About
 line. The implementation landed as a wide refactor in expand-contract order:
-foundation, copy-migration batches, Job and display codes, then the Romanian
-locale and language setting.
+foundation, copy-migration batches, Job and display codes, the Romanian locale
+and language setting, then the legacy copy contraction.

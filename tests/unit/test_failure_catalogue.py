@@ -511,8 +511,7 @@ def _metadata_with_duration(duration: float) -> youtube.YouTubeMetadata:
 
 @pytest.mark.parametrize("code", sorted(errors.ALL_CODES))
 def test_every_code_has_a_headline_and_one_recovery_action(code: str) -> None:
-    assert code in formatting.COPY_BY_CODE, code
-    copy = formatting.COPY_BY_CODE[code]
+    copy = formatting.copy_for(code)
     assert copy.headline.strip(), code
     assert len(copy.headline) <= formatting.MAX_HEADLINE_LENGTH == 90, code
     assert copy.action.strip(), code
@@ -541,9 +540,9 @@ def test_the_trigger_table_covers_the_taxonomy() -> None:
     assert set(TRIGGERS) | set(EXPLICIT_EXCEPTIONS) == errors.ALL_CODES
 
 
-def test_no_duplicate_trigger_or_copy_keys() -> None:
+def test_no_duplicate_trigger_keys() -> None:
     assert len(TRIGGERS) == len(set(TRIGGERS))
-    assert len(formatting.COPY_BY_CODE) == len(errors.ALL_CODES)
+    assert len(errors.ALL_CODES) == len(set(errors.ALL_CODES))
 
 
 def test_the_independent_taxonomy_copies_stay_in_sync() -> None:
@@ -575,7 +574,7 @@ def test_retry_flags_are_owned_by_the_raising_code() -> None:
 
 
 def test_internal_unexpected_is_only_the_unknown_fallback() -> None:
-    fallback = formatting.COPY_BY_CODE[errors.INTERNAL_UNEXPECTED]
+    fallback = formatting.copy_for(errors.INTERNAL_UNEXPECTED)
     assert fallback.headline == "Something went wrong."
     assert "log" in fallback.action.lower()
     # The only supported-workflow trigger is an unknown exception class, not a

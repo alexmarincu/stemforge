@@ -195,21 +195,17 @@ def format_human(report: PreflightReport) -> str:
 class NativeChrome:
     """The dialog text the Interface language owns.
 
-    The English defaults keep this module importable and usable before the
-    catalog or the window exists; ``__main__`` resolves the catalog and passes
-    the result in.
+    This module cannot import the catalog, so ``__main__`` resolves every field
+    and passes the result in; no English copy lives here.
     """
 
-    fatal_title: str = "StemForge can't start"
-    details_label: str = "Details:"
-    logs_unavailable: str = "Logs are unavailable."
-    copy_details_label: str = "Copy details"
-    ok_label: str = "OK"
-    already_running_title: str = "StemForge is already running"
-    already_running_body: str = "StemForge is already running. Only one copy can run at a time."
-
-
-DEFAULT_CHROME: Final = NativeChrome()
+    fatal_title: str
+    details_label: str
+    logs_unavailable: str
+    copy_details_label: str
+    ok_label: str
+    already_running_title: str
+    already_running_body: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +217,7 @@ class FatalMessage:
     fix_line: str
     log_path: Path | None
     copy_text: str
-    chrome: NativeChrome = DEFAULT_CHROME
+    chrome: NativeChrome
 
     @property
     def title(self) -> str:
@@ -244,7 +240,7 @@ def build_fatal_message(
     fix_line: str,
     log_path: Path | None,
     copy_text: str,
-    chrome: NativeChrome | None = None,
+    chrome: NativeChrome,
 ) -> FatalMessage:
     """Assemble the body of the native fatal box."""
     return FatalMessage(
@@ -253,7 +249,7 @@ def build_fatal_message(
         fix_line=fix_line,
         log_path=log_path,
         copy_text=copy_text,
-        chrome=DEFAULT_CHROME if chrome is None else chrome,
+        chrome=chrome,
     )
 
 
@@ -1114,8 +1110,8 @@ def _show_native_message(
     body: str,
     copy_text: str | None,
     *,
-    copy_label: str = DEFAULT_CHROME.copy_details_label,
-    ok_label: str = DEFAULT_CHROME.ok_label,
+    copy_label: str,
+    ok_label: str,
     backend: MessageBackend | None = None,
 ) -> None:
     if backend is not None:
@@ -1145,11 +1141,9 @@ def show_fatal_message(message: FatalMessage, *, backend: MessageBackend | None 
     )
 
 
-def show_already_running(
-    *, backend: MessageBackend | None = None, chrome: NativeChrome | None = None
-) -> None:
+def show_already_running(*, chrome: NativeChrome, backend: MessageBackend | None = None) -> None:
     """Show the native single-instance message and return; the caller exits 0."""
-    text = DEFAULT_CHROME if chrome is None else chrome
+    text = chrome
     _show_native_message(
         text.already_running_title,
         text.already_running_body,
@@ -1170,8 +1164,8 @@ def _gtk_message_dialog(
     body: str,
     copy_text: str | None,
     *,
-    copy_label: str = DEFAULT_CHROME.copy_details_label,
-    ok_label: str = DEFAULT_CHROME.ok_label,
+    copy_label: str,
+    ok_label: str,
 ) -> bool:
     try:
         gi = importlib.import_module("gi")

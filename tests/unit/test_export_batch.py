@@ -44,7 +44,6 @@ def _target(
     return ExportTarget(
         source_id=SOURCE_ID,
         key=key,
-        label=role.title(),
         role=role,
         path=Path("/cache") / f"{key.replace(':', '-')}.wav",
         gain_db=0.0,

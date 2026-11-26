@@ -128,7 +128,6 @@ class PitchCard:
             formatting.display_label(
                 existing.label_key,
                 existing.label_context,
-                fallback=existing.label,
             )
             if existing is not None
             else ""
@@ -171,7 +170,6 @@ class PitchCard:
             label = formatting.display_label(
                 existing.label_key,
                 existing.label_context,
-                fallback=existing.label,
             )
             (
                 ui.button(

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import json
-import re
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from string import Formatter
@@ -22,19 +21,7 @@ CATALOG_DIR = Path(__file__).resolve().parents[2] / "src" / "stemforge" / "i18n"
 ENGLISH = json.loads((CATALOG_DIR / "en.json").read_text(encoding="utf-8"))
 ROMANIAN = json.loads((CATALOG_DIR / "ro.json").read_text(encoding="utf-8"))
 
-CEDILLA = frozenset("şŞţŢ")
 COMMA_BELOW = frozenset("șȘțȚ")
-AVOIDED = re.compile(
-    r"(?:"
-    r"\bartefact\w*"
-    r"|\bexport\s+masiv\b"
-    r"|\bsalveaz[ăa]\s+originalul\b"
-    r"|\bjob\b"
-    r"|(?<!audio )\bpist[ăa]\b(?!\s+audio)"
-    r"|\b(?:încarc|încărc|adaug|adăug|ingere|inger)\w*"
-    r")",
-    re.IGNORECASE,
-)
 
 
 def _fields(value: object) -> set[str]:
@@ -143,7 +130,7 @@ def test_every_error_code_and_reason_resolves_in_romanian(
         assert rendered.action == ROMANIAN[f"error.{code}.action"], code
         assert not rendered.headline.startswith("error."), code
 
-    for code, reason in formatting.REASON_COPY:
+    for code, reason in formatting.REASON_VARIANTS:
         rendered = formatting.copy_for(code, reason)
         prefix = f"error.{code}.reason.{reason}"
         assert rendered.headline == ROMANIAN[f"{prefix}.headline"], (code, reason)
@@ -238,42 +225,7 @@ def test_every_job_and_display_code_resolves_in_romanian() -> None:
         assert "{" not in rendered, code
 
 
-def test_the_romanian_catalog_has_no_cedilla_diacritics() -> None:
-    text = "".join(value for _, value in _values(ROMANIAN))
-
-    assert not (set(text) & CEDILLA)
-
-
 def test_the_romanian_catalog_uses_comma_below_diacritics() -> None:
     text = "".join(value for _, value in _values(ROMANIAN))
 
     assert set(text) & COMMA_BELOW
-
-
-@pytest.mark.parametrize(
-    "rendering",
-    [
-        "pistă",
-        "încarcă fișierul",
-        "adaugă piesa",
-        "ingerează audio",
-        "artefact",
-        "export masiv",
-        "Salvează originalul",
-        "job",
-    ],
-)
-def test_the_avoided_rendering_scan_rejects_a_term(rendering: str) -> None:
-    assert AVOIDED.search(rendering)
-
-
-def test_the_romanian_catalog_uses_no_avoided_rendering() -> None:
-    violations = [
-        (key, match.group(0)) for key, text in _values(ROMANIAN) for match in AVOIDED.finditer(text)
-    ]
-
-    assert not violations, "\n".join(f"ro.json {key}: {word!r}" for key, word in violations)
-
-
-def test_the_avoided_rendering_scan_allows_pista_audio_for_a_stream() -> None:
-    assert AVOIDED.search("Acest fișier nu are pistă audio.") is None

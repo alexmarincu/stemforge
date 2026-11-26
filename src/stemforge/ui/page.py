@@ -37,6 +37,7 @@ from stemforge.application import (
     PreviewTarget,
     WorkspaceService,
 )
+from stemforge.domain.display import role_label_key
 from stemforge.domain.models import JobKind, OriginKind, RenderScope, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import (
@@ -77,7 +78,6 @@ from stemforge.ui.components.youtube import YouTubeRow
 from stemforge.ui.failure import JobFailure
 from stemforge.ui.toast import toast
 
-TITLE: Final = formatting.APP_NAME
 POLL_INTERVAL_S: Final = 0.4
 RECENT_VISIBLE: Final = 3
 OUTPUT_ROLES: Final = SEPARATION_OUTPUT_ROLES
@@ -1069,7 +1069,6 @@ class WorkspacePage:
         return formatting.display_label(
             item.label_key,
             item.label_context,
-            fallback=item.label,
         )
 
     def _version_rows(self, track: Track) -> tuple[tuple[OutputRow, ...], str]:
@@ -1268,7 +1267,6 @@ class WorkspacePage:
                             formatting.display_label(
                                 latest.label_key,
                                 latest.label_context,
-                                fallback=latest.label,
                             )
                             if latest is not None
                             else i18n.t("page.ab_latest_fallback"),
@@ -1395,7 +1393,6 @@ class WorkspacePage:
                 label = formatting.display_label(
                     item.label_key,
                     item.label_context,
-                    fallback=item.label,
                 )
                 text = (
                     i18n.t("page.version_tab_stale", label=label)
@@ -2118,8 +2115,8 @@ class WorkspacePage:
                 items=tuple(
                     ExportBatchItem(
                         key=key,
-                        label=key,
                         state=ExportBatchItemState.NOT_EXPORTED,
+                        label_key=role_label_key(key.rsplit(":", 1)[-1]),
                     )
                     for key in spec.target_keys
                 ),
@@ -2910,7 +2907,6 @@ class WorkspacePage:
             formatting.display_label(
                 latest.label_key,
                 latest.label_context,
-                fallback=latest.label,
             )
             if latest is not None
             else ""
@@ -2987,7 +2983,6 @@ class WorkspacePage:
                         label=formatting.display_label(
                             latest.label_key,
                             latest.label_context,
-                            fallback=latest.label,
                         ),
                     )
                     if latest is not None

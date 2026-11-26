@@ -57,7 +57,6 @@ class SeparationService:
             SeparationSet(
                 set_key=separation_key(artifact),
                 created_at=artifact.created_at,
-                label="Separation",
                 stem_roles=STEM_ROLES,
                 based_on_earlier_separation=False,
                 label_key=SEPARATION_LABEL_KEY,

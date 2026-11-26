@@ -176,7 +176,7 @@
   "job.detail.export.checking_destination": "checking the destination",
   "job.detail.export.verifying_tags": "verifying tags and cover",
   "job.detail.export.writing_file": "writing the file",
-  "job.detail.import.source_file": "{name}",
+  "job.detail.import.native_file": "{name}",
   "job.detail.model.already_installed": "already installed",
   "job.detail.model.download_progress": "{downloaded} / {total} MB",
   "job.detail.pitch.cached_render": "this render set already exists",

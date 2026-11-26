@@ -20,16 +20,8 @@ from stemforge.domain.models import RenderScope, Track
 from stemforge.domain.roles import INSTRUMENTAL_ROLE
 from stemforge.engines.media import ExportFormat
 
-# Presentation order and labels for Separation outputs. Instrumental is a stored
-# Artifact, not a Stem (GLOSSARY), so the map is deliberately not named for stems.
-SEPARATION_ROLE_LABELS: Final[Mapping[str, str]] = {
-    "vocals": "Vocals",
-    INSTRUMENTAL_ROLE: "Instrumental",
-    "drums": "Drums",
-    "bass": "Bass",
-    "other": "Other",
-}
-
+# Presentation order for Separation outputs. Instrumental is a stored Artifact,
+# not a Stem (GLOSSARY), so the tuple is deliberately not named for stems.
 SEPARATION_OUTPUT_ROLES: Final[tuple[str, ...]] = (
     "vocals",
     INSTRUMENTAL_ROLE,
@@ -154,7 +146,6 @@ class PreviewTarget:
     """
 
     key: str
-    label: str
     url: str
     gain_db: float = 0.0
     label_key: str = ""
@@ -197,7 +188,6 @@ class ExportBatchItem:
     """One planned output and the outcome the batch recorded for it."""
 
     key: str
-    label: str
     state: ExportBatchItemState
     path: Path | None = None
     error_code: str | None = None
@@ -289,8 +279,9 @@ class LicenceFiles:
 class PitchSet:
     """One immutable Render set as version tabs and A/B see it.
 
-    ``label`` is the tab text (``+3`` or, when both scopes exist at one
-    semitone, ``+3 master`` / ``+3 stems``). ``based_on_earlier_separation``
+    ``label_key`` and ``label_context`` carry the tab text (``+3``, or
+    ``+3 master`` / ``+3 stems`` when both scopes exist at one semitone);
+    the UI renders them at display time. ``based_on_earlier_separation``
     records that the set's recorded input hashes no longer match the current
     Stems; such a set stays listed and selectable.
     """
@@ -298,7 +289,6 @@ class PitchSet:
     render_key: str
     semitones: int
     scope: RenderScope
-    label: str
     created_at: datetime
     based_on_earlier_separation: bool = False
     label_key: str = ""
@@ -317,7 +307,6 @@ class SeparationSet:
 
     set_key: str
     created_at: datetime
-    label: str
     stem_roles: tuple[str, ...]
     based_on_earlier_separation: bool = False
     label_key: str = ""

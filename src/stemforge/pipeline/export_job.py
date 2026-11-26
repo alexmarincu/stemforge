@@ -76,12 +76,23 @@ __all__ = [
     "STEM_ROLES",
     "ExportResult",
     "ExportTarget",
+    "english_target_label",
     "export_targets",
     "resolve_export_target",
     "run_export_job",
 ]
 
 ORIGINAL_ROLE: Final = "original"
+
+
+def english_target_label(role: str, semitones: int = 0) -> str:
+    """The English detail text a Job snapshot keeps for logs and the CLI.
+
+    It is not display copy: the UI resolves ``label_key`` through the catalog.
+    """
+    label = ROLE_LABELS.get(role, role.replace("_", " ").title())
+    return f"{label} {semitones:+d} st" if semitones else label
+
 
 STAGE_ENCODING: Final = "Encoding"
 STAGE_TAGGING: Final = "Tagging"
@@ -104,7 +115,6 @@ class ExportTarget:
 
     source_id: str
     key: str
-    label: str
     role: str
     path: Path
     gain_db: float
@@ -301,7 +311,7 @@ def run_export_job(
             0.05,
             STAGE_ENCODING,
             ProgressDetail(
-                resolved.label,
+                english_target_label(resolved.role, resolved.semitones),
                 code=resolved.label_key,
                 context=resolved.label_context,
             ),
@@ -401,7 +411,6 @@ def _master_target(source: SourceArtifact, title: str) -> ExportTarget | None:
     return ExportTarget(
         source_id=source.source_id,
         key="master",
-        label=ROLE_LABELS["original"],
         role=ORIGINAL_ROLE,
         path=path,
         gain_db=source.gain_db,
@@ -431,7 +440,6 @@ def _separation_target(
     return ExportTarget(
         source_id=separation.source_id,
         key=(INSTRUMENTAL_ROLE if role == INSTRUMENTAL_ROLE else f"stem:{role}"),
-        label=ROLE_LABELS[role],
         role=role,
         path=path,
         gain_db=separation.gain_db,
@@ -477,7 +485,6 @@ def _render_target(render: RenderArtifact, role: str, title: str) -> ExportTarge
     return ExportTarget(
         source_id=render.source_id,
         key=f"render:{render.render_key}:{role}",
-        label=f"{ROLE_LABELS[role]} {semitones:+d} st",
         role=role,
         path=path,
         gain_db=render.gain_db,

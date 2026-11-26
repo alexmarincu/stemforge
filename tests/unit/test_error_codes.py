@@ -125,9 +125,9 @@ def test_catalogue_contains_every_expected_code() -> None:
 
 
 @pytest.mark.unit
-def test_every_code_has_exactly_one_headline_and_action() -> None:
-    assert set(formatting.COPY_BY_CODE) == errors.ALL_CODES
-    for code, copy in formatting.COPY_BY_CODE.items():
+def test_every_code_renders_one_bounded_headline_and_action() -> None:
+    for code in sorted(errors.ALL_CODES):
+        copy = formatting.copy_for(code)
         assert copy.headline, code
         assert len(copy.headline) <= formatting.MAX_HEADLINE_LENGTH == 90, code
         assert copy.action.strip(), code
@@ -138,7 +138,8 @@ def test_every_code_has_exactly_one_headline_and_action() -> None:
 
 @pytest.mark.unit
 def test_reason_specific_copy_is_also_bounded() -> None:
-    for (code, reason), copy in formatting.REASON_COPY.items():
+    for code, reason in formatting.REASON_VARIANTS:
+        copy = formatting.copy_for(code, reason)
         assert code in errors.ALL_CODES, (code, reason)
         assert copy.headline, (code, reason)
         assert len(copy.headline) <= formatting.MAX_HEADLINE_LENGTH, (code, reason)
@@ -147,7 +148,7 @@ def test_reason_specific_copy_is_also_bounded() -> None:
 
 @pytest.mark.unit
 def test_the_reason_variant_set_is_the_expected_fifteen() -> None:
-    assert set(formatting.REASON_COPY) == EXPECTED_REASON_VARIANTS
+    assert formatting.REASON_VARIANTS == EXPECTED_REASON_VARIANTS
 
 
 @pytest.mark.unit
@@ -178,26 +179,6 @@ def test_every_reason_variant_has_a_catalog_headline_and_action(code: str, reaso
     assert headline.strip(), headline_key
     assert isinstance(action, str), action_key
     assert action.strip(), action_key
-
-
-@pytest.mark.unit
-def test_the_catalog_base_rows_match_the_legacy_tables_while_both_exist() -> None:
-    for code, legacy in formatting.COPY_BY_CODE.items():
-        rendered = formatting.copy_for(code)
-        assert (rendered.headline, rendered.action) == (
-            legacy.headline,
-            legacy.action,
-        ), code
-
-
-@pytest.mark.unit
-def test_the_catalog_reason_rows_match_the_legacy_tables_while_both_exist() -> None:
-    for (code, reason), legacy in formatting.REASON_COPY.items():
-        rendered = formatting.copy_for(code, reason)
-        assert (rendered.headline, rendered.action) == (
-            legacy.headline,
-            legacy.action,
-        ), (code, reason)
 
 
 @pytest.mark.unit

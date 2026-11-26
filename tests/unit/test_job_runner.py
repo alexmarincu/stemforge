@@ -264,7 +264,7 @@ def test_snapshots_poll_queued_running_and_succeeded_states(runner: JobRunner) -
             stage_code="job.stage.import.decoding",
             stage_context={"part": 1},
             detail="half",
-            detail_code="job.detail.import.source_file",
+            detail_code="job.detail.import.native_file",
             detail_context={"name": "song.wav"},
         )
         started.set()
@@ -290,7 +290,7 @@ def test_snapshots_poll_queued_running_and_succeeded_states(runner: JobRunner) -
     assert running.stage_code == "job.stage.import.decoding"
     assert dict(running.stage_context) == {"part": 1}
     assert running.detail == "half"
-    assert running.detail_code == "job.detail.import.source_file"
+    assert running.detail_code == "job.detail.import.native_file"
     assert dict(running.detail_context) == {"name": "song.wav"}
     assert running.started_at is not None
     assert running.finished_at is None

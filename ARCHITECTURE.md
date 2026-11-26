@@ -215,7 +215,7 @@ contract.
 
 | Unit | Responsibility | Key modules | Allowed dependencies |
 |---|---|---|---|
-| `ui` (package) | The NiceGUI page, theme tokens, formatting, error-copy mapping, failure view, and feature cards. | `page.py`, `theme.py`, `formatting.py`, `failure.py`, `toast.py`, `components/` | `application`, `integration`, `domain`, `errors` |
+| `ui` (package) | The NiceGUI page, theme tokens, formatting helpers, the error-code-to-catalog mapping, failure view, and feature cards. It owns no copy. | `page.py`, `theme.py`, `formatting.py`, `failure.py`, `toast.py`, `components/` | `application`, `integration`, `domain`, `errors` |
 | `application` (package) | The UI's one facade, shared Workspace state, Job ledger, and per-feature collaborators. | `service.py` (`WorkspaceService`), `state.py` (`WorkspaceState`, `JobLedger`), `views.py`, `collaborators/` | `pipeline`, `jobs`, `engines`, `artifacts`, `models`, `settings`, `domain`, `platform`, `errors` |
 | `integration` (package) | The OS edge: native dialogs, the media route, window configuration, path opener, diagnostics. | `dialogs.py`, `media.py`, `window.py`, `shell.py`, `diagnostics.py`, `assets.py` | `artifacts`, `models`, `settings`, `pipeline.export_names`, `platform`, `errors` |
 | `pipeline` (package) | The Job bodies and pure helpers: import, YouTube import, Separation, Pitch Render, Export, Save original, model install. | `import_job.py`, `youtube_job.py`, `separation_job.py`, `pitch_job.py`, `export_job.py`, `export_batch_job.py`, `save_original_job.py`, `export_names.py`, `model_job.py`, `gain.py`, `source_manifest.py` | `jobs`, `engines`, `artifacts`, `models`, `settings`, `domain`, `worker_protocol`, `errors` |
@@ -267,7 +267,7 @@ receives explicit dependencies and never holds the facade.
 | Add a Job kind | `domain/models.py` (`JobKind`), a new or extended `pipeline/` function, the owning `application/collaborators/` module, a stage/detail code in `domain/progress.py` plus English copy, and `ui/page.py` if it needs a new failure surface. | A Job must return a mapping of string result keys or `None`; its `identity` must be stable while active; it must honour `ctx.cancel` at every checkpoint before the manifest write. |
 | Add an engine adapter | A protocol and implementation under `engines/`, a field in `application.ServiceEngines`, wiring in `__main__._run_ui`, and a fake in tests. | The adapter must not import `jobs` or `pipeline`; take `CancelToken` from `domain.cancellation`; raise `StemForgeError` with an existing code; leave partials cleaned up. |
 | Add an export format | `engines/media.py` (`ExportFormat`, codec/format maps, suffix), `pipeline/export_names.py`, `integration/dialogs.py` filters, and the Export card copy. | Export applies the set's recorded gain once, writes through a destination `.partial`, verifies tags before promotion, and never overwrites the source or an existing file. |
-| Add a UI card | `ui/components/<name>.py`, composition in `ui/page.py`, copy keys in `i18n/catalogs/en.json`, formatting in `ui/formatting.py`, and calls on `WorkspaceService`. | The UI may import only `application`, `integration`, `domain`, and `errors`; it must render from snapshots and never mutate a store directly. |
+| Add a UI card | `ui/components/<name>.py`, composition in `ui/page.py`, matching copy keys in `i18n/catalogs/en.json` and `ro.json`, formatting in `ui/formatting.py`, and calls on `WorkspaceService`. | The UI may import only `application`, `integration`, `domain`, and `errors`; it must render from snapshots and never mutate a store directly. |
 | Change the cache policy | `platform/storage.py` (`DEFAULT_CACHE_CAP_BYTES`), `artifacts.py` (`plan_evictions`, `enforce_cap`, `sweep_stale`), `settings.py` (`cache_cap_bytes`), and Settings copy. | Eviction is whole-set, oldest-first, and never touches a live Source or its renders. Only Remove, LRU under the cap, and Clear cache delete cached audio. |
 | Add a platform check | `platform/preflight.py` (`CHECK_*`, `CheckResult`, `run_preflight`, `_exit_code_for`), `platform/binaries.py` or `resources.py` if it tests a file, `run.sh` fallback if it is non-fatal, and packaging notes. | Resource warnings never block launch; a fatal check maps to a stable exit code and a fatal message; a degraded capability is announced. |
 
@@ -757,26 +757,35 @@ cancellation subclass. The taxonomy groups codes by subsystem: `import.*`, `deco
 `separation.*`, `pitch.*`, `media.*`, `export.*`, `logging.*`, `storage.*`, `internal.*`,
 `preflight.*`, `playback.*`, and `licensing.*`.
 
-User-facing headlines, hints, and remediation resolve through the locale catalog;
-`ui/formatting.py` maps `(code, reason)` to catalog rows and composes the dynamic
-sentences (duration, folder, required and free space, path). An unknown code from a
-newer worker falls back to `internal.unexpected`. A degraded capability is announced,
-never silent. The rule is wider than errors: visible page, page-shell, and component copy
-resolves at render time through the locale catalogs in `stemforge/i18n/catalogs/`,
-using flat semantic message IDs; English is the source locale and per-key fallback,
-and Romanian ships as the first translated Interface language. Job snapshots carry
-stable stage and detail codes plus context alongside the English strings that logs and
-the headless CLI keep; application and pipeline views carry stable role, kind, and
-semitone display keys alongside their legacy labels. The UI prefers the code and falls
-back to the stored English string for an unknown code. Exported filenames still use the
-English role labels in `pipeline/export_names.py`, so translating the interface never
-changes a filename. The Interface language is a `system`/`en`/`ro` preference resolved at
-startup; selecting one swaps the process translator, aligns NiceGUI's framework language
-and the page's `lang` attribute, and reloads the page, while the Workspace and Jobs live in
-the application service. `tests/unit/test_copy_policy.py` fails on an inline literal passed to
-a label, button, notification, tooltip, or placeholder, on a catalog key missing from
-English, or on an avoided Import synonym. `CODING_STANDARDS.md` records the judgement
-calls around that rule.
+The English catalog in `stemforge/i18n/catalogs/en.json` is the only source of
+user-visible copy; `ro.json` mirrors every key and English is the per-key fallback.
+Page and component copy, error headlines and actions, Job stage and detail codes,
+preflight dialog chrome, consent notices, and About summaries resolve at render time
+through flat semantic message IDs. `ui/formatting.py` maps `(code, reason)` to catalog
+keys and composes the dynamic sentences (duration, folder, required and free space,
+path); it owns no prose. An unknown code from a newer worker falls back to
+`internal.unexpected`. A degraded capability is announced, never silent. Application
+and pipeline views carry stable role, kind, and semitone display keys plus context;
+`domain/display.py` owns those codes and the UI resolves them at render time.
+
+Job snapshots keep the English stage and detail strings alongside their codes for logs,
+the diagnostics report, and the headless CLI; the UI prefers the code and uses the
+English string only when a code is unknown. Exported filenames still use the English
+role labels in `pipeline/export_names.py`, so translating the interface never changes a
+filename. The Interface language is a `system`/`en`/`ro` preference resolved at startup;
+selecting one persists it, swaps the process translator, aligns NiceGUI's framework
+language and the page's `lang` attribute, and reloads the page while the Workspace and
+Jobs live in the application service.
+
+The English-only boundary is explicit: logs, the diagnostics report body, preflight
+report messages, CLI output (including `--preflight` stdout while the native dialog stays
+translated), internal identifiers, exported filenames and audio tags, native file-dialog
+filter descriptions, and licence documents. Preflight/fatal dialog chrome, consent notices, About summaries,
+Job labels, and page copy are translated. `tests/unit/test_copy_policy.py` fails on an
+inline literal at a page, component, or preflight-chrome sink, on a catalog key missing
+from either locale, on a formatting copy constant, and on a glossary synonym, cedilla,
+or term-table violation. `docs/i18n/ro/terms.md` records the approved Romanian
+renderings, and `CODING_STANDARDS.md` records the judgement calls around the rule.
 
 Retryability is a property of the failure, not a guess by the UI: a download, a missing
 file, or a cache-full condition is retryable; malformed input or a licence refusal is not.
@@ -912,11 +921,11 @@ component patterns, and layout. `tests/unit/test_design_doc.py` keeps its token 
 equal to `theme.TOKENS_CSS` and rejects a hex value outside it, so the document cannot
 drift from the visual root.
 
-Formatting, labels, and error copy are separate: the locale catalog owns user-facing
-prose, `ui/formatting.py` owns formatting, the error-copy mapping, dynamic sentence
-composition, and display-code realization, `ui/failure.py` owns the shared failure
-payload, and `ui/toast.py` owns the notification shape. A new card reuses those modules
-rather than declaring its own colours or copy.
+Formatting, labels, and error copy are separate: the locale catalogs own user-facing
+prose, `ui/formatting.py` owns formatting helpers, the error-copy mapping, dynamic
+sentence composition, and display-code realisation, `ui/failure.py` owns the shared
+failure payload, and `ui/toast.py` owns the notification shape. A new card reuses those
+modules rather than declaring its own colours or copy.
 
 ## 9. Architecture Decisions
 

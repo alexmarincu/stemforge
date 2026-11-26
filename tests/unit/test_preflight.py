@@ -28,6 +28,12 @@ def _report(*checks: preflight.CheckResult, **kwargs: object) -> preflight.Prefl
     return preflight.PreflightReport(checks=checks, **kwargs)  # type: ignore[arg-type]
 
 
+def _chrome() -> preflight.NativeChrome:
+    from stemforge import __main__ as entry
+
+    return entry._native_chrome()
+
+
 @pytest.mark.unit
 def test_report_keeps_every_check_and_finds_the_first_fatal() -> None:
     report = _report(
@@ -165,6 +171,7 @@ def test_fatal_message_body_and_copy_include_the_log_path() -> None:
         fix_line="Install GTK 3 and WebKitGTK 4.1.",
         log_path=Path("/logs/stemforge.log"),
         copy_text="{diagnostics}",
+        chrome=_chrome(),
     )
 
     assert message.title == "StemForge can't start"
@@ -185,6 +192,7 @@ def test_fatal_message_says_logs_are_unavailable_without_a_log() -> None:
         fix_line="Reinstall StemForge.",
         log_path=None,
         copy_text="json",
+        chrome=_chrome(),
     )
 
     assert message.body.endswith("Logs are unavailable.")
@@ -198,6 +206,7 @@ def test_fatal_box_uses_the_injected_backend() -> None:
         fix_line="Use a supported system.",
         log_path=None,
         copy_text="diagnostics",
+        chrome=_chrome(),
     )
     calls: list[tuple[str, str, str | None]] = []
 
@@ -216,7 +225,7 @@ def test_already_running_message_uses_the_injected_backend() -> None:
     def backend(title: str, body: str, copy_text: str | None) -> None:
         calls.append((title, body, copy_text))
 
-    preflight.show_already_running(backend=backend)
+    preflight.show_already_running(backend=backend, chrome=_chrome())
 
     assert calls == [
         (
@@ -228,8 +237,8 @@ def test_already_running_message_uses_the_injected_backend() -> None:
 
 
 @pytest.mark.unit
-def test_native_chrome_defaults_are_the_english_copy() -> None:
-    chrome = preflight.DEFAULT_CHROME
+def test_the_english_catalog_supplies_the_native_chrome() -> None:
+    chrome = _chrome()
 
     assert chrome.fatal_title == "StemForge can't start"
     assert chrome.details_label == "Details:"
@@ -241,13 +250,6 @@ def test_native_chrome_defaults_are_the_english_copy() -> None:
         chrome.already_running_body
         == "StemForge is already running. Only one copy can run at a time."
     )
-
-
-@pytest.mark.unit
-def test_the_default_preflight_chrome_is_the_english_catalog() -> None:
-    from stemforge import __main__ as entry
-
-    assert entry._native_chrome() == preflight.DEFAULT_CHROME
 
 
 @pytest.mark.unit
@@ -304,6 +306,10 @@ def test_fatal_message_accepts_translated_chrome() -> None:
         fatal_title="StemForge nu poate porni",
         details_label="Detalii:",
         logs_unavailable="Jurnalele nu sunt disponibile.",
+        copy_details_label="Copiază detaliile",
+        ok_label="OK",
+        already_running_title="StemForge rulează deja",
+        already_running_body="StemForge rulează deja. O singură copie poate rula.",
     )
     message = preflight.build_fatal_message(
         code=errors.PREFLIGHT_WINDOW_UNAVAILABLE,
@@ -335,6 +341,11 @@ def test_fatal_message_accepts_translated_chrome() -> None:
 @pytest.mark.unit
 def test_already_running_accepts_translated_chrome() -> None:
     chrome = preflight.NativeChrome(
+        fatal_title="StemForge nu poate porni",
+        details_label="Detalii:",
+        logs_unavailable="Jurnalele nu sunt disponibile.",
+        copy_details_label="Copiază detaliile",
+        ok_label="OK",
         already_running_title="StemForge rulează deja",
         already_running_body="O singură copie poate rula.",
     )
@@ -354,8 +365,12 @@ def test_fatal_box_passes_translated_button_labels_to_gtk(
 ) -> None:
     chrome = preflight.NativeChrome(
         fatal_title="StemForge nu poate porni",
+        details_label="Detalii:",
+        logs_unavailable="Jurnalele nu sunt disponibile.",
         copy_details_label="Copiază detaliile",
         ok_label="Bine",
+        already_running_title="StemForge rulează deja",
+        already_running_body="O singură copie poate rula.",
     )
     message = preflight.build_fatal_message(
         code=errors.PREFLIGHT_WINDOW_UNAVAILABLE,
@@ -1037,6 +1052,39 @@ def test_cli_json_prints_the_schema_and_reports_the_exit_code(
     payload = json.loads(capsys.readouterr().out)
     assert code == preflight.EXIT_WINDOW_UNAVAILABLE
     assert payload["exit_code"] == preflight.EXIT_WINDOW_UNAVAILABLE
+
+
+@pytest.mark.unit
+def test_preflight_stdout_stays_english_when_the_interface_is_romanian(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from stemforge import __main__ as entry
+    from stemforge.settings import SettingsStore
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("STEMFORGE_HOME", str(home))
+    SettingsStore(AppPaths.from_environment().ensure()).set_language("ro")
+    report = _report(
+        _check("platform"),
+        _check("window", status=preflight.STATUS_FAIL, message="gi is missing", fatal=True),
+        system="linux",
+    )
+    shown: list[preflight.FatalMessage] = []
+    monkeypatch.setattr(entry.preflight, "run_preflight", lambda *a, **k: report)
+    monkeypatch.setattr(
+        entry.preflight, "show_fatal_message", lambda message, **k: shown.append(message)
+    )
+
+    assert entry.main(["--preflight"]) == preflight.EXIT_WINDOW_UNAVAILABLE
+
+    out = capsys.readouterr().out
+    assert "StemForge needs GTK 3 and WebKitGTK 4.1 to open its window." in out
+    assert "StemForge necesită GTK 3" not in out
+    assert len(shown) == 1
+    assert shown[0].title == "StemForge nu poate porni"
+    assert "StemForge necesită GTK 3 și WebKitGTK 4.1" in shown[0].body
 
 
 @pytest.mark.unit
