@@ -258,6 +258,20 @@ class ExportSheet:
         if self._dialog is not None:
             self._dialog.close()
 
+    def _run_in_sheet(self, callback: Callable[[], None]) -> None:
+        """Run a post-dialog callback in the sheet's still-live slot.
+
+        An awaited dialog resumes in the button slot that ``_render(busy=True)``
+        replaced, so page-level updates such as ``ui.page_title`` need a live
+        element to resolve the client.
+        """
+        dialog = self._dialog
+        if dialog is None:
+            callback()
+            return
+        with dialog:
+            callback()
+
     def _render(self, *, busy: bool) -> None:
         body = self._body
         track = self._track
@@ -519,7 +533,7 @@ class ExportSheet:
             return
         self._submit_error = None
         self.close()
-        self._on_job_started(job_id, spec)
+        self._run_in_sheet(lambda: self._on_job_started(job_id, spec))
 
     async def _confirm_save_original(self) -> None:
         track = self._track
@@ -568,7 +582,7 @@ class ExportSheet:
             return
         self._submit_error = None
         self.close()
-        self._on_save_original_started(job_id, spec)
+        self._run_in_sheet(lambda: self._on_save_original_started(job_id, spec))
 
     async def _confirm_batch(self) -> None:
         track = self._track
@@ -602,7 +616,7 @@ class ExportSheet:
             return
         self._submit_error = None
         self.close()
-        self._on_batch_started(job_id, spec)
+        self._run_in_sheet(lambda: self._on_batch_started(job_id, spec))
 
     async def _choose_batch_folder(self) -> None:
         if self._saving:

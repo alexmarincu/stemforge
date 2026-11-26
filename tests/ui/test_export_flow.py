@@ -905,7 +905,9 @@ async def test_playback_and_ab_stay_enabled_during_an_export_job(harness: Harnes
 
 async def test_save_original_copies_the_native_file_and_opens_its_own_save_request(
     harness: Harness,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.ERROR, logger="nicegui")
     async for user, workspace_page in _open_page(harness):
         track_id = await _import(harness, user, workspace_page, name="Song.flac")
         source_id = harness.service.snapshot().tracks[0].source_id
@@ -942,6 +944,7 @@ async def test_save_original_copies_the_native_file_and_opens_its_own_save_reque
             "import_local",
             "save_original",
         ]
+        assert "The parent element this slot belongs to has been deleted." not in caplog.text
 
 
 async def test_cancelling_the_save_original_dialog_starts_no_job(harness: Harness) -> None:
