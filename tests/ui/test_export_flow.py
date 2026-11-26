@@ -1469,13 +1469,12 @@ async def test_a_full_destination_refuses_the_batch_before_any_file(
         assert _enabled(user, "export-batch-remaining") is True
 
 
-async def test_batch_items_render_their_label_key_not_the_submission_copy(
+async def test_batch_items_render_their_label_key(
     tmp_path: Path,
 ) -> None:
     destination = tmp_path / "exports"
     item = ExportBatchItem(
         key="stem:vocals",
-        label="Frozen at submission",
         state=ExportBatchItemState.WRITTEN,
         path=destination / "Song - Vocals.wav",
         label_key="role.vocals",

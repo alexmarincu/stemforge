@@ -87,7 +87,6 @@ class ExportSpec:
 
     track_id: str
     target_key: str
-    target_label: str
     fmt: ExportFormat
     destination_dir: Path
     destination_name: str
@@ -350,7 +349,6 @@ class ExportSheet:
                         formatting.display_label(
                             target.label_key,
                             target.label_context,
-                            fallback=target.label,
                         )
                         for target in targets
                     )
@@ -390,7 +388,6 @@ class ExportSheet:
                     formatting.display_label(
                         target.label_key,
                         target.label_context,
-                        fallback=target.label,
                     )
                 ).classes("sf-fact-value").mark("export-source-label")
             with ui.element("div").classes("sf-fact"):
@@ -673,7 +670,6 @@ class ExportSheet:
         return ExportSpec(
             track_id=track.track_id,
             target_key=target.key,
-            target_label=target.label,
             fmt=fmt,
             destination_dir=selection.path.parent,
             destination_name=selection.path.name,
@@ -1045,7 +1041,6 @@ class ExportBatchStatusBar:
                     formatting.display_label(
                         item.label_key,
                         item.label_context,
-                        fallback=item.label,
                     )
                 ).classes("sf-exportbar-item-label")
                 ui.label(detail).classes("sf-exportbar-item-detail")

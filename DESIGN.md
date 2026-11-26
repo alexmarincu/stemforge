@@ -438,7 +438,9 @@ scrolling inside a dialog.
 
 **Anatomy.** `sf-setting-row` is a flex row with space-between, a 16 px gap, and 8 px vertical
 padding. `sf-setting-main` is a 2 px-gap column: a 12.5 px weight-550 label and a 10 px `dim` value
-or hint. There is no divider; the spacing carries the grouping. `sf-format-row` is a `well` field
+or hint. There is no divider; the spacing carries the grouping. Behaviour opens with the Language
+row: a setting row whose action is a dense select offering System, English, and Română in their own
+names. `sf-format-row` is a `well` field
 with a `line2` border, 9 px radius, 7 px by 10 px padding, and a 10 px gap: a 12 px radio, a
 `sf-format-main` column with a 12.5 px name and a 10.5 px `muted` size estimate. `sf-yt` is a 7
 px-gap column; `sf-yt-row` is a stretch flex row with an 8 px gap, a dense outlined input, and a

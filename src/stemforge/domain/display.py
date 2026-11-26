@@ -1,9 +1,8 @@
 """Stable display-label codes shared by the application, pipeline, and UI.
 
-A view carries a catalog message ID and a context instead of only a frozen
-English label. The UI resolves the message at render time; the legacy ``label``
-string stays as the expand-phase fallback. Filename role labels live separately
-in ``pipeline.export_names`` and never use these codes.
+A view carries a catalog message ID and a context; the UI resolves the message at
+render time. Filename role labels live separately in ``pipeline.export_names``
+and never use these codes.
 """
 
 from __future__ import annotations

@@ -40,10 +40,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Final
 
+from stemforge import i18n
 from stemforge.integration.window import DEFAULT_WINDOW_SIZE, WEBKIT_DMABUF_ENV
-from stemforge.ui.formatting import APP_NAME
 
-TITLE: Final = APP_NAME
+TITLE: Final = i18n.t("app.name")
 DEFAULT_SIZES: Final = ("default", "1920x1080", "maximized")
 # The previous guard; the harness keeps it as a comparison arm.
 LEGACY_SHM_ENV: Final = "WEBKIT_DMABUF_RENDERER_FORCE_SHM"

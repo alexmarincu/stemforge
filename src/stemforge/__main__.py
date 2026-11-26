@@ -180,7 +180,8 @@ def _configuration_failure(args: argparse.Namespace, error: OSError) -> int:
             print(report.to_json())
         elif not args.quiet:
             print(preflight.format_human(report))
-            headline, action = _fatal_copy(report, _fatal_code(report))
+            with i18n.use_source_locale():
+                headline, action = _fatal_copy(report, _fatal_code(report))
             print()
             print(headline)
             print(action)
@@ -213,7 +214,10 @@ def _run_preflight(paths: AppPaths, args: argparse.Namespace) -> int:
     elif not args.quiet:
         print(preflight.format_human(report))
         if report.fatal or report.degraded:
-            headline, action = _fatal_copy(report, _fatal_code(report))
+            from stemforge import i18n
+
+            with i18n.use_source_locale():
+                headline, action = _fatal_copy(report, _fatal_code(report))
             print()
             print(headline)
             print(action)

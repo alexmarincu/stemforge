@@ -84,6 +84,7 @@ definition, the definition wins and this table changes.
 | Open log | **Deschide jurnalul** |
 | Open log folder | **Deschide folderul jurnalelor** |
 | Outputs | **Rezultate** |
+| Playlist | **listă de redare** |
 | Preview unavailable | **Previzualizare indisponibilă** |
 | Primary | **principal** |
 | Recent files cleared | **Fișierele recente au fost șterse.** |
@@ -99,6 +100,12 @@ definition, the definition wins and this table changes.
 | Third-party notices | **Licențe terțe** |
 | Version | **Versiune** |
 | View | **Vezi** |
+| Worker process | **proces separat** |
+
+The YouTube error copy says **listă de redare**, not the English loanword
+**playlist**. The separation worker is **procesul separat**, never
+**procesul de lucru**. A size written out uses **octeți**; the symbols `MB` and
+`GB` stay invariant.
 
 ## Job labels
 
@@ -154,3 +161,4 @@ The copy policy may test for these forms in the Romanian catalog:
 - **export masiv** for a Batch export.
 - **Salvează originalul** for Save original.
 - **job** in the interface for a Job.
+- **fișier brut** or **fișier sursă** for a Native file.

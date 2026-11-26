@@ -8,11 +8,7 @@ from urllib.parse import quote
 from stemforge.application.identity import separation_key
 from stemforge.application.renders import RenderView, render_views
 from stemforge.application.state import WorkspaceState
-from stemforge.application.views import (
-    SEPARATION_OUTPUT_ROLES,
-    SEPARATION_ROLE_LABELS,
-    PreviewTarget,
-)
+from stemforge.application.views import SEPARATION_OUTPUT_ROLES, PreviewTarget
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.display import ORIGINAL_LABEL_KEY, role_label_key
 from stemforge.domain.models import RenderScope, Track
@@ -79,7 +75,6 @@ class PreviewService:
             return None
         return PreviewTarget(
             key=f"render:{view.artifact.render_key}:{role}",
-            label=SEPARATION_ROLE_LABELS.get(role, role.title()),
             url=url,
             gain_db=view.artifact.gain_db,
             label_key=ORIGINAL_LABEL_KEY if role == "original" else role_label_key(role),
@@ -114,7 +109,6 @@ class PreviewService:
             return None
         return PreviewTarget(
             key=f"{set_key}:{stem}",
-            label=SEPARATION_ROLE_LABELS[stem],
             url=url,
             gain_db=artifact.gain_db,
             label_key=role_label_key(stem),
@@ -127,7 +121,6 @@ class PreviewService:
             targets.append(
                 PreviewTarget(
                     key="original",
-                    label="Original",
                     url=source_url,
                     gain_db=track.gain_db,
                     label_key=ORIGINAL_LABEL_KEY,
@@ -140,7 +133,6 @@ class PreviewService:
             targets.append(
                 PreviewTarget(
                     key=view.artifact.render_key,
-                    label=view.label,
                     url=url,
                     gain_db=view.artifact.gain_db,
                     label_key=view.label_key,

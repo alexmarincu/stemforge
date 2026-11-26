@@ -29,6 +29,7 @@ from stemforge.errors import StemForgeError
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
+from stemforge.ui import formatting
 
 SOURCE_ID = "source-pitch-ui"
 TRACK_ID = "track-pitch-ui"
@@ -217,14 +218,17 @@ def test_a_single_scope_label_stays_bare_and_a_collision_adds_master_and_stems(
     _commit_separation(store)
     _commit_render(store, SOURCE_ID, semitones=3, scope="original")
 
-    assert [item.label for item in service.pitch_sets(_track())] == ["+3"]
     (single,) = service.pitch_sets(_track())
     assert single.label_key == "pitch.render.shift"
     assert dict(single.label_context) == {"semitones": 3}
+    assert formatting.display_label(single.label_key, single.label_context) == "+3"
 
     _commit_render(store, SOURCE_ID, semitones=3, scope="stems")
 
-    labels = [item.label for item in service.pitch_sets(_track())]
+    labels = [
+        formatting.display_label(item.label_key, item.label_context)
+        for item in service.pitch_sets(_track())
+    ]
     assert labels == ["+3 master", "+3 stems"]
     assert len(set(labels)) == 2
     assert [item.label_key for item in service.pitch_sets(_track())] == [
@@ -242,7 +246,7 @@ def test_a_non_colliding_stems_set_is_not_relabelled(tmp_path: Path) -> None:
 
     (item,) = service.pitch_sets(_track())
 
-    assert item.label == "+4"
+    assert formatting.display_label(item.label_key, item.label_context) == "+4"
     assert item.label_key == "pitch.render.shift"
     assert dict(item.label_context) == {"semitones": 4}
     assert item.scope is RenderScope.STEMS

@@ -327,3 +327,15 @@ def test_a_message_with_an_unknown_placeholder_does_not_crash(
 
     assert rendered == "Hello, {name.missing}!"
     assert any("greeting" in record.getMessage() for record in caplog.records)
+
+
+def test_use_source_locale_renders_english_and_restores_the_preference() -> None:
+    i18n.set_language("ro", system_locale="ro_RO.UTF-8")
+
+    with i18n.use_source_locale():
+        assert i18n.language() == "en"
+        assert i18n.t("common.cancel") == "Cancel"
+
+    assert i18n.language() == "ro"
+    assert i18n.preference() == "ro"
+    assert i18n.t("common.cancel") == "Anulează"

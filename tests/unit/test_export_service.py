@@ -236,7 +236,6 @@ def test_export_targets_lists_only_the_master_for_a_plain_source(tmp_path: Path)
     assert [target.key for target in targets] == ["master"]
     master = targets[0]
     assert isinstance(master, ExportJobTarget)
-    assert master.label == "Original"
     assert master.label_key == "common.original"
     assert dict(master.label_context) == {}
     assert master.base_name == TITLE
@@ -261,7 +260,6 @@ def test_export_targets_adds_unshifted_stems_and_the_instrumental(tmp_path: Path
         "instrumental",
     ]
     stems = {target.key: target for target in targets}
-    assert stems["stem:vocals"].label == "Vocals"
     assert stems["stem:vocals"].label_key == "role.vocals"
     assert stems["stem:vocals"].base_name == f"{TITLE} - Vocals"
     assert stems["instrumental"].base_name == f"{TITLE} - Instrumental"
@@ -452,7 +450,6 @@ def test_submit_export_refuses_a_target_that_does_not_belong_to_the_track(
     foreign = ExportJobTarget(
         source_id="another-source",
         key="master",
-        label="Original",
         role="original",
         path=target.path,
         gain_db=0.0,
@@ -1083,9 +1080,13 @@ def test_batch_retry_keys_include_every_failed_item() -> None:
         format=ExportFormat.WAV24,
         destination_dir=Path("/exports"),
         items=(
-            ExportBatchItem("stem:vocals", "Vocals", ExportBatchItemState.WRITTEN),
-            ExportBatchItem("instrumental", "Instrumental", ExportBatchItemState.FAILED),
-            ExportBatchItem("stem:drums", "Drums", ExportBatchItemState.NOT_EXPORTED),
+            ExportBatchItem("stem:vocals", ExportBatchItemState.WRITTEN, label_key="role.vocals"),
+            ExportBatchItem(
+                "instrumental", ExportBatchItemState.FAILED, label_key="role.instrumental"
+            ),
+            ExportBatchItem(
+                "stem:drums", ExportBatchItemState.NOT_EXPORTED, label_key="role.drums"
+            ),
         ),
     )
 

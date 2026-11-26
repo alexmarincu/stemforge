@@ -21,6 +21,7 @@ from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
+from stemforge.platform import preflight
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
 from stemforge.ui import page
@@ -184,6 +185,29 @@ async def _finish_jobs(harness: Harness, user, workspace_page: page.WorkspacePag
     assert await asyncio.to_thread(harness.runner.wait_idle, 10) is True
     with user:
         workspace_page.poll()
+
+
+async def test_the_resource_warning_keeps_the_english_report_body_in_romanian(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness.context.preflight = preflight.PreflightReport(
+        checks=(
+            preflight.CheckResult(
+                name=preflight.CHECK_RESOURCES,
+                status=preflight.STATUS_WARN,
+                message="This computer has 4.0 GB of RAM.",
+                fatal=False,
+            ),
+        ),
+        fail_on_degraded=False,
+    )
+    monkeypatch.setattr(i18n, "system_locale", lambda: "ro_RO.UTF-8")
+    assert i18n.set_language("system", system_locale="ro_RO.UTF-8") == "ro"
+
+    async for user, _workspace_page in _open_page(harness):
+        await user.should_see(marker="resource-banner")
+        await user.should_see("This computer has 4.0 GB of RAM.")
+        assert _only(user, "resource-dismiss").text == "Închide"
 
 
 async def test_the_romanian_page_covers_the_main_screen_about_and_export(

@@ -29,6 +29,7 @@ from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.jobs.job import JobContext
 from stemforge.pipeline.export_job import (
     ExportTarget,
+    english_target_label,
     resolve_export_target,
     run_export_job,
 )
@@ -51,7 +52,6 @@ class ExportBatchItemOutcome:
     """One item's last known outcome, handed to the outcome recorder."""
 
     key: str
-    label: str
     state: ExportBatchItemState
     path: Path | None = None
     error: StemForgeError | None = None
@@ -146,11 +146,12 @@ def run_export_batch_job(
         if target.key not in state.durations:
             continue
         cancel.check()
+        detail = english_target_label(target.role, target.semitones)
         item_context = _item_context(
             ctx,
             index=index,
             total=total,
-            label=target.label,
+            detail=detail,
             label_key=target.label_key,
             label_context=target.label_context,
         )
@@ -159,7 +160,7 @@ def run_export_batch_job(
             stage=_stage(index, total),
             stage_code=STAGE_EXPORT_BATCH_ITEM,
             stage_context={"index": index + 1, "total": total},
-            detail=target.label,
+            detail=detail,
             detail_code=target.label_key,
             detail_context=target.label_context,
         )
@@ -180,7 +181,6 @@ def run_export_batch_job(
             record(
                 ExportBatchItemOutcome(
                     key=target.key,
-                    label=target.label,
                     label_key=target.label_key,
                     label_context=target.label_context,
                     state=ExportBatchItemState.FAILED,
@@ -202,7 +202,6 @@ def run_export_batch_job(
         record(
             ExportBatchItemOutcome(
                 key=target.key,
-                label=target.label,
                 label_key=target.label_key,
                 label_context=target.label_context,
                 state=ExportBatchItemState.WRITTEN,
@@ -216,7 +215,7 @@ def run_export_batch_job(
             stage=_stage(index, total),
             stage_code=STAGE_EXPORT_BATCH_ITEM,
             stage_context={"index": index + 1, "total": total},
-            detail=target.label,
+            detail=english_target_label(target.role, target.semitones),
             detail_code=target.label_key,
             detail_context=target.label_context,
         )
@@ -288,7 +287,6 @@ def _probe_targets(
             record(
                 ExportBatchItemOutcome(
                     key=target.key,
-                    label=target.label,
                     label_key=target.label_key,
                     label_context=target.label_context,
                     state=ExportBatchItemState.FAILED,
@@ -314,7 +312,6 @@ def _mark_unwritten(
         record(
             ExportBatchItemOutcome(
                 key=target.key,
-                label=target.label,
                 label_key=target.label_key,
                 label_context=target.label_context,
                 state=ExportBatchItemState.NOT_EXPORTED,
@@ -327,7 +324,7 @@ def _item_context(
     *,
     index: int,
     total: int,
-    label: str,
+    detail: str,
     label_key: str,
     label_context: Mapping[str, object],
 ) -> JobContext:
@@ -340,7 +337,7 @@ def _item_context(
             stage=_stage(index, total),
             stage_code=STAGE_EXPORT_BATCH_ITEM,
             stage_context={"index": index + 1, "total": total},
-            detail=label,
+            detail=detail,
             detail_code=label_key,
             detail_context=label_context,
         )

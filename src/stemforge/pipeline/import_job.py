@@ -28,7 +28,7 @@ from stemforge.artifacts import (
 )
 from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
 from stemforge.domain.progress import (
-    DETAIL_IMPORT_SOURCE_FILE,
+    DETAIL_IMPORT_NATIVE_FILE,
     STAGE_IMPORT_DECODING,
     STAGE_IMPORT_PROBING,
     STAGE_IMPORT_READING_METADATA,
@@ -104,7 +104,7 @@ def run_local_import(
             stage=STAGE_PROBING,
             stage_code=STAGE_IMPORT_PROBING,
             detail=source_path.name,
-            detail_code=DETAIL_IMPORT_SOURCE_FILE,
+            detail_code=DETAIL_IMPORT_NATIVE_FILE,
             detail_context={"name": source_path.name},
         )
 

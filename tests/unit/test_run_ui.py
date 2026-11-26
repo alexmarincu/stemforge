@@ -132,7 +132,7 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     assert captured["reload"] is False
     assert captured["show"] is False
     assert captured["window_size"] == (1280, 820)
-    assert captured["title"] == page.TITLE
+    assert captured["title"] == "StemForge"
     assert captured["language"] == "en-GB"
     assert app.config.language == "en-GB"
     assert captured["storage_secret"] == paths.storage_secret()

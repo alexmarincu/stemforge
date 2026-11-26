@@ -5,22 +5,32 @@ Judgement calls only. Formatting, typing, and import direction are enforced by
 
 ## Copy
 
-- User-facing strings resolve through the English catalog at
-  `src/stemforge/i18n/catalogs/en.json`, using flat semantic message IDs and
-  named placeholders. The page shell and components render catalog keys with
-  `i18n.t`; coded error headlines and actions resolve through the catalog via
-  `src/stemforge/ui/formatting.py`, which keeps the code-to-message mapping and
-  sentence composition. The UI copy module also keeps the legacy error rows
-  until the final contraction, but rendered copy never comes from them.
-- `tests/unit/test_copy_policy.py` fails on a prose literal at a UI copy sink,
-  on an `i18n.t` key missing from `en.json`, and on an avoided Import synonym in
-  the English catalog.
+- The English catalog at `src/stemforge/i18n/catalogs/en.json` is the only
+  source of user-visible copy. Use flat semantic message IDs and named
+  placeholders; the page shell, components, preflight dialog chrome, and fatal
+  message resolve keys at render time with `i18n.t`. No inline prose and no
+  parallel English constant table.
 - `src/stemforge/i18n/catalogs/ro.json` translates every English key with the
-  same named placeholders. `tests/unit/test_romanian_catalog.py` fails on a
-  missing or orphaned key, placeholder drift, a wrong plural shape, a cedilla
-  diacritic, or an avoided Romanian rendering from `docs/i18n/ro/terms.md`.
+  same named placeholders and the Romanian plural shape. English is the source
+  locale and the per-key fallback.
+- `src/stemforge/ui/formatting.py` owns formatting helpers, the `(code, reason)`
+  to catalog-key mapping, sentence composition, and display-key realisation; it
+  owns no prose. Views carry stable `label_key`/`label_context` values, never a
+  pre-rendered label.
+- `tests/unit/test_copy_policy.py` fails on a prose literal at a copy sink, on
+  an `i18n.t` key missing from either catalog, on a formatting copy constant, on
+  a glossary synonym, on a cedilla diacritic, or on an avoided Romanian
+  rendering from `docs/i18n/ro/terms.md`. It covers the page shell, components,
+  preflight chrome, and the `__main__` fatal and already-running copy.
+  `tests/unit/test_romanian_catalog.py` fails on a missing or orphaned key,
+  placeholder drift, or a wrong plural shape.
 - The Interface language setting is `system`/`en`/`ro`; an unknown persisted
   value falls back to `system` without corrupt-setting recovery.
+- Logs, the diagnostics report body, preflight report messages, CLI output
+  (including `--preflight`), exported filenames and audio tags, native
+  file-dialog filter descriptions, and licence documents stay English. Preflight
+  and fatal dialog chrome is translated. `pipeline/export_names.ROLE_LABELS` stays English so a Romanian
+  interface still writes `Song - Vocals.flac`.
 - `GLOSSARY.md` is normative. Use **Import**, never Load, Add, or Ingest.
 - An Instrumental is not a Stem. `OUTPUT_ROLES` includes it; `STEM_ROLES`
   does not.

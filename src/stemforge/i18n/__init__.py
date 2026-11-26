@@ -13,7 +13,8 @@ import locale
 import logging
 import os
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -36,6 +37,7 @@ __all__ = [
     "set_language",
     "system_locale",
     "t",
+    "use_source_locale",
 ]
 
 _LOG = logging.getLogger(__name__)
@@ -175,6 +177,21 @@ def set_language(
 def language() -> str:
     """The process-wide effective Interface language."""
     return _default.language
+
+
+@contextmanager
+def use_source_locale() -> Iterator[None]:
+    """Render source-locale copy for one block without changing the preference.
+
+    Headless CLI output is English by contract, while a native dialog in the
+    same invocation still shows the Interface language.
+    """
+    saved = (_default._preference, _default._language, _default._active)
+    _default.set_language(SOURCE_LOCALE)
+    try:
+        yield
+    finally:
+        _default._preference, _default._language, _default._active = saved
 
 
 def preference() -> str:

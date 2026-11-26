@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from stemforge import errors, i18n
-from stemforge.domain.models import JobKind, OriginKind, Source, SourceMetadata, Track
+from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
 from stemforge.ui import formatting
 
 pytestmark = pytest.mark.unit
@@ -388,22 +388,18 @@ def test_the_level_adjusted_badge_is_quiet_and_exact() -> None:
     assert formatting.level_adjusted_label(-6.0) == "level adjusted \u22126.0 dB"
 
 
-def test_every_job_kind_has_a_bar_label() -> None:
-    assert set(formatting.JOB_LABELS) == {kind.value for kind in JobKind}
-    assert formatting.JOB_LABELS["save_original"] == "Saving original"
-
-
 def test_save_original_copy_uses_the_glossary_terms() -> None:
     copy = " ".join(
-        {
-            formatting.IMPORTED_FILE_LABEL,
-            formatting.IMPORTED_FILE_UNCHANGED,
-            formatting.SAVE_ORIGINAL_ACTION,
-            formatting.SAVE_ORIGINAL_CANCELLED,
-            formatting.SAVE_ORIGINAL_SAVED_TO,
-            formatting.SAVE_ORIGINAL_EXTENSION_CHANGED,
-            formatting.SAVE_ORIGINAL_CHOOSE_LOCATION,
-        }
+        i18n.t(key)
+        for key in (
+            "export.imported_file",
+            "export.imported_file_unchanged",
+            "export.save_original_action",
+            "page.save_original_cancelled",
+            "page.save_original_saved_to",
+            "page.save_original_extension_changed",
+            "export.choose_location",
+        )
     ).lower()
 
     assert "save original" in copy
@@ -418,7 +414,7 @@ def test_a_job_stage_prefers_its_code_and_falls_back_to_the_english_text() -> No
         stage_code="job.stage.import.decoding",
         stage_context={"part": 1},
         detail="song.wav",
-        detail_code="job.detail.import.source_file",
+        detail_code="job.detail.import.native_file",
         detail_context={"name": "song.wav"},
     )
     unknown = SimpleNamespace(
