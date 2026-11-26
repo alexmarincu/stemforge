@@ -231,6 +231,8 @@ async def test_modal_shows_version_licence_notices_and_source_offer(harness: Har
         await user.should_see("Corresponding source")
         await user.should_see("Open licences folder")
         await user.should_see("htdemucs weights are downloaded from Hugging Face")
+        await user.should_see("The English licence files are authoritative.")
+        await user.should_see("Romanian translation: StemForge contributors.")
         await user.should_see(marker="clear-cached-audio")
         await user.should_see(marker="clear-recent")
         await user.should_see(marker="clear-youtube-cache")
