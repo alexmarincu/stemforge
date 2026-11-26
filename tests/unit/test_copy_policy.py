@@ -50,6 +50,10 @@ TECHNICAL_LITERALS = frozenset({"", " · "})
 # prose; a visible label is capitalised or contains whitespace.
 CODE_IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*$")
 
+# Progress details are status text, not Import action copy. This one names a
+# finished Track, not a user action, so the Import-verb scan does not apply.
+SYNONYM_EXEMPT_KEYS = frozenset({"job.detail.youtube.track_added"})
+
 # The glossary's avoided Import verbs, including inflections. Word boundaries
 # keep Download and Upload out of the scan.
 AVOIDED_SYNONYMS = re.compile(
@@ -209,7 +213,7 @@ def _missing_catalog_keys(tree: ast.AST, catalog: Mapping[str, object]) -> list[
 def _catalog_synonyms(catalog: Mapping[str, object]) -> list[tuple[str, str]]:
     violations: list[tuple[str, str]] = []
     for key, text in _catalog_values(catalog):
-        if CODE_IDENTIFIER.fullmatch(text):
+        if key in SYNONYM_EXEMPT_KEYS or CODE_IDENTIFIER.fullmatch(text):
             continue
         for match in AVOIDED_SYNONYMS.finditer(text):
             violations.append((key, match.group(0)))

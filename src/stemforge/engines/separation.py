@@ -27,6 +27,11 @@ from typing import Final, Protocol
 
 from stemforge import errors
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.progress import (
+    DETAIL_SEPARATION_SECONDS,
+    DETAIL_SEPARATION_SEGMENT,
+    ProgressDetail,
+)
 from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.platform import binaries, process
 from stemforge.worker_protocol import (
@@ -480,12 +485,23 @@ def _resolve_output(out_dir: Path, relative: str | None) -> Path | None:
     return candidate
 
 
-def _progress_detail(event: WorkerEvent) -> str:
+def _progress_detail(event: WorkerEvent) -> ProgressDetail:
     if event.segment is not None and event.segments is not None:
-        return f"segment {event.segment} of {event.segments}"
+        return ProgressDetail(
+            f"segment {event.segment} of {event.segments}",
+            code=DETAIL_SEPARATION_SEGMENT,
+            context={"segment": event.segment, "segments": event.segments},
+        )
     if event.audio_seconds_done is not None and event.audio_seconds_total is not None:
-        return f"{event.audio_seconds_done:.0f} of {event.audio_seconds_total:.0f} s"
-    return ""
+        return ProgressDetail(
+            f"{event.audio_seconds_done:.0f} of {event.audio_seconds_total:.0f} s",
+            code=DETAIL_SEPARATION_SECONDS,
+            context={
+                "done": f"{event.audio_seconds_done:.0f}",
+                "total": f"{event.audio_seconds_total:.0f}",
+            },
+        )
+    return ProgressDetail("")
 
 
 def _title(stage: str | None) -> str:

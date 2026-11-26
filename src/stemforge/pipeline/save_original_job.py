@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -24,6 +24,15 @@ from stemforge import errors
 from stemforge.artifacts import ArtifactStore, require_free_space
 from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.models import OriginKind
+from stemforge.domain.progress import (
+    DETAIL_SAVE_ORIGINAL_CHECKING_DESTINATION,
+    DETAIL_SAVE_ORIGINAL_COPYING_FILE,
+    DETAIL_SAVE_ORIGINAL_FINAL_NAME,
+    DETAIL_SAVE_ORIGINAL_WRITING_FILE,
+    STAGE_SAVE_ORIGINAL_COPYING,
+    STAGE_SAVE_ORIGINAL_WRITING,
+    ProgressDetail,
+)
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import JobContext
 
@@ -52,6 +61,11 @@ __all__ = [
 
 STAGE_COPYING: Final = "Copying"
 STAGE_WRITING: Final = "Writing file"
+
+_STAGE_CODE_BY_TEXT: Final[Mapping[str, str]] = {
+    STAGE_COPYING: STAGE_SAVE_ORIGINAL_COPYING,
+    STAGE_WRITING: STAGE_SAVE_ORIGINAL_WRITING,
+}
 
 _COPY_CHUNK_BYTES: Final = 1024 * 1024
 _ProgressSink = Callable[[float, str, str], None]
@@ -153,14 +167,25 @@ def run_save_original_job(
         else suggest_base_name(title)
     )
 
-    emit(0.02, STAGE_COPYING, "checking the destination")
+    emit(
+        0.02,
+        STAGE_COPYING,
+        ProgressDetail(
+            "checking the destination",
+            code=DETAIL_SAVE_ORIGINAL_CHECKING_DESTINATION,
+        ),
+    )
     _require_destination(destination)
     require_free_space(destination, native.size_bytes, floor=0)
     cancel.check()
 
     free_name = unique_export_path(destination, base_name, native.suffix).name
     partial = destination / f"{free_name}.partial"
-    emit(0.10, STAGE_COPYING, "copying the file")
+    emit(
+        0.10,
+        STAGE_COPYING,
+        ProgressDetail("copying the file", code=DETAIL_SAVE_ORIGINAL_COPYING_FILE),
+    )
     try:
         digest = _copy_verified(
             native,
@@ -169,10 +194,17 @@ def run_save_original_job(
             on_progress=lambda copied: emit(
                 0.10 + 0.80 * min(1.0, copied / max(1, native.size_bytes)),
                 STAGE_COPYING,
-                "copying the file",
+                ProgressDetail(
+                    "copying the file",
+                    code=DETAIL_SAVE_ORIGINAL_COPYING_FILE,
+                ),
             ),
         )
-        emit(0.95, STAGE_WRITING, "writing the file")
+        emit(
+            0.95,
+            STAGE_WRITING,
+            ProgressDetail("writing the file", code=DETAIL_SAVE_ORIGINAL_WRITING_FILE),
+        )
         cancel.check()
         final_path = _commit_without_overwrite(
             partial,
@@ -191,7 +223,15 @@ def run_save_original_job(
         _remove(partial)
         raise
 
-    emit(1.0, STAGE_WRITING, final_path.name)
+    emit(
+        1.0,
+        STAGE_WRITING,
+        ProgressDetail(
+            final_path.name,
+            code=DETAIL_SAVE_ORIGINAL_FINAL_NAME,
+            context={"name": final_path.name},
+        ),
+    )
     log.info(
         "saved original %s (%d bytes, sha256=%s)",
         final_path,
@@ -283,6 +323,14 @@ def _unavailable(
 
 def _progress_sink(ctx: JobContext) -> _ProgressSink:
     def sink(fraction: float, stage: str, detail: str) -> None:
-        ctx.progress(min(1.0, max(0.0, fraction)), stage=stage, detail=detail or None)
+        coded = detail if isinstance(detail, ProgressDetail) else None
+        ctx.progress(
+            min(1.0, max(0.0, fraction)),
+            stage=stage,
+            stage_code=_STAGE_CODE_BY_TEXT.get(stage),
+            detail=detail or None,
+            detail_code=coded.code if coded is not None else None,
+            detail_context=coded.context if coded is not None else None,
+        )
 
     return sink

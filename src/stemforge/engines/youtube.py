@@ -32,6 +32,14 @@ from urllib.parse import parse_qs, urlsplit
 
 from stemforge import errors
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.progress import (
+    DETAIL_YOUTUBE_DOWNLOAD_FINISHED,
+    DETAIL_YOUTUBE_DOWNLOAD_PROGRESS,
+    DETAIL_YOUTUBE_DOWNLOAD_PROGRESS_NO_SPEED,
+    DETAIL_YOUTUBE_DOWNLOAD_PROGRESS_NO_TOTAL,
+    DETAIL_YOUTUBE_DOWNLOAD_PROGRESS_NO_TOTAL_SPEED,
+    ProgressDetail,
+)
 from stemforge.errors import StemForgeError
 from stemforge.platform import binaries
 
@@ -368,7 +376,13 @@ class YtDlpImporter:
                 raise DownloadCancelled("cancelled by the StemForge Job")
             status = data.get("status")
             if status == "finished":
-                progress(1.0, "Downloading audio · 100%")
+                progress(
+                    1.0,
+                    ProgressDetail(
+                        "Downloading audio · 100%",
+                        code=DETAIL_YOUTUBE_DOWNLOAD_FINISHED,
+                    ),
+                )
                 return
             if status != "downloading":
                 return
@@ -670,15 +684,29 @@ def _download_fraction(data: Mapping[str, object]) -> float:
     return min(1.0, max(0.0, downloaded / total))
 
 
-def _download_detail(data: Mapping[str, object]) -> str:
+def _download_detail(data: Mapping[str, object]) -> ProgressDetail:
     downloaded = _as_int(data.get("downloaded_bytes")) or 0
     total = _as_int(data.get("total_bytes")) or _as_int(data.get("total_bytes_estimate"))
     speed = _as_float(data.get("speed"))
+    speed_mb = f"{speed / _MIB:.1f}" if speed is not None and speed > 0 else ""
+    if total and speed_mb:
+        code = DETAIL_YOUTUBE_DOWNLOAD_PROGRESS
+    elif total:
+        code = DETAIL_YOUTUBE_DOWNLOAD_PROGRESS_NO_SPEED
+    elif speed_mb:
+        code = DETAIL_YOUTUBE_DOWNLOAD_PROGRESS_NO_TOTAL
+    else:
+        code = DETAIL_YOUTUBE_DOWNLOAD_PROGRESS_NO_TOTAL_SPEED
+    context = {
+        "downloaded": _megabytes(downloaded),
+        "total": _megabytes(total),
+        "speed": speed_mb,
+    }
     parts = [f"Downloading audio · {_megabytes(downloaded)}"]
     parts.append(f"of {_megabytes(total)} MB" if total else "MB")
-    if speed is not None and speed > 0:
-        parts.append(f"· {speed / _MIB:.1f} MB/s")
-    return " ".join(parts)
+    if speed_mb:
+        parts.append(f"· {speed_mb} MB/s")
+    return ProgressDetail(" ".join(parts), code=code, context=context)
 
 
 def _megabytes(value: int | None) -> str:

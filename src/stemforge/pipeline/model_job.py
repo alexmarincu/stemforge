@@ -32,6 +32,14 @@ from stemforge.artifacts import (
     require_free_space,
 )
 from stemforge.domain.models import ModelConsent
+from stemforge.domain.progress import (
+    DETAIL_MODEL_ALREADY_INSTALLED,
+    DETAIL_MODEL_DOWNLOAD_PROGRESS,
+    STAGE_MODEL_CONSENT,
+    STAGE_MODEL_DOWNLOAD,
+    STAGE_MODEL_INSTALL,
+    STAGE_MODEL_VERIFY,
+)
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import JobContext
 from stemforge.models import ModelStatus, ModelStore
@@ -110,20 +118,26 @@ class ModelInstallJob:
     def run(self, ctx: JobContext) -> ModelInstallResult:
         """Run the whole install, publishing ``Consent`` → ``Download`` → … stages."""
         ctx.cancel.check()
-        ctx.progress(0.0, stage=STAGE_CONSENT)
+        ctx.progress(0.0, stage=STAGE_CONSENT, stage_code=STAGE_MODEL_CONSENT)
 
         existing = self.store.verify()
         if existing.verified:
-            ctx.progress(1.0, stage=STAGE_INSTALL, detail="already installed")
+            ctx.progress(
+                1.0,
+                stage=STAGE_INSTALL,
+                stage_code=STAGE_MODEL_INSTALL,
+                detail="already installed",
+                detail_code=DETAIL_MODEL_ALREADY_INSTALLED,
+            )
             return ModelInstallResult(status=existing, downloaded=False)
 
         require_model_consent(self.consent, required_version=self.store.spec.licence_notice_version)
-        ctx.progress(0.01, stage=STAGE_CONSENT)
+        ctx.progress(0.01, stage=STAGE_CONSENT, stage_code=STAGE_MODEL_CONSENT)
         require_free_space(self.store.root, free_space_requirement(estimate_model_install_bytes()))
         ctx.cancel.check()
 
         partial = self.store.partial_path()
-        ctx.progress(DOWNLOAD_START, stage=STAGE_DOWNLOAD)
+        ctx.progress(DOWNLOAD_START, stage=STAGE_DOWNLOAD, stage_code=STAGE_MODEL_DOWNLOAD)
         size, digest = self._download(ctx, partial)
         ctx.cancel.check()
         spec = self.store.spec
@@ -136,12 +150,12 @@ class ModelInstallJob:
                 ),
                 spec.download_url,
             )
-        ctx.progress(DOWNLOAD_END, stage=STAGE_VERIFY)
+        ctx.progress(DOWNLOAD_END, stage=STAGE_VERIFY, stage_code=STAGE_MODEL_VERIFY)
         status = self.store.commit_verified_partial(size=size, sha256=digest)
-        ctx.progress(VERIFIED_END, stage=STAGE_VERIFY)
-        ctx.progress(INSTALL_START, stage=STAGE_INSTALL)
+        ctx.progress(VERIFIED_END, stage=STAGE_VERIFY, stage_code=STAGE_MODEL_VERIFY)
+        ctx.progress(INSTALL_START, stage=STAGE_INSTALL, stage_code=STAGE_MODEL_INSTALL)
         result = ModelInstallResult(status=status, downloaded=True)
-        ctx.progress(1.0, stage=STAGE_INSTALL)
+        ctx.progress(1.0, stage=STAGE_INSTALL, stage_code=STAGE_MODEL_INSTALL)
         return result
 
     # -- download -----------------------------------------------------------
@@ -228,7 +242,13 @@ class ModelInstallJob:
                     ctx.progress(
                         _download_progress(downloaded, spec.size_bytes),
                         stage=STAGE_DOWNLOAD,
+                        stage_code=STAGE_MODEL_DOWNLOAD,
                         detail=_download_detail(downloaded, spec.size_bytes),
+                        detail_code=DETAIL_MODEL_DOWNLOAD_PROGRESS,
+                        detail_context={
+                            "downloaded": f"{downloaded / 1_000_000:.1f}",
+                            "total": f"{spec.size_bytes / 1_000_000:.1f}",
+                        },
                     )
                     ctx.cancel.check()
             return downloaded, digest.hexdigest()

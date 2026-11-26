@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -281,6 +282,50 @@ def test_save_original_copy_uses_the_glossary_terms() -> None:
     assert "imported file" in copy
     for avoided in ("passthrough", "native export", "raw export"):
         assert avoided not in copy
+
+
+def test_a_job_stage_prefers_its_code_and_falls_back_to_the_english_text() -> None:
+    coded = SimpleNamespace(
+        stage="Decoding",
+        stage_code="job.stage.import.decoding",
+        stage_context={"part": 1},
+        detail="song.wav",
+        detail_code="job.detail.import.source_file",
+        detail_context={"name": "song.wav"},
+    )
+    unknown = SimpleNamespace(
+        stage="Future stage",
+        stage_code="job.stage.future.unknown",
+        stage_context={},
+        detail="future detail",
+        detail_code="job.detail.future.unknown",
+        detail_context={},
+    )
+
+    assert formatting.job_stage(coded) == "Decoding"
+    assert formatting.job_detail(coded) == "song.wav"
+    assert formatting.job_stage(unknown) == "Future stage"
+    assert formatting.job_detail(unknown) == "future detail"
+
+
+def test_display_labels_resolve_roles_shifts_and_batch_labels() -> None:
+    assert formatting.display_label("role.vocals") == "Vocals"
+    assert formatting.display_label("common.original") == "Original"
+    assert (
+        formatting.display_label(
+            "pitch.render.master",
+            {"semitones": 3},
+        )
+        == "+3 master"
+    )
+    assert (
+        formatting.display_label(
+            "export.target.shifted",
+            {"role": "vocals", "semitones": -2},
+        )
+        == "Vocals \u22122 st"
+    )
+    assert formatting.display_label("role.no_such_role", fallback="Banjo") == "Banjo"
 
 
 def test_batch_confirm_and_remaining_are_singular_at_one() -> None:

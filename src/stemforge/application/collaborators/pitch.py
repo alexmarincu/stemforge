@@ -46,6 +46,8 @@ class PitchService:
                 label=view.label,
                 created_at=view.artifact.created_at,
                 based_on_earlier_separation=view.based_on_earlier_separation,
+                label_key=view.label_key,
+                label_context=view.label_context,
             )
             for view in render_views(self._artifacts, track.source_id)
         )
