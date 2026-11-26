@@ -50,6 +50,12 @@ _Avoid_: Load, add, ingest
 
 The non-vocal mix of a Track, stored as a derived Artifact (the sum of the non-vocal Stems) and presented as one of the two primary Separation outputs. It is not a Stem.
 
+## Interface language
+
+The language StemForge uses for user-visible text: window copy, error headlines and actions, native dialog prose, and launch-failure messages. It is a user preference with a system-derived default, not a property of a Track or Source. Logs, diagnostics, exported filenames, and audio tags remain English.
+
+_Avoid_: UI language, language pack.
+
 ## Job
 
 A long-running local operation with observable progress and cancellation: import, download, decode, pitch render, Separation, or Export.
