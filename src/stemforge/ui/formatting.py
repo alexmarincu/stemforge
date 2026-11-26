@@ -1,8 +1,9 @@
-"""User-facing labels and the ``(code, reason)`` error copy table.
+"""Formatting helpers and the ``(code, reason)`` error copy table.
 
-This is the only module with headlines, remediation actions, and user-facing
-prose; ``errors.py`` stays copy-free. Every code has an entry so a
-newer worker's unknown code falls back to ``internal.unexpected``.
+User-visible page copy resolves through the English catalog; this module keeps
+the formatting helpers and the coded error table. ``errors.py`` stays copy-free.
+Every code has an entry so a newer worker's unknown code falls back to
+``internal.unexpected``.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.domain.models import JobKind, OriginKind
 
 if TYPE_CHECKING:
@@ -790,7 +791,7 @@ def level_adjusted_label(gain_db: float) -> str | None:
     """The quiet level-adjusted badge, or ``None`` when no attenuation was applied."""
     if gain_db == 0:
         return None
-    return f"level adjusted \u2212{abs(gain_db):.1f} dB"
+    return i18n.t("page.level_adjusted", gain=abs(gain_db))
 
 
 def format_sample_rate(rate: int | None) -> str | None:
@@ -808,15 +809,17 @@ def format_channels(channels: int | None) -> str | None:
     if channels is None or channels <= 0:
         return None
     if channels == 1:
-        return "mono"
+        return i18n.t("page.channels_mono")
     if channels == 2:
-        return "stereo"
-    return f"{channels} ch"
+        return i18n.t("page.channels_stereo")
+    return i18n.t("page.channels_count", count=channels)
 
 
 def origin_label(kind: OriginKind) -> str:
     """Name a Source origin the way the rail and detail header do."""
-    return "YouTube" if kind is OriginKind.YOUTUBE else "Local file"
+    if kind is OriginKind.YOUTUBE:
+        return i18n.t("page.origin_youtube")
+    return i18n.t("page.origin_local")
 
 
 def track_icon(kind: OriginKind) -> str:
@@ -929,11 +932,11 @@ def format_relative_time(when: datetime, *, now: datetime | None = None) -> str:
         when = when.replace(tzinfo=UTC)
     seconds = max(0, int((current - when).total_seconds()))
     if seconds < 60:
-        return "just now"
+        return i18n.t("page.recent_just_now")
     minutes = seconds // 60
     if minutes < 60:
-        return f"{minutes} min ago"
+        return i18n.t("page.recent_minutes_ago", count=minutes)
     hours = minutes // 60
     if hours < 24:
-        return f"{hours} h ago"
-    return f"{hours // 24} d ago"
+        return i18n.t("page.recent_hours_ago", count=hours)
+    return i18n.t("page.recent_days_ago", count=hours // 24)
