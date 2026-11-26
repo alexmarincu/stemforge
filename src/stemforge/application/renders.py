@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from types import MappingProxyType
 
 from stemforge.artifacts import ArtifactStore, RenderArtifact, SeparationArtifact
-from stemforge.domain.display import render_label_key
+from stemforge.domain.display import LabelRef, render_label_key
 from stemforge.domain.models import RenderScope
 from stemforge.domain.roles import STEM_ROLES
 from stemforge.engines.pitch import MAX_SEMITONES, MIN_SEMITONES
@@ -21,8 +20,7 @@ class RenderView:
     semitones: int
     scope: RenderScope
     based_on_earlier_separation: bool
-    label_key: str = ""
-    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    label: LabelRef = field(default_factory=LabelRef)
 
 
 def render_views(artifacts: ArtifactStore, source_id: str) -> tuple[RenderView, ...]:
@@ -51,8 +49,10 @@ def render_views(artifacts: ArtifactStore, source_id: str) -> tuple[RenderView, 
                 semitones=semitones,
                 scope=scope,
                 based_on_earlier_separation=based_on_earlier,
-                label_key=render_label_key(scope=scope.value, collision=collision),
-                label_context={"semitones": semitones},
+                label=LabelRef(
+                    key=render_label_key(scope=scope.value, collision=collision),
+                    context={"semitones": semitones},
+                ),
             )
         )
     return tuple(views)

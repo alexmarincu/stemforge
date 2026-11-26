@@ -56,8 +56,14 @@ def _install_network_guard(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def english_language() -> None:
-    """Pin the process translator to English; no test reads the host locale."""
+def english_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the process translator and the system-locale seam to English.
+
+    A developer whose shell runs in Romanian must see the same suite. Tests that
+    exercise Romanian set their own explicit locale.
+    """
+    for variable in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        monkeypatch.setenv(variable, "en_US.UTF-8")
     i18n.set_language("en")
 
 

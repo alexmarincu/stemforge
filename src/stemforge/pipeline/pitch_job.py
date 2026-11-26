@@ -47,7 +47,8 @@ from stemforge.domain.progress import (
     STAGE_PITCH_SAVING,
     STAGE_PITCH_STUDYING,
     STAGE_PITCH_VALIDATING,
-    ProgressDetail,
+    CodedText,
+    context_progress,
 )
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, NON_VOCAL_ROLES, STEM_ROLES
 from stemforge.engines.media import CANONICAL_CHANNELS, CANONICAL_SAMPLE_RATE, MediaTool
@@ -143,7 +144,7 @@ def run_pitch_job(
     resolved_scope = RenderScope(scope)
     cancel = ctx.cancel
     log = ctx.log
-    emit = _context_progress(ctx)
+    emit = context_progress(ctx, _STAGE_CODE_BY_TEXT)
     cancel.check()
 
     source = artifacts.find_source(source_id, verify_hashes=True)
@@ -170,7 +171,7 @@ def run_pitch_job(
         emit(
             1.0,
             STAGE_DONE,
-            ProgressDetail("this render set already exists", code=DETAIL_PITCH_CACHED_RENDER),
+            CodedText("this render set already exists", code=DETAIL_PITCH_CACHED_RENDER),
         )
         return _render_set(existing, resolved_scope, shift, existing.gain_db)
 
@@ -191,14 +192,14 @@ def run_pitch_job(
             cancel.check()
             start = index / total * SHIFT_SHARE
             span = SHIFT_SHARE / total
-            detail: str | ProgressDetail = (
-                ProgressDetail(
+            detail: str | CodedText = (
+                CodedText(
                     f"stem {index + 1} of {total}",
                     code=DETAIL_PITCH_SHIFT_STEM,
                     context={"index": index + 1, "total": total},
                 )
                 if resolved_scope is RenderScope.STEMS
-                else ProgressDetail("original", code=DETAIL_PITCH_ORIGINAL)
+                else CodedText("original", code=DETAIL_PITCH_ORIGINAL)
             )
             destination = staging / f"{item.role}.wav"
             pitch.shift(
@@ -216,7 +217,7 @@ def run_pitch_job(
             emit(
                 SHIFT_SHARE,
                 STAGE_INSTRUMENTAL,
-                ProgressDetail(
+                CodedText(
                     "summing the shifted non-vocal stems",
                     code=DETAIL_PITCH_SUMMING_NON_VOCAL,
                 ),
@@ -233,7 +234,7 @@ def run_pitch_job(
         emit(
             SHIFT_SHARE + INSTRUMENTAL_SHARE,
             STAGE_GAIN,
-            ProgressDetail("measuring the set peak", code=DETAIL_PITCH_MEASURING_PEAK),
+            CodedText("measuring the set peak", code=DETAIL_PITCH_MEASURING_PEAK),
         )
         peaks: dict[str, float] = {}
         for role, path in outputs.items():
@@ -263,7 +264,7 @@ def run_pitch_job(
             emit(
                 preview_start + (preview_end - preview_start) * (index + 1) / len(outputs),
                 STAGE_PREVIEWS,
-                ProgressDetail(role, code=role_label_key(role)),
+                CodedText(role, code=role_label_key(role)),
             )
 
         manifest = _manifest(
@@ -281,7 +282,7 @@ def run_pitch_job(
         emit(
             preview_end,
             STAGE_SAVING,
-            ProgressDetail("writing the manifest", code=DETAIL_PITCH_WRITING_MANIFEST),
+            CodedText("writing the manifest", code=DETAIL_PITCH_WRITING_MANIFEST),
         )
         artifact = artifacts.commit_render(staging, render_key, manifest)
         committed = True
@@ -345,21 +346,6 @@ def _resolve_inputs(
             raise ValueError(f"the separation is missing the {role} stem: {source_id}")
         inputs.append(PitchInput(role, path, f"stems/{role}.wav"))
     return inputs
-
-
-def _context_progress(ctx: JobContext) -> ProgressSink:
-    def sink(fraction: float, stage: str, detail: str) -> None:
-        coded = detail if isinstance(detail, ProgressDetail) else None
-        ctx.progress(
-            min(1.0, max(0.0, fraction)),
-            stage=stage,
-            stage_code=_STAGE_CODE_BY_TEXT.get(stage),
-            detail=detail or None,
-            detail_code=coded.code if coded is not None else None,
-            detail_context=coded.context if coded is not None else None,
-        )
-
-    return sink
 
 
 def _scaled(

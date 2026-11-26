@@ -38,7 +38,7 @@ from stemforge.domain.progress import (
     DETAIL_YOUTUBE_DOWNLOAD_PROGRESS_NO_SPEED,
     DETAIL_YOUTUBE_DOWNLOAD_PROGRESS_NO_TOTAL,
     DETAIL_YOUTUBE_DOWNLOAD_PROGRESS_NO_TOTAL_SPEED,
-    ProgressDetail,
+    CodedText,
 )
 from stemforge.errors import StemForgeError
 from stemforge.platform import binaries
@@ -378,7 +378,7 @@ class YtDlpImporter:
             if status == "finished":
                 progress(
                     1.0,
-                    ProgressDetail(
+                    CodedText(
                         "Downloading audio · 100%",
                         code=DETAIL_YOUTUBE_DOWNLOAD_FINISHED,
                     ),
@@ -684,7 +684,7 @@ def _download_fraction(data: Mapping[str, object]) -> float:
     return min(1.0, max(0.0, downloaded / total))
 
 
-def _download_detail(data: Mapping[str, object]) -> ProgressDetail:
+def _download_detail(data: Mapping[str, object]) -> CodedText:
     downloaded = _as_int(data.get("downloaded_bytes")) or 0
     total = _as_int(data.get("total_bytes")) or _as_int(data.get("total_bytes_estimate"))
     speed = _as_float(data.get("speed"))
@@ -706,7 +706,7 @@ def _download_detail(data: Mapping[str, object]) -> ProgressDetail:
     parts.append(f"of {_megabytes(total)} MB" if total else "MB")
     if speed_mb:
         parts.append(f"· {speed_mb} MB/s")
-    return ProgressDetail(" ".join(parts), code=code, context=context)
+    return CodedText(" ".join(parts), code=code, context=context)
 
 
 def _megabytes(value: int | None) -> str:

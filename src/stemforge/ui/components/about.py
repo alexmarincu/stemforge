@@ -420,11 +420,11 @@ class SettingsDialog:
     def _language_row(self) -> None:
         """The first Behaviour row: System / English / Română in their own names."""
         preference = self._service.language_preference()
-        resolved = i18n.resolve_language(preference, i18n.system_locale())
+        system_resolved = i18n.resolve_language(i18n.SYSTEM_PREFERENCE, i18n.system_locale())
         options = {
             i18n.SYSTEM_PREFERENCE: i18n.t(
                 "settings.language_system",
-                language=i18n.locale_info(resolved).autonym,
+                language=i18n.locale_info(system_resolved).autonym,
             ),
             "en": i18n.locale_info("en").autonym,
             "ro": i18n.locale_info("ro").autonym,

@@ -5,7 +5,7 @@ is called, so a playlist, channel, search, or foreign host is only a field error
 A valid submit reports in
 the one Job bar, and the page refreshes the row when the Job ends.
 
-All prose resolves through the English catalog. The only state this component owns is
+All prose resolves through the English catalogue. The only state this component owns is
 view state (the error line, the pending paste, and the declined flag); the
 acknowledgment and the enable/disable setting are persisted by ``SettingsStore``.
 """

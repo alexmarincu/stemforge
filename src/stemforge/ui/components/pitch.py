@@ -124,14 +124,7 @@ class PitchCard:
         active_key: str,
         existing: PitchSet | None,
     ) -> None:
-        label = (
-            formatting.display_label(
-                existing.label_key,
-                existing.label_context,
-            )
-            if existing is not None
-            else ""
-        )
+        label = formatting.label_text(existing.label) if existing is not None else ""
         if semitones == 0:
             text = i18n.t("pitch.neutral_hint")
         elif existing is not None and existing.render_key == active_key:
@@ -167,10 +160,7 @@ class PitchCard:
             ui.label(i18n.t("pitch.viewing")).classes("sf-fineprint").mark("pitch-passive")
             return
         if existing is not None:
-            label = formatting.display_label(
-                existing.label_key,
-                existing.label_context,
-            )
+            label = formatting.label_text(existing.label)
             (
                 ui.button(
                     i18n.t("pitch.open_version", label=label),

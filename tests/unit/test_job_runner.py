@@ -471,8 +471,16 @@ def test_cancel_token_is_still_reexported_from_the_job_module() -> None:
 
 
 def test_snapshot_is_an_immutable_value() -> None:
-    snapshot = JobSnapshot(job_id="j", kind=JobKind.IMPORT_LOCAL, state=JobState.QUEUED)
+    snapshot = JobSnapshot(
+        job_id="j",
+        kind=JobKind.IMPORT_LOCAL,
+        state=JobState.QUEUED,
+        stage="Waiting",
+    )
 
     with pytest.raises(AttributeError):
         snapshot.state = JobState.FAILED  # type: ignore[misc]
     assert snapshot.progress == 0.0
+    assert snapshot.stage == "Waiting"
+    assert snapshot.stage.text == "Waiting"
+    assert snapshot.stage_code is None

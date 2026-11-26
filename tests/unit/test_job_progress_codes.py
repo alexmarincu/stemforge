@@ -1,4 +1,4 @@
-"""Every stable Job and display code resolves through the English catalog."""
+"""Every stable Job and display code resolves through the English catalogue."""
 
 from __future__ import annotations
 
@@ -63,6 +63,46 @@ def test_every_stage_and_detail_constant_is_registered() -> None:
     }
 
     assert values == set(progress.STAGE_CODES | progress.DETAIL_CODES)
+
+
+def test_coded_text_keeps_english_text_with_its_code_and_context() -> None:
+    text = progress.CodedText(
+        "Saving",
+        code=progress.STAGE_IMPORT_SAVING,
+        context={"part": 1},
+    )
+
+    assert text == "Saving"
+    assert text.text == "Saving"
+    assert text.code == progress.STAGE_IMPORT_SAVING
+    assert dict(text.context) == {"part": 1}
+
+
+def test_context_progress_forwards_the_clamped_fraction_and_coded_detail() -> None:
+    updates: list[tuple[float, dict[str, object]]] = []
+
+    class Sink:
+        def progress(self, fraction: float, **values: object) -> None:
+            updates.append((fraction, values))
+
+    emit = progress.context_progress(Sink(), {"Encoding": progress.STAGE_EXPORT_ENCODING})
+    emit(
+        1.4,
+        "Encoding",
+        progress.CodedText(
+            "writing the file",
+            code=progress.DETAIL_EXPORT_WRITING_FILE,
+            context={"name": "song.wav"},
+        ),
+    )
+
+    fraction, values = updates[0]
+    assert fraction == 1.0
+    assert values["stage"] == "Encoding"
+    assert values["stage_code"] == progress.STAGE_EXPORT_ENCODING
+    assert values["detail"] == "writing the file"
+    assert values["detail_code"] == progress.DETAIL_EXPORT_WRITING_FILE
+    assert dict(values["detail_context"]) == {"name": "song.wav"}
 
 
 def test_source_literals_for_stage_and_detail_codes_are_registered() -> None:

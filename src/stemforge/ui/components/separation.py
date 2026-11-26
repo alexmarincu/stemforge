@@ -423,7 +423,7 @@ class SeparationCard:
                 self.build.refresh()
             return
         now = float(self.clock())
-        signature = (job.job_id, round(job.progress * 1000), job.stage, job.stage_code)
+        signature = (job.job_id, round(job.progress * 1000), job.stage, job.stage.code)
         changed = (
             self._job is None or self._job.job_id != job.job_id or signature != self._job_signature
         )

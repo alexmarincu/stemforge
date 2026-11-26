@@ -22,6 +22,7 @@ from stemforge.application import (
 )
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.display import LabelRef
 from stemforge.domain.models import (
     JobKind,
     JobState,
@@ -236,8 +237,8 @@ def test_export_targets_lists_only_the_master_for_a_plain_source(tmp_path: Path)
     assert [target.key for target in targets] == ["master"]
     master = targets[0]
     assert isinstance(master, ExportJobTarget)
-    assert master.label_key == "common.original"
-    assert dict(master.label_context) == {}
+    assert master.label.key == "common.original"
+    assert dict(master.label.context) == {}
     assert master.base_name == TITLE
     assert master.gain_db == pytest.approx(-1.5)
     assert master.path == store.sources_dir / SOURCE_ID / "canonical.wav"
@@ -260,7 +261,7 @@ def test_export_targets_adds_unshifted_stems_and_the_instrumental(tmp_path: Path
         "instrumental",
     ]
     stems = {target.key: target for target in targets}
-    assert stems["stem:vocals"].label_key == "role.vocals"
+    assert stems["stem:vocals"].label.key == "role.vocals"
     assert stems["stem:vocals"].base_name == f"{TITLE} - Vocals"
     assert stems["instrumental"].base_name == f"{TITLE} - Instrumental"
     assert stems["instrumental"].gain_db == pytest.approx(-2.0)
@@ -315,14 +316,14 @@ def test_export_targets_adds_every_member_of_a_pitch_set(tmp_path: Path) -> None
         "render:render-stems:instrumental",
     }
     assert by_key["render:render-original:original"].base_name == f"{TITLE} +3st"
-    assert by_key["render:render-original:original"].label_key == "export.target.shifted"
-    assert dict(by_key["render:render-original:original"].label_context) == {
+    assert by_key["render:render-original:original"].label.key == "export.target.shifted"
+    assert dict(by_key["render:render-original:original"].label.context) == {
         "role": "original",
         "semitones": 3,
     }
     assert by_key["render:render-stems:vocals"].base_name == f"{TITLE} - Vocals -2st"
-    assert by_key["render:render-stems:vocals"].label_key == "export.target.shifted"
-    assert dict(by_key["render:render-stems:vocals"].label_context) == {
+    assert by_key["render:render-stems:vocals"].label.key == "export.target.shifted"
+    assert dict(by_key["render:render-stems:vocals"].label.context) == {
         "role": "vocals",
         "semitones": -2,
     }
@@ -1055,14 +1056,14 @@ def test_the_batch_run_writes_outcomes_into_the_service_record(
 
     assert result is not None
     assert [item.state for item in result.items] == [ExportBatchItemState.WRITTEN] * 5
-    assert [item.label_key for item in result.items] == [
+    assert [item.label.key for item in result.items] == [
         "role.vocals",
         "role.instrumental",
         "role.drums",
         "role.bass",
         "role.other",
     ]
-    assert [dict(item.label_context) for item in result.items] == [{}] * 5
+    assert [dict(item.label.context) for item in result.items] == [{}] * 5
     assert [item.path.name for item in result.written] == [
         "stem:vocals.wav",
         "instrumental.wav",
@@ -1080,12 +1081,20 @@ def test_batch_retry_keys_include_every_failed_item() -> None:
         format=ExportFormat.WAV24,
         destination_dir=Path("/exports"),
         items=(
-            ExportBatchItem("stem:vocals", ExportBatchItemState.WRITTEN, label_key="role.vocals"),
             ExportBatchItem(
-                "instrumental", ExportBatchItemState.FAILED, label_key="role.instrumental"
+                "stem:vocals",
+                ExportBatchItemState.WRITTEN,
+                label=LabelRef(key="role.vocals"),
             ),
             ExportBatchItem(
-                "stem:drums", ExportBatchItemState.NOT_EXPORTED, label_key="role.drums"
+                "instrumental",
+                ExportBatchItemState.FAILED,
+                label=LabelRef(key="role.instrumental"),
+            ),
+            ExportBatchItem(
+                "stem:drums",
+                ExportBatchItemState.NOT_EXPORTED,
+                label=LabelRef(key="role.drums"),
             ),
         ),
     )

@@ -17,11 +17,11 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import MappingProxyType
 from typing import Final
 
 from stemforge import errors
 from stemforge.artifacts import ArtifactStore, require_free_space
+from stemforge.domain.display import LabelRef
 from stemforge.domain.models import ExportBatchItemState
 from stemforge.domain.progress import STAGE_EXPORT_BATCH_ITEM, Progress
 from stemforge.engines.media import ExportFormat, MediaTool
@@ -55,8 +55,7 @@ class ExportBatchItemOutcome:
     state: ExportBatchItemState
     path: Path | None = None
     error: StemForgeError | None = None
-    label_key: str = ""
-    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    label: LabelRef = field(default_factory=LabelRef)
 
 
 RecordOutcome = Callable[[ExportBatchItemOutcome], None]
@@ -152,8 +151,7 @@ def run_export_batch_job(
             index=index,
             total=total,
             detail=detail,
-            label_key=target.label_key,
-            label_context=target.label_context,
+            label=target.label,
         )
         item_context.progress(
             0.0,
@@ -161,8 +159,8 @@ def run_export_batch_job(
             stage_code=STAGE_EXPORT_BATCH_ITEM,
             stage_context={"index": index + 1, "total": total},
             detail=detail,
-            detail_code=target.label_key,
-            detail_context=target.label_context,
+            detail_code=target.label.key,
+            detail_context=target.label.context,
         )
         try:
             result = run_export_job(
@@ -181,8 +179,7 @@ def run_export_batch_job(
             record(
                 ExportBatchItemOutcome(
                     key=target.key,
-                    label_key=target.label_key,
-                    label_context=target.label_context,
+                    label=target.label,
                     state=ExportBatchItemState.FAILED,
                     error=exc,
                 )
@@ -202,8 +199,7 @@ def run_export_batch_job(
         record(
             ExportBatchItemOutcome(
                 key=target.key,
-                label_key=target.label_key,
-                label_context=target.label_context,
+                label=target.label,
                 state=ExportBatchItemState.WRITTEN,
                 path=result.path,
             )
@@ -216,8 +212,8 @@ def run_export_batch_job(
             stage_code=STAGE_EXPORT_BATCH_ITEM,
             stage_context={"index": index + 1, "total": total},
             detail=english_target_label(target.role, target.semitones),
-            detail_code=target.label_key,
-            detail_context=target.label_context,
+            detail_code=target.label.key,
+            detail_context=target.label.context,
         )
 
     if state.failures:
@@ -287,8 +283,7 @@ def _probe_targets(
             record(
                 ExportBatchItemOutcome(
                     key=target.key,
-                    label_key=target.label_key,
-                    label_context=target.label_context,
+                    label=target.label,
                     state=ExportBatchItemState.FAILED,
                     error=exc,
                 )
@@ -312,8 +307,7 @@ def _mark_unwritten(
         record(
             ExportBatchItemOutcome(
                 key=target.key,
-                label_key=target.label_key,
-                label_context=target.label_context,
+                label=target.label,
                 state=ExportBatchItemState.NOT_EXPORTED,
             )
         )
@@ -325,8 +319,7 @@ def _item_context(
     index: int,
     total: int,
     detail: str,
-    label_key: str,
-    label_context: Mapping[str, object],
+    label: LabelRef,
 ) -> JobContext:
     """A per-item context that maps the item's progress into the batch's slice."""
 
@@ -338,8 +331,8 @@ def _item_context(
             stage_code=STAGE_EXPORT_BATCH_ITEM,
             stage_context={"index": index + 1, "total": total},
             detail=detail,
-            detail_code=label_key,
-            detail_context=label_context,
+            detail_code=label.key,
+            detail_context=label.context,
         )
 
     return JobContext(

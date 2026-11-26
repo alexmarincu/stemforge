@@ -1,12 +1,15 @@
 """Stable display-label codes shared by the application, pipeline, and UI.
 
-A view carries a catalog message ID and a context; the UI resolves the message at
+A view carries a catalogue message ID and a context; the UI resolves the message at
 render time. Filename role labels live separately in ``pipeline.export_names``
 and never use these codes.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Final
 
 __all__ = [
@@ -17,9 +20,19 @@ __all__ = [
     "RENDER_MASTER_LABEL_KEY",
     "RENDER_STEMS_LABEL_KEY",
     "SEPARATION_LABEL_KEY",
+    "LabelRef",
     "render_label_key",
     "role_label_key",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class LabelRef:
+    """One display label as a catalogue key and the context its template needs."""
+
+    key: str = ""
+    context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+
 
 ORIGINAL_LABEL_KEY: Final = "common.original"
 RENDER_LABEL_KEY: Final = "pitch.render.shift"

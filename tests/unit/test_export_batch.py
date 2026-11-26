@@ -11,6 +11,7 @@ import pytest
 
 from stemforge import errors
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.display import LabelRef
 from stemforge.domain.models import ExportBatchItemState, JobKind
 from stemforge.domain.progress import (
     STAGE_EXPORT_BATCH_ITEM,
@@ -51,8 +52,7 @@ def _target(
         scope=scope,
         render_key=render_key,
         title="Song",
-        label_key=f"role.{role}",
-        label_context={},
+        label=LabelRef(key=f"role.{role}"),
     )
 
 
@@ -234,7 +234,7 @@ def test_a_full_batch_records_every_written_item_in_plan_order(
         "Bass",
         "Other",
     }
-    assert [item.label_key for item in recorded] == [
+    assert [item.label.key for item in recorded] == [
         "role.vocals",
         "role.instrumental",
         "role.drums",

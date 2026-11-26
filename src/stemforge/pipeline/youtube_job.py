@@ -48,7 +48,7 @@ from stemforge.domain.progress import (
     STAGE_YOUTUBE_DECODING,
     STAGE_YOUTUBE_DOWNLOADING,
     STAGE_YOUTUBE_FINISHING,
-    ProgressDetail,
+    CodedText,
 )
 from stemforge.engines.media import MediaTool
 from stemforge.engines.youtube import (
@@ -545,11 +545,11 @@ def _polite_wait(
 
 
 def _detail_code(detail: str) -> str | None:
-    return detail.code if isinstance(detail, ProgressDetail) else None
+    return detail.code if isinstance(detail, CodedText) else None
 
 
 def _detail_context(detail: str) -> Mapping[str, object] | None:
-    return detail.context if isinstance(detail, ProgressDetail) else None
+    return detail.context if isinstance(detail, CodedText) else None
 
 
 def _require_duration_cap(duration_s: float) -> None:

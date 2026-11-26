@@ -1,13 +1,14 @@
 """Formatting helpers and the ``(code, reason)`` error copy contract.
 
-Coded error copy resolves through the locale catalog: this module maps a stable
-code and reason to its catalog message IDs and composes the dynamic sentences.
+Coded error copy resolves through the locale catalogue: this module maps a stable
+code and reason to its catalogue message IDs and composes the dynamic sentences.
 ``errors.py`` stays copy-free. Every code resolves, so a newer worker's unknown
 code falls back to ``internal.unexpected``.
 """
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from stemforge.domain.display import (
     RENDER_LABEL_KEY,
     RENDER_MASTER_LABEL_KEY,
     RENDER_STEMS_LABEL_KEY,
+    LabelRef,
     role_label_key,
 )
 from stemforge.domain.models import OriginKind
@@ -33,6 +35,7 @@ if TYPE_CHECKING:
 MAX_HEADLINE_LENGTH: Final = 90
 _MIB: Final = 1024 * 1024
 _GIB: Final = 1024 * _MIB
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +59,7 @@ class ModelLicenceCopy:
     decline_label: str
 
 
-# The reason variants the catalog must carry, independent of any rendered copy.
+# The reason variants the catalogue must carry, independent of any rendered copy.
 # A reason only gets its own row when the recovery action genuinely differs;
 # membership is explicit so an unknown reason from a newer worker falls back to
 # the code's base row.
@@ -185,7 +188,7 @@ def _base_copy(code: str, reason: str | None) -> ErrorCopy:
 
 
 def _catalog_copy(key: str) -> ErrorCopy:
-    """Render one error headline and action from the catalog."""
+    """Render one error headline and action from the catalogue."""
     return ErrorCopy(i18n.t(f"{key}.headline"), i18n.t(f"{key}.action"))
 
 
@@ -280,11 +283,16 @@ def format_semitones(semitones: int) -> str:
 
 
 def role_label(role: str) -> str:
-    """The display name for one role, resolved from its stable role key."""
+    """The display name for one role, resolved from its stable role key.
+
+    An unknown role is a newer producer's code, not English prose: log it and
+    return the code so no sentence is minted outside the catalogue.
+    """
     key = role_label_key(role)
     if i18n.has_message(key):
         return i18n.t(key)
-    return role.replace("_", " ").title()
+    _LOG.warning("role %r has no catalogue label; using the stable code", role)
+    return role
 
 
 def display_label(
@@ -295,8 +303,8 @@ def display_label(
 ) -> str:
     """Resolve a stable display code, falling back to the stored English label.
 
-    Role codes render their catalog name; render and shifted-export codes format
-    the semitone count at render time. Any other code is a catalog template with
+    Role codes render their catalogue name; render and shifted-export codes format
+    the semitone count at render time. Any other code is a catalogue template with
     its context passed through as named placeholders.
     """
     if not key or not i18n.has_message(key):
@@ -318,24 +326,33 @@ def display_label(
     return i18n.t(key, **values)
 
 
+def label_text(label: LabelRef | None, *, fallback: str = "") -> str:
+    """Resolve one ``LabelRef`` through the catalogue, or the stored fallback."""
+    if label is None:
+        return fallback
+    return display_label(label.key, label.context, fallback=fallback)
+
+
 def job_stage(job: JobView) -> str:
-    """A Job's stage from its code, or the English string for an unknown code."""
-    code = job.stage_code
+    """A Job's stage from its code, or the English text for an unknown code."""
+    code = job.stage.code
     if code and i18n.has_message(code):
-        return i18n.t(code, **dict(job.stage_context))
-    return job.stage
+        return i18n.t(code, **dict(job.stage.context))
+    return job.stage.text
 
 
 def job_detail(job: JobView) -> str | None:
-    """A Job's detail from its code, or the English string for an unknown code."""
-    code = job.detail_code
-    if code and i18n.has_message(code):
+    """A Job's detail from its code, or the English text for an unknown code."""
+    detail = job.detail
+    if detail is None:
+        return None
+    if detail.code and i18n.has_message(detail.code):
         return display_label(
-            code,
-            job.detail_context,
-            fallback=job.detail or "",
+            detail.code,
+            detail.context,
+            fallback=detail.text,
         )
-    return job.detail
+    return detail.text
 
 
 def _int_value(value: object, default: int) -> int:

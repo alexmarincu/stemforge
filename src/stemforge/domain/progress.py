@@ -1,16 +1,16 @@
 """Stable Job progress values: English log text plus render-time codes.
 
-Every stage and detail code is a semantic message ID in the English catalog.
+Every stage and detail code is a semantic message ID in the English catalogue.
 The English text stays alongside it for logs, the headless CLI, and the UI's
 fallback when a code has no copy. Context carries the values a template needs.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Final
+from typing import Final, Protocol
 
 __all__ = [
     "DETAIL_CODES",
@@ -86,8 +86,9 @@ __all__ = [
     "STAGE_YOUTUBE_DECODING",
     "STAGE_YOUTUBE_DOWNLOADING",
     "STAGE_YOUTUBE_FINISHING",
+    "CodedText",
     "Progress",
-    "ProgressDetail",
+    "context_progress",
 ]
 
 STAGE_IMPORT_PROBING: Final = "job.stage.import.probing"
@@ -260,12 +261,13 @@ DETAIL_CODES: Final[frozenset[str]] = frozenset(
 )
 
 
-class ProgressDetail(str):
-    """A detail's English text carrying its stable code and template context.
+class CodedText(str):
+    """English text carrying its stable catalogue code and template context.
 
     The value is a ``str`` so logs and every existing ``(fraction, stage, detail)``
     sink keep the exact English text. The Job seam reads ``code`` and ``context``
-    so a renderer can resolve the same detail through the catalog.
+    so a renderer can resolve the same text through the catalogue; ``text`` is
+    the explicit spelling for callers that do not want the string subclass.
     """
 
     code: str | None
@@ -277,21 +279,83 @@ class ProgressDetail(str):
         *,
         code: str | None = None,
         context: Mapping[str, object] | None = None,
-    ) -> ProgressDetail:
-        detail = super().__new__(cls, text)
-        detail.code = code
-        detail.context = MappingProxyType(dict(context or {}))
-        return detail
+    ) -> CodedText:
+        coded = super().__new__(cls, text)
+        coded.code = code
+        coded.context = MappingProxyType(dict(context or {}))
+        return coded
+
+    @property
+    def text(self) -> str:
+        """The English text as a plain string."""
+        return str(self)
 
 
 @dataclass(frozen=True, slots=True)
 class Progress:
-    """One progress publication: a fraction, stage/detail text, and render keys."""
+    """One progress publication: a fraction, coded stage/detail, and render keys."""
 
     fraction: float
-    stage: str | None = None
-    stage_code: str | None = None
-    stage_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
-    detail: str | None = None
-    detail_code: str | None = None
-    detail_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    stage: CodedText | None = None
+    detail: CodedText | None = None
+
+    def __post_init__(self) -> None:
+        """Wrap plain strings so a direct publisher keeps the value type's contract."""
+        if self.stage is not None and not isinstance(self.stage, CodedText):
+            object.__setattr__(self, "stage", CodedText(self.stage))
+        if self.detail is not None and not isinstance(self.detail, CodedText):
+            object.__setattr__(self, "detail", CodedText(self.detail))
+
+    @property
+    def stage_code(self) -> str | None:
+        """The stage's stable code, if its publisher supplied one."""
+        return self.stage.code if self.stage is not None else None
+
+    @property
+    def stage_context(self) -> Mapping[str, object]:
+        return self.stage.context if self.stage is not None else MappingProxyType({})
+
+    @property
+    def detail_code(self) -> str | None:
+        """The detail's stable code, if its publisher supplied one."""
+        return self.detail.code if self.detail is not None else None
+
+    @property
+    def detail_context(self) -> Mapping[str, object]:
+        return self.detail.context if self.detail is not None else MappingProxyType({})
+
+
+ProgressSink = Callable[[float, str, str], None]
+
+
+class ProgressPublisher(Protocol):
+    """The Job-context seam a pipeline adapter publishes through."""
+
+    def progress(
+        self,
+        fraction: float,
+        *,
+        stage: str | None = None,
+        stage_code: str | None = None,
+        stage_context: Mapping[str, object] | None = None,
+        detail: str | None = None,
+        detail_code: str | None = None,
+        detail_context: Mapping[str, object] | None = None,
+    ) -> None: ...
+
+
+def context_progress(publisher: ProgressPublisher, stage_codes: Mapping[str, str]) -> ProgressSink:
+    """Adapt a Job context to the engines' ``(fraction, stage, detail)`` callback."""
+
+    def sink(fraction: float, stage: str, detail: str) -> None:
+        coded = detail if isinstance(detail, CodedText) else None
+        publisher.progress(
+            min(1.0, max(0.0, fraction)),
+            stage=stage,
+            stage_code=stage_codes.get(stage),
+            detail=detail or None,
+            detail_code=coded.code if coded is not None else None,
+            detail_context=coded.context if coded is not None else None,
+        )
+
+    return sink

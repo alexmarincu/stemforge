@@ -261,6 +261,12 @@ def test_framework_language_maps_the_catalog_codes_to_nicegui() -> None:
     assert i18n.framework_language("unknown") == "en-GB"
 
 
+def test_the_english_fixture_pins_the_host_locale_for_the_whole_suite() -> None:
+    """The autouse fixture must not inherit the developer's shell locale."""
+    assert i18n.system_locale() == "en_US"
+    assert i18n.language() == "en"
+
+
 def test_the_process_translator_switches_language_without_reading_the_host_locale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

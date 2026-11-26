@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# User-visible copy resolves through one locale catalog
+# User-visible copy resolves through one locale catalogue
 
 StemForge shipped English-only: roughly 220 message constants and 60 coded
 error-copy rows in the UI copy module, plus display labels in the application and
@@ -10,32 +10,32 @@ pipeline layers, Job stage and detail strings, preflight dialog chrome, and nati
 dialog filters. The product now ships Romanian first, with English remaining the
 source and fallback. NiceGUI 4 localises its own Quasar controls and the
 `<html lang>` attribute, but it does not own application copy. A translation layer
-had to choose between gettext, English-as-msgid catalogs, and semantic message
+had to choose between gettext, English-as-msgid catalogues, and semantic message
 IDs, and decide which surfaces stay English.
 
 **Decision.** All user-visible copy resolves at render time through one neutral
-i18n module backed by per-locale JSON catalogs. Catalogs use flat semantic message
+i18n module backed by per-locale JSON catalogues. Catalogues use flat semantic message
 IDs (`export.save_button`), English is the source locale and the per-key fallback,
-and `en` and `ro` are the only shipped catalogs. A catalog entry is either a
+and `en` and `ro` are the only shipped catalogues. A catalogue entry is either a
 string or a plural map (`one`/`few`/`other`); interpolation uses named
 placeholders. A process-wide translator is set at startup from the persisted
 Interface language or the OS locale and swapped only on the UI thread; changing
 the language reloads the page so no screen can mix languages. Job stage and detail
 codes, application display keys, and preflight dialog chrome resolve through the
-same catalog. Logs, diagnostics, internal identifiers, exported filenames, audio
+same catalogue. Logs, diagnostics, internal identifiers, exported filenames, audio
 tags, and licence documents remain English. Consent notices are translated, but
 the English licence text governs and only an English-source change bumps the
 YouTube notice version. The language setting is an additive
 `system`/`en`/`ro` value in the settings document; an unknown value falls back to
 `system` without corrupting the rest of the document. NiceGUI's framework
-language is set alongside the catalog so Quasar-owned strings and `<html lang>`
+language is set alongside the catalogue so Quasar-owned strings and `<html lang>`
 agree.
 
 **Considered options:** gettext with `.po`/`.mo` (rejected: a compile step in both
 PyInstaller builds, fuzzy and stale state, and msgid churn when English is edited,
 for one target locale); English source strings as message keys (rejected: copy
 edits invalidate translations, homonyms collide, and a semantic name is the more
-stable key); Python dict catalogs (rejected: translators edit Python and merge
+stable key); Python dict catalogues (rejected: translators edit Python and merge
 conflicts are ordinary); an injected translator through every page and component
 (rejected: dozens of constructors and formatting helpers for no testability gain,
 while preflight and native dialogs need a process-wide default anyway); per-locale
@@ -46,16 +46,18 @@ platform rendering is a risk for near-zero gain); a source hash per translation
 entry (rejected: churn for one locale, while structural CI catches the real
 failure, an orphaned or missing key).
 
-**Consequences:** every user-visible string resolves through a catalog ID; no
-parallel English copy table remains. The English catalog is the source and the
-Romanian catalog mirrors it, including the locale's plural shape. The UI copy
+**Consequences:** every user-visible string resolves through a catalogue ID; no
+parallel English copy table remains. The English catalogue is the source and the
+Romanian catalogue mirrors it, including the locale's plural shape. The runtime
+catalogues ship inside both frozen bundles because the UI runs on Windows; Windows
+installer messages and language files remain out of scope. The UI copy
 module keeps formatting, the code-to-message mapping, and display-key
-realisation, not prose. Job snapshots gain stage and detail codes plus a detail
-context alongside the English strings that logs and the headless CLI keep.
-Application and pipeline layers return stable role and kind keys instead of
-pre-rendered labels; filename role labels stay English so a Romanian interface
-still writes `Song - Vocals.flac`. Tests pin English explicitly rather than
-reading the host locale; a Romanian page-render smoke test, the catalog structure
+realisation, not prose. Job snapshots carry `CodedText` values: the English text
+alongside the stable code and context, so logs and the headless CLI keep `.text`.
+Application and pipeline layers return stable role and kind keys as `LabelRef`
+values instead of pre-rendered labels; filename role labels stay English so a
+Romanian interface still writes `Song - Vocals.flac`. Tests pin English explicitly rather than
+reading the host locale; a Romanian page-render smoke test, the catalogue structure
 tests, and the copy-policy test guard the translation across the page shell,
 components, preflight chrome, and fatal copy. The shipped selector offers System,
 English, and Română under Settings → Behaviour, persisted as `system`/`en`/`ro`;

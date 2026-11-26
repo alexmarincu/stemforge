@@ -345,13 +345,7 @@ class ExportSheet:
             with ui.element("div").classes("sf-fact"):
                 ui.label(i18n.t("export.source")).classes("sf-fact-key")
                 ui.label(
-                    ", ".join(
-                        formatting.display_label(
-                            target.label_key,
-                            target.label_context,
-                        )
-                        for target in targets
-                    )
+                    ", ".join(formatting.label_text(target.label) for target in targets)
                 ).classes("sf-fact-value").mark("export-batch-source")
             with ui.element("div").classes("sf-fact"):
                 ui.label(i18n.t("export.destination")).classes("sf-fact-key")
@@ -384,12 +378,9 @@ class ExportSheet:
         with ui.element("div").classes("sf-export-summary"):
             with ui.element("div").classes("sf-fact"):
                 ui.label(i18n.t("export.source")).classes("sf-fact-key")
-                ui.label(
-                    formatting.display_label(
-                        target.label_key,
-                        target.label_context,
-                    )
-                ).classes("sf-fact-value").mark("export-source-label")
+                ui.label(formatting.label_text(target.label)).classes("sf-fact-value").mark(
+                    "export-source-label"
+                )
             with ui.element("div").classes("sf-fact"):
                 ui.label(i18n.t("export.default_name")).classes("sf-fact-key")
                 ui.label(f"{target.base_name}{fmt.suffix}").classes("sf-fact-value").mark(
@@ -1037,12 +1028,7 @@ class ExportBatchStatusBar:
                 ui.icon("remove", size="xs").classes("sf-exportbar-item-icon")
                 detail = i18n.t("export.not_exported")
             with ui.element("div").classes("sf-exportbar-item-main"):
-                ui.label(
-                    formatting.display_label(
-                        item.label_key,
-                        item.label_context,
-                    )
-                ).classes("sf-exportbar-item-label")
+                ui.label(formatting.label_text(item.label)).classes("sf-exportbar-item-label")
                 ui.label(detail).classes("sf-exportbar-item-detail")
                 if item.state is ExportBatchItemState.FAILED:
                     ui.label(item.error_code or errors.INTERNAL_UNEXPECTED).classes(

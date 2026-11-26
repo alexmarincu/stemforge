@@ -124,30 +124,40 @@ def _headless_mode(args: argparse.Namespace) -> bool:
     )
 
 
-def _pin_headless_english(args: argparse.Namespace) -> None:
-    """Headless modes never follow the Interface-language preference."""
-    if _headless_mode(args):
-        from stemforge import i18n
+def _initialize_language(
+    args: argparse.Namespace | None = None,
+    *,
+    settings: SettingsStore | None = None,
+    saved_preference: str | None = None,
+) -> None:
+    """Apply the one Interface-language policy before any dialog or window chrome.
 
-        i18n.set_language(i18n.SOURCE_LOCALE)
-
-
-def _initialize_language(settings: SettingsStore) -> None:
-    """Resolve the persisted preference and the OS locale before any chrome."""
+    Headless CLI modes stay English. A normal launch follows the persisted
+    preference and the OS locale. When environment setup failed, the caller
+    supplies the best-effort persisted value so the fatal box still matches the
+    user's choice; an unreadable document falls back to System.
+    """
     from stemforge import i18n
 
-    i18n.set_language(settings.language, system_locale=i18n.system_locale())
+    if args is not None and _headless_mode(args):
+        i18n.set_language(i18n.SOURCE_LOCALE)
+        return
+    if settings is not None:
+        preference = settings.language
+    elif saved_preference is not None:
+        preference = saved_preference
+    else:
+        preference = i18n.SYSTEM_PREFERENCE
+    i18n.set_language(preference, system_locale=i18n.system_locale())
 
 
 def _configuration_failure(args: argparse.Namespace, error: OSError) -> int:
     """Turn a failed ``environment.configure()`` into the storage fatal result."""
     from stemforge import i18n
+    from stemforge.settings import read_language
 
-    if _headless_mode(args):
-        i18n.set_language(i18n.SOURCE_LOCALE)
-    else:
-        i18n.set_language(i18n.SYSTEM_PREFERENCE, system_locale=i18n.system_locale())
     paths = _paths_without_creating()
+    _initialize_language(args, saved_preference=read_language(paths))
     target = _storage_error_path(paths, error)
     report = preflight.PreflightReport(
         checks=(
@@ -307,7 +317,7 @@ def _run_ui(
 
     if settings is None:
         settings = SettingsStore(paths)
-    i18n.set_language(settings.language, system_locale=i18n.system_locale())
+    _initialize_language(settings=settings)
     framework_language = i18n.framework_language(i18n.language())
     app.config.language = framework_language
     configure_logging(paths)
@@ -590,7 +600,7 @@ def _storage_path_from_message(message: str) -> str | None:
 
 
 def _native_chrome() -> preflight.NativeChrome:
-    """Resolve the pre-window dialog chrome through the active catalog."""
+    """Resolve the pre-window dialog chrome through the active catalogue."""
     from stemforge import i18n
 
     return preflight.NativeChrome(
@@ -649,7 +659,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _dispatch_worker(raw)
 
     args = _build_parser().parse_args(raw)
-    _pin_headless_english(args)
+    _initialize_language(args)
     try:
         paths = _configure()
     except OSError as error:
@@ -660,7 +670,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from stemforge.settings import SettingsStore
 
         settings = SettingsStore(paths)
-        _initialize_language(settings)
+        _initialize_language(args, settings=settings)
 
     if args.import_path is not None:
         return _run_import(args.import_path, paths)

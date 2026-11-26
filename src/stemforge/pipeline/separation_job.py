@@ -52,7 +52,8 @@ from stemforge.domain.progress import (
     STAGE_SEPARATION_SEPARATE,
     STAGE_SEPARATION_VALIDATE,
     STAGE_SEPARATION_VERIFY,
-    ProgressDetail,
+    CodedText,
+    context_progress,
 )
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, OUTPUT_ROLES, STEM_ROLES
 from stemforge.engines.media import (
@@ -166,12 +167,12 @@ def run_separation_job(
     """
     cancel = ctx.cancel
     log = ctx.log
-    emit = _context_progress(ctx)
+    emit = context_progress(ctx, _STAGE_CODE_BY_TEXT)
     cancel.check()
     emit(
         0.0,
         STAGE_VERIFY,
-        ProgressDetail("checking the model weights", code=DETAIL_SEPARATION_CHECKING_WEIGHTS),
+        CodedText("checking the model weights", code=DETAIL_SEPARATION_CHECKING_WEIGHTS),
     )
 
     source = artifacts.find_source(source_id, verify_hashes=True)
@@ -223,7 +224,7 @@ def run_separation_job(
         emit(
             SEPARATE_START,
             STAGE_SEPARATE,
-            ProgressDetail("starting the worker", code=DETAIL_SEPARATION_STARTING_WORKER),
+            CodedText("starting the worker", code=DETAIL_SEPARATION_STARTING_WORKER),
         )
         outputs = engine.separate(
             canonical,
@@ -265,14 +266,14 @@ def run_separation_job(
         emit(
             VALIDATE_END,
             STAGE_VALIDATE,
-            ProgressDetail("five outputs validated", code=DETAIL_SEPARATION_OUTPUTS_VALIDATED),
+            CodedText("five outputs validated", code=DETAIL_SEPARATION_OUTPUTS_VALIDATED),
         )
         cancel.check()
 
         emit(
             VALIDATE_END,
             STAGE_GAIN,
-            ProgressDetail("measuring the set peak", code=DETAIL_SEPARATION_MEASURING_PEAK),
+            CodedText("measuring the set peak", code=DETAIL_SEPARATION_MEASURING_PEAK),
         )
         peaks: dict[str, float] = {}
         for role, path in masters.items():
@@ -305,7 +306,7 @@ def run_separation_job(
             emit(
                 GAIN_END + (PREVIEWS_END - GAIN_END) * (index + 1) / len(preview_roles),
                 STAGE_PREVIEWS,
-                ProgressDetail(role, code=role_label_key(role)),
+                CodedText(role, code=role_label_key(role)),
             )
 
         manifest = _manifest(
@@ -321,7 +322,7 @@ def run_separation_job(
         emit(
             PREVIEWS_END,
             STAGE_SAVING,
-            ProgressDetail("writing the manifest", code=DETAIL_SEPARATION_WRITING_MANIFEST),
+            CodedText("writing the manifest", code=DETAIL_SEPARATION_WRITING_MANIFEST),
         )
         artifact = artifacts.commit_separation(staging, source_id, manifest)
         committed = True
@@ -514,21 +515,6 @@ def _committed_file(artifact: SeparationArtifact, role: str) -> Path:
             context={"role": role},
         )
     return path
-
-
-def _context_progress(ctx: JobContext) -> ProgressSink:
-    def sink(fraction: float, stage: str, detail: str) -> None:
-        coded = detail if isinstance(detail, ProgressDetail) else None
-        ctx.progress(
-            min(1.0, max(0.0, fraction)),
-            stage=stage,
-            stage_code=_STAGE_CODE_BY_TEXT.get(stage),
-            detail=detail or None,
-            detail_code=coded.code if coded is not None else None,
-            detail_context=coded.context if coded is not None else None,
-        )
-
-    return sink
 
 
 def _scaled(

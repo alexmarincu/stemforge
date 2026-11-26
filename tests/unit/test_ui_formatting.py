@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -11,7 +12,9 @@ from types import SimpleNamespace
 import pytest
 
 from stemforge import errors, i18n
+from stemforge.domain.display import LabelRef
 from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
+from stemforge.domain.progress import CodedText
 from stemforge.ui import formatting
 
 pytestmark = pytest.mark.unit
@@ -410,20 +413,16 @@ def test_save_original_copy_uses_the_glossary_terms() -> None:
 
 def test_a_job_stage_prefers_its_code_and_falls_back_to_the_english_text() -> None:
     coded = SimpleNamespace(
-        stage="Decoding",
-        stage_code="job.stage.import.decoding",
-        stage_context={"part": 1},
-        detail="song.wav",
-        detail_code="job.detail.import.native_file",
-        detail_context={"name": "song.wav"},
+        stage=CodedText("Decoding", code="job.stage.import.decoding", context={"part": 1}),
+        detail=CodedText(
+            "song.wav",
+            code="job.detail.import.native_file",
+            context={"name": "song.wav"},
+        ),
     )
     unknown = SimpleNamespace(
-        stage="Future stage",
-        stage_code="job.stage.future.unknown",
-        stage_context={},
-        detail="future detail",
-        detail_code="job.detail.future.unknown",
-        detail_context={},
+        stage=CodedText("Future stage", code="job.stage.future.unknown"),
+        detail=CodedText("future detail", code="job.detail.future.unknown"),
     )
 
     assert formatting.job_stage(coded) == "Decoding"
@@ -433,6 +432,7 @@ def test_a_job_stage_prefers_its_code_and_falls_back_to_the_english_text() -> No
 
 
 def test_display_labels_resolve_roles_shifts_and_batch_labels() -> None:
+    assert formatting.label_text(LabelRef(key="role.vocals")) == "Vocals"
     assert formatting.display_label("role.vocals") == "Vocals"
     assert formatting.display_label("common.original") == "Original"
     assert (
@@ -450,6 +450,16 @@ def test_display_labels_resolve_roles_shifts_and_batch_labels() -> None:
         == "Vocals \u22122 st"
     )
     assert formatting.display_label("role.no_such_role", fallback="Banjo") == "Banjo"
+
+
+def test_an_unknown_role_returns_its_stable_code_and_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="stemforge.ui.formatting"):
+        label = formatting.role_label("no_such_role")
+
+    assert label == "no_such_role"
+    assert any("no_such_role" in record.getMessage() for record in caplog.records)
 
 
 def test_batch_confirm_and_remaining_are_singular_at_one() -> None:
