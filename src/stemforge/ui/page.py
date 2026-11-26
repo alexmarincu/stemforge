@@ -25,7 +25,7 @@ from nicegui import app, context, events, ui
 from nicegui.client import Client
 from nicegui.events import NativeEventArguments
 
-from stemforge import __version__, errors
+from stemforge import __version__, errors, i18n
 from stemforge.application import (
     SEPARATION_OUTPUT_ROLES,
     ExportBatchItem,
@@ -37,7 +37,7 @@ from stemforge.application import (
     PreviewTarget,
     WorkspaceService,
 )
-from stemforge.domain.models import OriginKind, RenderScope, Track
+from stemforge.domain.models import JobKind, OriginKind, RenderScope, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import (
     AudioFileDialog,
@@ -506,10 +506,56 @@ def index() -> None:
 
 
 def _render_unconfigured() -> None:
-    ui.page_title(TITLE)
+    ui.page_title(i18n.t("app.name"))
     with ui.column().classes("absolute-center items-center gap-2"):
-        ui.label(TITLE).classes("text-3xl font-bold")
-        ui.label(formatting.APP_TAGLINE).classes("text-base")
+        ui.label(i18n.t("app.name")).classes("text-3xl font-bold")
+        ui.label(i18n.t("app.tagline")).classes("text-base")
+
+
+def _role_label(role: str) -> str:
+    """The display name for one Separation output role."""
+    if role == "vocals":
+        return i18n.t("role.vocals")
+    if role == "instrumental":
+        return i18n.t("role.instrumental")
+    if role == "drums":
+        return i18n.t("role.drums")
+    if role == "bass":
+        return i18n.t("role.bass")
+    if role == "other":
+        return i18n.t("role.other")
+    return role
+
+
+def _export_batch_headline(
+    *,
+    written: int,
+    failed: int,
+    not_exported: int,
+    cancelled: bool,
+    destination: Path | None = None,
+) -> str:
+    """The one results sentence for a batch's terminal outcome."""
+    total = written + failed + not_exported
+    if cancelled:
+        return i18n.t("page.export_batch.cancelled", written=written, total=total)
+    if total and written == total and destination is not None:
+        return i18n.t("page.export_batch.success", count=written, path=destination)
+    if total == 0:
+        return i18n.t("page.export_batch.none")
+    if not_exported:
+        return i18n.t(
+            "page.export_batch.partial_stopped",
+            written=written,
+            total=total,
+            count=failed + not_exported,
+        )
+    return i18n.t(
+        "page.export_batch.partial_failed",
+        count=failed,
+        written=written,
+        total=total,
+    )
 
 
 class WorkspacePage:
@@ -600,7 +646,7 @@ class WorkspacePage:
 
     def build(self) -> None:
         self._client = context.client
-        ui.page_title(TITLE)
+        ui.page_title(i18n.t("app.name"))
         ui.add_css(SHELL_CSS)
         theme.apply().mark("theme-colors")
         ui.dark_mode(True)
@@ -645,21 +691,21 @@ class WorkspacePage:
                 if mark is not None:
                     ui.html(mark, sanitize=False).mark("brand-mark")
                 with ui.element("div"):
-                    ui.label(formatting.APP_NAME).classes("sf-brand-name")
-                    ui.label(formatting.BRAND_SUBTITLE).classes("sf-brand-sub")
+                    ui.label(i18n.t("app.name")).classes("sf-brand-name")
+                    ui.label(i18n.t("app.brand_subtitle")).classes("sf-brand-sub")
             with ui.element("div").classes("sf-add"):
                 self._add_button = (
-                    ui.button(formatting.IMPORT_AUDIO_LABEL, icon="add", on_click=self._open_files)
+                    ui.button(i18n.t("page.import_audio"), icon="add", on_click=self._open_files)
                     .props("unelevated no-caps")
                     .classes("w-full sf-primary-button")
                     .mark("add-audio")
                 )
                 self._add_hint = ui.label(
-                    formatting.ADD_BUSY_HINT if self._busy() else formatting.ADD_HINT
+                    i18n.t("page.add_busy_hint") if self._busy() else i18n.t("page.add_hint")
                 ).classes("sf-add-hint")
                 self._youtube_action = (
                     ui.button(
-                        formatting.YOUTUBE_ACTION_LABEL,
+                        i18n.t("page.youtube_action"),
                         icon="smart_display",
                         on_click=self._open_youtube,
                     )
@@ -681,9 +727,9 @@ class WorkspacePage:
     @ui.refreshable_method
     def _tracks(self) -> None:
         snapshot = self.service.snapshot()
-        ui.label(formatting.TRACKS_LABEL.format(count=len(snapshot))).classes("sf-rail-label")
+        ui.label(i18n.t("page.tracks_heading", count=len(snapshot))).classes("sf-rail-label")
         if not snapshot.tracks:
-            ui.label(formatting.TRACKS_EMPTY).classes("sf-rail-empty")
+            ui.label(i18n.t("page.tracks_empty")).classes("sf-rail-empty")
             return
         for track in snapshot.tracks:
             selected = " is-selected" if track.track_id == self._selected_id else ""
@@ -745,7 +791,7 @@ class WorkspacePage:
         if not entries:
             return
         youtube_off = not self.service.youtube_enabled()
-        ui.label(formatting.RECENT_TITLE).classes("sf-rail-label")
+        ui.label(i18n.t("page.recent_heading")).classes("sf-rail-label")
         visible = entries if self._recent_expanded else entries[:RECENT_VISIBLE]
         for entry in visible:
             available = self.service.recent_available(entry.source_id)
@@ -772,12 +818,12 @@ class WorkspacePage:
                     ui.icon("movie" if entry.origin_kind is OriginKind.YOUTUBE else "description")
                     ui.label(entry.title).classes("sf-recent-title")
                     if blocked:
-                        ui.label(formatting.YOUTUBE_OFF).classes("sf-recent-meta")
+                        ui.label(i18n.t("page.youtube_off")).classes("sf-recent-meta")
                     else:
                         ui.label(
                             formatting.format_relative_time(entry.last_opened)
                             if available
-                            else formatting.RECENT_MISSING
+                            else i18n.t("page.recent_missing")
                         ).classes("sf-recent-meta")
                 if not available:
                     (
@@ -791,9 +837,9 @@ class WorkspacePage:
                     )
         if len(entries) > RECENT_VISIBLE:
             ui.button(
-                formatting.RECENT_SHOW_LESS
+                i18n.t("page.recent_show_less")
                 if self._recent_expanded
-                else formatting.RECENT_SHOW_MORE,
+                else i18n.t("page.recent_show_more"),
                 on_click=self._toggle_recent,
                 color=None,
             ).props("flat dense no-caps size=sm").classes("sf-fineprint")
@@ -804,19 +850,25 @@ class WorkspacePage:
         cap = self.service.cache_cap_bytes()
         percent = formatting.cache_percent(used, cap)
         with ui.element("div").classes("sf-cache-line"):
-            ui.label(formatting.CACHE_LABEL)
-            ui.label(f"{formatting.format_bytes(used)} / {formatting.format_bytes(cap)}")
+            ui.label(i18n.t("page.cache_label"))
+            ui.label(
+                i18n.t(
+                    "page.cache_usage",
+                    used=formatting.format_bytes(used),
+                    cap=formatting.format_bytes(cap),
+                )
+            )
         bar = ui.element("div").classes("sf-bar")
         with bar:
             ui.element("i").style(f"width:{percent}%")
         with ui.element("div").classes("sf-foot-line"):
             (
-                ui.button(formatting.SETTINGS_TITLE, on_click=self._open_settings, color=None)
+                ui.button(i18n.t("settings.title"), on_click=self._open_settings, color=None)
                 .props("flat dense no-caps size=sm")
                 .classes("sf-fineprint")
                 .mark("settings-about")
             )
-            ui.label(f"v{__version__}").classes("sf-fineprint")
+            ui.label(i18n.t("page.version_prefix", version=__version__)).classes("sf-fineprint")
 
     @ui.refreshable_method
     def _banner(self) -> None:
@@ -848,7 +900,7 @@ class WorkspacePage:
                     ui.label(warning).classes("flex-1")
                     (
                         ui.button(
-                            formatting.RESOURCE_WARNING_DISMISS,
+                            i18n.t("page.resource_warning_dismiss"),
                             on_click=self._dismiss_resource_warning,
                             color=None,
                         )
@@ -858,9 +910,11 @@ class WorkspacePage:
             else:
                 with ui.element("div").classes("sf-banner").mark("recovery-banner"):
                     ui.icon("info")
-                    ui.label(formatting.RECOVERY_HEADLINE).classes("flex-1")
+                    ui.label(i18n.t("page.recovery_headline")).classes("flex-1")
                     ui.button(
-                        formatting.RECOVERY_DISMISS, on_click=self._dismiss_recovery, color=None
+                        i18n.t("page.recovery_dismiss"),
+                        on_click=self._dismiss_recovery,
+                        color=None,
                     ).props("flat dense no-caps size=sm")
 
     def _resource_warning(self) -> str | None:
@@ -903,7 +957,7 @@ class WorkspacePage:
             if notice.retry is not None:
                 retry = (
                     ui.button(
-                        formatting.RETRY,
+                        i18n.t("common.retry"),
                         on_click=self._retry_import,
                     )
                     .props("unelevated no-caps size=sm")
@@ -913,7 +967,7 @@ class WorkspacePage:
             if failure.code in {errors.STORAGE_DISK_FULL, errors.STORAGE_CACHE_FULL}:
                 clear = (
                     ui.button(
-                        formatting.SETTINGS_CACHE_CLEAR,
+                        i18n.t("settings.cache.clear"),
                         on_click=self._clear_cache,
                         color=None,
                     )
@@ -939,7 +993,7 @@ class WorkspacePage:
                     if level_adjusted is not None:
                         ui.label(level_adjusted).classes("sf-level-badge").mark("level-adjusted")
                     if track.source.downmixed:
-                        ui.label(formatting.DOWNMIX_NOTE).classes("sf-fineprint").mark(
+                        ui.label(i18n.t("page.downmix_note")).classes("sf-fineprint").mark(
                             "downmix-note"
                         )
                 with ui.element("div").classes("sf-head-actions"):
@@ -947,7 +1001,7 @@ class WorkspacePage:
                         ui.button(icon="settings", on_click=self._open_settings, color=None)
                         .props("flat dense round size=sm")
                         .mark("detail-settings")
-                        .tooltip(formatting.SETTINGS_TITLE)
+                        .tooltip(i18n.t("settings.title"))
                     )
                     (
                         ui.button(
@@ -957,7 +1011,7 @@ class WorkspacePage:
                         )
                         .props("flat dense round size=sm")
                         .mark("detail-remove")
-                        .tooltip(formatting.REMOVE_TRACK_TOOLTIP)
+                        .tooltip(i18n.t("page.remove_track_tooltip"))
                     )
             self._signal_path(track)
             sets = self.service.pitch_sets(track)
@@ -972,12 +1026,12 @@ class WorkspacePage:
         busy = self._busy()
         disabled = " is-disabled" if busy else ""
         youtube_on = self.service.youtube_enabled()
-        lede = formatting.EMPTY_LEDE_YOUTUBE if youtube_on else formatting.EMPTY_LEDE
+        lede = i18n.t("page.empty_lede_youtube") if youtube_on else i18n.t("page.empty_lede")
         with (
             ui.element("div").classes("sf-empty").mark("empty-state"),
             ui.element("div").classes("sf-empty-card"),
         ):
-            ui.label(formatting.EMPTY_TITLE).classes("sf-empty-title")
+            ui.label(i18n.t("page.empty_title")).classes("sf-empty-title")
             ui.label(lede).classes("sf-lede")
             dropzone = (
                 ui.element("div")
@@ -987,10 +1041,10 @@ class WorkspacePage:
             )
             with dropzone:
                 ui.icon("upload_file").classes("text-3xl sf-drop-icon")
-                ui.label(formatting.DROP_TITLE).classes("sf-drop-title")
-                ui.label(formatting.DROP_SUBTITLE).classes("sf-drop-sub")
+                ui.label(i18n.t("page.drop_title")).classes("sf-drop-title")
+                ui.label(i18n.t("page.drop_subtitle")).classes("sf-drop-sub")
             if youtube_on:
-                ui.label(formatting.OR_LABEL).classes("sf-or")
+                ui.label(i18n.t("page.or")).classes("sf-or")
                 self._youtube_row = self._make_youtube_row(busy=busy)
                 self._youtube_row.build()
             else:
@@ -998,7 +1052,7 @@ class WorkspacePage:
             # Informational only; the download gate stays in the
             # Separation card where the action is invoked.
             if not self.service.model_status().installed:
-                ui.label(formatting.EMPTY_MODEL_CARD).classes("sf-model-card").mark(
+                ui.label(i18n.t("page.model_card")).classes("sf-model-card").mark(
                     "empty-model-card"
                 )
 
@@ -1017,9 +1071,9 @@ class WorkspacePage:
 
     def _version_label(self, key: str, sets: Sequence[PitchSet]) -> str:
         if key == "original":
-            return formatting.PITCH_ORIGINAL
+            return i18n.t("common.original")
         item = next((view for view in sets if view.render_key == key), None)
-        return item.label if item is not None else formatting.PITCH_ORIGINAL
+        return item.label if item is not None else i18n.t("common.original")
 
     def _version_rows(self, track: Track) -> tuple[tuple[OutputRow, ...], str]:
         sets = self.service.pitch_sets(track)
@@ -1049,8 +1103,8 @@ class WorkspacePage:
             rows = [
                 OutputRow(
                     key="original",
-                    name=formatting.PITCH_ORIGINAL,
-                    badges=(formatting.OUTPUTS_SOURCE_BADGE,),
+                    name=i18n.t("common.original"),
+                    badges=(i18n.t("page.badge_source"),),
                     preview=original,
                     export_key=exports.get(("master", "original", None)),
                 )
@@ -1063,7 +1117,7 @@ class WorkspacePage:
                 rows.append(
                     OutputRow(
                         key=role,
-                        name=formatting.SEPARATION_ROLE_LABELS[role],
+                        name=_role_label(role),
                         badges=self._badges_for(role),
                         preview=self.service.separation_preview_target(track, set_key, role),
                         export_key=exports.get(("separation", role, None)),
@@ -1078,7 +1132,7 @@ class WorkspacePage:
             return (
                 OutputRow(
                     key="master",
-                    name=formatting.OUTPUTS_SHIFTED_MASTER,
+                    name=i18n.t("page.outputs_shifted_master"),
                     badges=(shift,),
                     preview=self.service.pitch_render_preview_target(
                         track, item.render_key, "original"
@@ -1093,7 +1147,7 @@ class WorkspacePage:
             rows.append(
                 OutputRow(
                     key=role,
-                    name=formatting.SEPARATION_ROLE_LABELS[role],
+                    name=_role_label(role),
                     badges=self._badges_for(role, shift=shift),
                     preview=self.service.pitch_render_preview_target(track, item.render_key, role),
                     export_key=exports.get((RenderScope.STEMS.value, role, item.render_key)),
@@ -1105,11 +1159,11 @@ class WorkspacePage:
     def _badges_for(role: str, *, shift: str | None = None) -> tuple[str, ...]:
         badges: list[str] = []
         if role in PRIMARY_ROLES:
-            badges.append(formatting.SEPARATION_PRIMARY_BADGE)
+            badges.append(i18n.t("page.badge_primary"))
         if role == "instrumental":
-            badges.append(formatting.SEPARATION_SUM_BADGE)
+            badges.append(i18n.t("page.badge_sum"))
         if role in SECONDARY_ROLES:
-            badges.append(formatting.OUTPUTS_STEM_BADGE)
+            badges.append(i18n.t("page.badge_stem"))
         if shift is not None:
             badges.append(shift)
         return tuple(badges)
@@ -1144,15 +1198,17 @@ class WorkspacePage:
             track.track_id, current.preview if current is not None else None
         )
         if current is None or unavailable:
-            now_text = formatting.TRANSPORT_PREVIEW_UNAVAILABLE
+            now_text = i18n.t("page.transport_preview_unavailable")
         else:
             now_text = current.name
             if active_key != "original":
-                now_text = f"{current.name} · {version_label}"
+                now_text = i18n.t(
+                    "page.now_playing_version", name=current.name, version=version_label
+                )
         with (
             ui.element("section")
             .classes("sf-transport")
-            .props("aria-label=Transport")
+            .props(f"aria-label={i18n.t('page.transport_aria_label')}")
             .mark("transport")
         ):
             play = (
@@ -1177,9 +1233,12 @@ class WorkspacePage:
                             .classes("sf-time-part")
                             .mark("elapsed")
                         )
-                        ui.label(f"/ {formatting.format_duration(track.duration_s)}").classes(
-                            "sf-time-part"
-                        )
+                        ui.label(
+                            i18n.t(
+                                "page.transport_duration",
+                                duration=formatting.format_duration(track.duration_s),
+                            )
+                        ).classes("sf-time-part")
                 self._seek_slider = (
                     ui.slider(
                         min=0.0,
@@ -1195,10 +1254,10 @@ class WorkspacePage:
                 self._seek_slider.set_enabled(self._playback_allowed() and current is not None)
             with ui.element("div").classes("sf-transport-right"):
                 with ui.element("div").classes("sf-ab"):
-                    ui.label(formatting.AB_LABEL).classes("sf-ab-label").mark("ab-label")
+                    ui.label(i18n.t("page.ab_label")).classes("sf-ab-label").mark("ab-label")
                     (
                         ui.button(
-                            formatting.AB_ORIGINAL,
+                            i18n.t("common.original"),
                             on_click=lambda _=None: self._select_ab(track, "original"),
                             color=None,
                         )
@@ -1209,7 +1268,9 @@ class WorkspacePage:
                     )
                     (
                         ui.button(
-                            latest.label if latest is not None else formatting.AB_LATEST_FALLBACK,
+                            latest.label
+                            if latest is not None
+                            else i18n.t("page.ab_latest_fallback"),
                             on_click=lambda _=None: self._select_ab(track, "latest"),
                             color=None,
                         )
@@ -1230,7 +1291,7 @@ class WorkspacePage:
                 export_key = current.export_key if current is not None else None
                 export = (
                     ui.button(
-                        formatting.TRANSPORT_EXPORT,
+                        i18n.t("common.export"),
                         icon="file_download",
                         on_click=lambda _=None: self._open_export(track, export_key=export_key),
                         color=None,
@@ -1246,14 +1307,14 @@ class WorkspacePage:
         rows = self._rows_for(track, active_key, sets)
         with ui.element("section").classes("sf-card").mark("outputs"):
             with ui.element("div").classes("sf-card-head"):
-                ui.label(formatting.OUTPUTS_TITLE).classes("sf-card-title")
+                ui.label(i18n.t("page.outputs_title")).classes("sf-card-title")
                 with ui.element("div").classes("sf-actions"):
                     if sets:
                         self._version_tabs(track, sets, active_key)
                     batch_targets = self.service.export_batch_targets(track, active_key)
                     export_all = (
                         ui.button(
-                            formatting.OUTPUTS_EXPORT_ALL,
+                            i18n.t("page.outputs_export_all"),
                             icon="file_download",
                             on_click=lambda _=None: self._open_export_batch(
                                 track, version_key=active_key
@@ -1266,7 +1327,7 @@ class WorkspacePage:
                     )
                     export_all.set_enabled(not self._busy() and len(batch_targets) >= 2)
             if not rows or all(row.preview is None for row in rows):
-                ui.label(formatting.OUTPUTS_UNAVAILABLE).classes("sf-unavailable").mark(
+                ui.label(i18n.t("page.outputs_unavailable")).classes("sf-unavailable").mark(
                     "preview-unavailable"
                 )
                 error_details(
@@ -1287,7 +1348,7 @@ class WorkspacePage:
                 if expanded:
                     (
                         ui.button(
-                            formatting.OUTPUTS_SHOW_LESS,
+                            i18n.t("page.outputs_show_less"),
                             on_click=lambda _=None: self._toggle_stems(track),
                             color=None,
                         )
@@ -1298,7 +1359,7 @@ class WorkspacePage:
                 else:
                     (
                         ui.button(
-                            formatting.OUTPUTS_SHOW_MORE,
+                            i18n.t("page.outputs_show_more"),
                             icon="expand_more",
                             on_click=lambda _=None: self._toggle_stems(track),
                             color=None,
@@ -1314,7 +1375,7 @@ class WorkspacePage:
         with ui.element("div").classes("sf-tabs").mark("output-tabs"):
             (
                 ui.button(
-                    formatting.PITCH_ORIGINAL,
+                    i18n.t("common.original"),
                     on_click=lambda _=None: self._select_version(track.track_id, "original"),
                     color=None,
                 )
@@ -1330,9 +1391,11 @@ class WorkspacePage:
                     classes += " is-active"
                 if item.based_on_earlier_separation:
                     classes += " is-stale"
-                text = item.label
-                if item.based_on_earlier_separation:
-                    text += f" · {formatting.PITCH_EARLIER_SEPARATION}"
+                text = (
+                    i18n.t("page.version_tab_stale", label=item.label)
+                    if item.based_on_earlier_separation
+                    else item.label
+                )
                 (
                     ui.button(
                         text,
@@ -1404,7 +1467,7 @@ class WorkspacePage:
                 .mark("output-export", f"output-export-{row.key}")
             )
             export.set_enabled(not self._busy() and row.export_key is not None)
-            export.tooltip(formatting.OUTPUTS_EXPORT_TOOLTIP)
+            export.tooltip(i18n.t("page.outputs_export_tooltip"))
 
     def _repair_action(self, track: Track, row: OutputRow) -> None:
         """An unavailable row names the repair for its kind."""
@@ -1415,10 +1478,10 @@ class WorkspacePage:
             .mark("output-repair", f"output-repair-{row.key}")
         ):
             if active_key != "original":
-                ui.label(formatting.OUTPUTS_REPAIR_RENDER)
+                ui.label(i18n.t("page.outputs_repair_render"))
                 button = (
                     ui.button(
-                        formatting.OUTPUTS_REPAIR_RENDER_ACTION,
+                        i18n.t("page.outputs_repair_render_action"),
                         on_click=lambda _=None: self._rerender(track, active_key),
                         color=None,
                     )
@@ -1426,10 +1489,10 @@ class WorkspacePage:
                     .mark("output-repair-render")
                 )
             elif row.key == "original":
-                ui.label(formatting.OUTPUTS_REPAIR_IMPORT)
+                ui.label(i18n.t("page.outputs_repair_import"))
                 button = (
                     ui.button(
-                        formatting.OUTPUTS_REPAIR_IMPORT_ACTION,
+                        i18n.t("page.outputs_repair_import_action"),
                         on_click=self._open_files,
                         color=None,
                     )
@@ -1437,10 +1500,10 @@ class WorkspacePage:
                     .mark("output-repair-import")
                 )
             else:
-                ui.label(formatting.OUTPUTS_REPAIR_SEPARATE)
+                ui.label(i18n.t("page.outputs_repair_separate"))
                 button = (
                     ui.button(
-                        formatting.OUTPUTS_REPAIR_SEPARATE_ACTION,
+                        i18n.t("page.outputs_repair_separate_action"),
                         on_click=lambda _=None: self._separation.request_separation(track),
                         color=None,
                     )
@@ -1474,14 +1537,14 @@ class WorkspacePage:
         with ui.element("div").classes("sf-placeholder").mark("outputs-placeholder"):
             ui.icon("graphic_eq")
             ui.label(
-                formatting.OUTPUTS_PLACEHOLDER_RUNNING
+                i18n.t("page.outputs_placeholder_running")
                 if running
-                else formatting.OUTPUTS_PLACEHOLDER
+                else i18n.t("page.outputs_placeholder")
             )
             if not running:
                 button = (
                     ui.button(
-                        formatting.OUTPUTS_SEPARATE,
+                        i18n.t("page.outputs_separate"),
                         on_click=lambda _=None: self._separation.request_separation(track),
                         color=None,
                     )
@@ -1735,9 +1798,9 @@ class WorkspacePage:
         button.set_enabled(enabled)
         if not enabled:
             reason = (
-                formatting.PLAYBACK_UNAVAILABLE_TOOLTIP
+                i18n.t("page.playback_unavailable_tooltip")
                 if not self.context.playback_available
-                else formatting.OUTPUTS_NO_PREVIEW
+                else i18n.t("page.outputs_no_preview")
             )
             button.tooltip(reason)
 
@@ -1788,15 +1851,12 @@ class WorkspacePage:
         with ui.element("div").classes("sf-jobbar").mark("job-bar"):
             ui.element("span").classes("sf-dot is-run")
             label = self._job_label(snapshot.kind.value)
-            stage = snapshot.stage or formatting.JOB_STARTING
-            template = (
-                formatting.JOB_STAGE_INLINE
-                if snapshot.kind.value == "export_batch"
-                else formatting.JOB_STAGE
-            )
-            ui.label(template.format(label=label, stage=stage)).classes("sf-job-text").mark(
-                "job-stage"
-            )
+            stage = snapshot.stage or i18n.t("page.job.starting")
+            if snapshot.kind.value == "export_batch":
+                text = i18n.t("page.job.stage_inline", label=label, stage=stage)
+            else:
+                text = i18n.t("page.job.stage", label=label, stage=stage)
+            ui.label(text).classes("sf-job-text").mark("job-stage")
             # Local imports keep their filename out of the bar until the Track
             # exists; YouTube's wait countdown and a batch's current output are
             # user-facing.
@@ -1805,9 +1865,11 @@ class WorkspacePage:
             ui.linear_progress(value=float(snapshot.progress), show_value=False).classes(
                 "sf-job-progress"
             )
-            ui.label(f"{round(snapshot.progress * 100)}%").classes("sf-job-pct").mark("job-percent")
+            ui.label(i18n.t("page.job.percent", percent=round(snapshot.progress * 100))).classes(
+                "sf-job-pct"
+            ).mark("job-percent")
             (
-                ui.button(formatting.CANCEL, on_click=self._cancel_job, color=None)
+                ui.button(i18n.t("common.cancel"), on_click=self._cancel_job, color=None)
                 .props("flat dense no-caps size=sm")
                 .mark("cancel-job")
             )
@@ -1895,7 +1957,7 @@ class WorkspacePage:
         dialog.on_value_change(self._on_youtube_dialog_change)
         with dialog, ui.card().classes("sf-card sf-youtube-modal").mark("youtube-modal"):
             with ui.row().classes("w-full items-center justify-between"):
-                ui.label(formatting.YOUTUBE_MODAL_TITLE).classes("sf-title")
+                ui.label(i18n.t("page.youtube_modal_title")).classes("sf-title")
                 (
                     ui.button(icon="close", on_click=self._close_youtube_dialog, color=None)
                     .props("flat dense round size=sm")
@@ -1969,7 +2031,10 @@ class WorkspacePage:
         except StemForgeError as error:
             self._show_error(error)
             return
-        toast(formatting.cache_cleared_message(report.freed_bytes), type="positive")
+        toast(
+            i18n.t("page.cache_cleared", size=formatting.format_bytes(report.freed_bytes)),
+            type="positive",
+        )
         self._refresh_all()
 
     def _pitch_job_started(
@@ -2067,7 +2132,7 @@ class WorkspacePage:
             failure=failure,
         )
         self._export_notice = notice
-        headline = formatting.export_batch_headline(
+        headline = _export_batch_headline(
             written=len(result.written),
             failed=len(result.failed),
             not_exported=len(result.not_exported),
@@ -2153,7 +2218,7 @@ class WorkspacePage:
             else:
                 self._export_notice = SaveOriginalSuccess(spec, result.path)
                 toast(
-                    formatting.SAVE_ORIGINAL_SAVED_TO.format(path=result.path),
+                    i18n.t("page.save_original_saved_to", path=result.path),
                     type="positive",
                 )
         elif snapshot.state.value == "failed":
@@ -2176,7 +2241,7 @@ class WorkspacePage:
                 type="negative",
             )
         elif snapshot.state.value == "cancelled":
-            toast(formatting.SAVE_ORIGINAL_CANCELLED, type="info")
+            toast(i18n.t("page.save_original_cancelled"), type="info")
         self._job_bar.refresh()
         self._refresh_all()
 
@@ -2221,7 +2286,7 @@ class WorkspacePage:
         )
         if selection.corrected:
             toast(
-                formatting.SAVE_ORIGINAL_EXTENSION_CHANGED.format(suffix=updated.suffix),
+                i18n.t("page.save_original_extension_changed", suffix=updated.suffix),
                 type="info",
             )
         try:
@@ -2263,7 +2328,7 @@ class WorkspacePage:
                 self._export_notice = ExportSuccess(spec, result.path)
                 with contextlib.suppress(OSError):
                     self.service.remember_export_dir(result.path.parent)
-                toast(formatting.EXPORTED_TO.format(path=result.path), type="positive")
+                toast(i18n.t("page.exported_to", path=result.path), type="positive")
         elif snapshot.state.value == "failed":
             failure = JobFailure.from_job(
                 snapshot,
@@ -2284,7 +2349,7 @@ class WorkspacePage:
                 type="negative",
             )
         elif snapshot.state.value == "cancelled":
-            toast(formatting.EXPORT_CANCELLED, type="info")
+            toast(i18n.t("page.export_cancelled"), type="info")
         self._job_bar.refresh()
         self._refresh_all()
 
@@ -2340,7 +2405,7 @@ class WorkspacePage:
         if self._busy():
             return
         if entry.origin_kind is OriginKind.YOUTUBE and not self.service.youtube_enabled():
-            toast(formatting.YOUTUBE_OFF, type="info")
+            toast(i18n.t("page.youtube_off"), type="info")
             return
         submit = partial(self.service.open_recent, entry.source_id)
         try:
@@ -2364,9 +2429,9 @@ class WorkspacePage:
             return
         self.service.cancel_job(snapshot.job_id)
         if snapshot.kind.value == "separate":
-            toast(formatting.SEPARATION_CANCELLED, type="info")
+            toast(i18n.t("page.separation_cancelled"), type="info")
         elif snapshot.kind.value == "model_install":
-            toast(formatting.SEPARATION_MODEL_CANCELLED, type="info")
+            toast(i18n.t("page.model_download_cancelled"), type="info")
         self._job_bar.refresh()
         self._separation.observe(None)
 
@@ -2440,7 +2505,7 @@ class WorkspacePage:
             elif snapshot.state.value == "failed":
                 self._on_import_failure(snapshot, retry=retry)
             elif snapshot.state.value == "cancelled":
-                toast(formatting.IMPORT_CANCELLED, type="info")
+                toast(i18n.t("page.import_cancelled"), type="info")
                 self._refresh_all()
 
     def _finish_separation_job(self, snapshot: JobView) -> None:
@@ -2605,7 +2670,10 @@ class WorkspacePage:
         if selection.accepted:
             self._submit_paths(selection.accepted)
         if selection.ignored:
-            toast(formatting.DROP_UNUSABLE_AUDIO, type="info")
+            toast(
+                i18n.t("page.drop_unusable_audio", import_label=i18n.t("page.import_audio")),
+                type="info",
+            )
         self._sync_actions()
         self._refresh_all()
 
@@ -2613,15 +2681,15 @@ class WorkspacePage:
 
     def _confirm_remove(self, track: Track) -> None:
         with ui.dialog() as dialog, ui.card().classes("sf-card").mark("remove-dialog"):
-            ui.label(formatting.REMOVE_TRACK_TITLE.format(title=track.title)).classes("sf-title")
-            ui.label(formatting.REMOVE_TRACK_BODY).classes("sf-lede")
+            ui.label(i18n.t("page.remove_track_title", title=track.title)).classes("sf-title")
+            ui.label(i18n.t("page.remove_track_body")).classes("sf-lede")
             with ui.row().classes("w-full justify-end gap-2"):
-                ui.button(formatting.CANCEL, on_click=dialog.close, color=None).props(
+                ui.button(i18n.t("common.cancel"), on_click=dialog.close, color=None).props(
                     "flat no-caps"
                 )
                 (
                     ui.button(
-                        formatting.REMOVE,
+                        i18n.t("common.remove"),
                         on_click=lambda: self._remove_track(track, dialog),
                     )
                     .props("unelevated no-caps color=negative")
@@ -2636,7 +2704,7 @@ class WorkspacePage:
             self._loaded_track_id = None
             self._loaded_preview = None
         if self._track_owns_active_job(track.track_id):
-            toast(formatting.REMOVING, type="info")
+            toast(i18n.t("page.removing"), type="info")
         try:
             self.service.remove_track(track.track_id)
         except StemForgeError as error:
@@ -2771,11 +2839,11 @@ class WorkspacePage:
             self._add_button.set_enabled(not busy)
         if self._add_hint is not None:
             if self._dialog_busy:
-                hint = formatting.ADD_DIALOG_HINT
+                hint = i18n.t("page.add_dialog_hint")
             elif busy:
-                hint = formatting.ADD_BUSY_HINT
+                hint = i18n.t("page.add_busy_hint")
             else:
-                hint = formatting.ADD_HINT
+                hint = i18n.t("page.add_hint")
             self._add_hint.set_text(hint)
         youtube_on = self.service.youtube_enabled()
         if self._youtube_action is not None:
@@ -2803,9 +2871,9 @@ class WorkspacePage:
     def _sync_title(self) -> None:
         track = self._selected_track()
         ui.page_title(
-            formatting.WINDOW_TITLE.format(app=TITLE, track=track.title)
+            i18n.t("app.window_title", app=i18n.t("app.name"), track=track.title)
             if track is not None
-            else TITLE
+            else i18n.t("app.name")
         )
 
     def _recent_state(self) -> tuple[tuple[str, bool], ...]:
@@ -2822,24 +2890,25 @@ class WorkspacePage:
 
     def _track_status(self, track: Track) -> tuple[str, str]:
         if self._active_separation_job(track.track_id) is not None:
-            return formatting.TRACK_STATUS_SEPARATING, "is-run"
+            return i18n.t("page.track_status_separating"), "is-run"
         failure = self._separation.failure_code(track.track_id)
         if failure is not None and failure != errors.SEPARATION_MODEL_MISSING:
-            return formatting.TRACK_STATUS_FAILED, "is-bad"
+            return i18n.t("page.track_status_failed"), "is-bad"
         latest = self._latest_render(track)
         if self.service.has_separation(track):
             if latest is not None:
                 return (
-                    formatting.TRACK_STATUS_STEMS_RENDERED.format(
-                        stems=formatting.TRACK_STATUS_STEMS,
+                    i18n.t(
+                        "page.track_status_stems_rendered",
+                        stems=i18n.t("page.stems_count"),
                         label=latest.label,
                     ),
                     "is-ok",
                 )
-            return formatting.TRACK_STATUS_STEMS, "is-ok"
+            return i18n.t("page.stems_count"), "is-ok"
         if latest is not None:
-            return formatting.TRACK_STATUS_RENDERED.format(label=latest.label), ""
-        return formatting.TRACK_STATUS_NO_STEMS, ""
+            return i18n.t("page.rendered_label", label=latest.label), ""
+        return i18n.t("page.track_status_no_stems"), ""
 
     def _track_meta(self, track: Track, status: str) -> str:
         parts = [
@@ -2863,11 +2932,11 @@ class WorkspacePage:
         with ui.element("div").classes("sf-sigpath").mark("signal-path"):
             with ui.element("span").classes("sf-chip is-done"):
                 ui.icon("check", size="xs")
-                ui.label(formatting.SIGNAL_SOURCE).classes("sf-chip-label")
+                ui.label(i18n.t("page.signal_source")).classes("sf-chip-label")
                 ui.label(
-                    formatting.SIGNAL_SOURCE_YOUTUBE
+                    i18n.t("page.signal_source_youtube")
                     if track.source.origin_kind is OriginKind.YOUTUBE
-                    else formatting.SIGNAL_SOURCE_LOCAL
+                    else i18n.t("page.signal_source_local")
                 )
             ui.icon("chevron_right", size="xs")
             with (
@@ -2879,10 +2948,8 @@ class WorkspacePage:
                     ui.icon("check", size="xs")
                 else:
                     ui.element("span").classes("sf-dot")
-                ui.label(formatting.SIGNAL_SEPARATION).classes("sf-chip-label")
-                ui.label(
-                    formatting.SIGNAL_SEPARATION_DONE if has_stems else formatting.SIGNAL_NOT_RUN
-                )
+                ui.label(i18n.t("page.signal_separation")).classes("sf-chip-label")
+                ui.label(i18n.t("page.stems_count") if has_stems else i18n.t("page.signal_not_run"))
             ui.icon("chevron_right", size="xs")
             with (
                 ui.element("span")
@@ -2893,15 +2960,27 @@ class WorkspacePage:
                     ui.icon("check", size="xs")
                 else:
                     ui.element("span").classes("sf-dot")
-                ui.label(formatting.SIGNAL_PITCH).classes("sf-chip-label")
+                ui.label(i18n.t("page.signal_pitch")).classes("sf-chip-label")
                 ui.label(
-                    formatting.SIGNAL_RENDERED.format(label=latest.label)
+                    i18n.t("page.rendered_label", label=latest.label)
                     if latest is not None
-                    else formatting.SIGNAL_NOT_RENDERED
+                    else i18n.t("page.signal_not_rendered")
                 )
 
     def _job_label(self, kind: str) -> str:
-        return formatting.JOB_LABELS.get(kind, formatting.JOB_WORKING)
+        if kind in {JobKind.IMPORT_LOCAL.value, JobKind.IMPORT_YOUTUBE.value}:
+            return i18n.t("page.job.importing")
+        if kind == JobKind.SEPARATE.value:
+            return i18n.t("page.job.separating")
+        if kind == JobKind.RENDER_PITCH.value:
+            return i18n.t("page.job.rendering")
+        if kind in {JobKind.EXPORT.value, JobKind.EXPORT_BATCH.value}:
+            return i18n.t("page.job.exporting")
+        if kind == JobKind.SAVE_ORIGINAL.value:
+            return i18n.t("page.job.saving_original")
+        if kind == JobKind.MODEL_INSTALL.value:
+            return i18n.t("page.job.downloading_model")
+        return i18n.t("page.job.working")
 
 
 def _dispatch_drop(event: NativeEventArguments) -> None:

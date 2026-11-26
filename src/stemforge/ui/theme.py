@@ -24,6 +24,7 @@ from typing import Final
 
 from nicegui import ui
 
+from stemforge import i18n
 from stemforge.integration import assets
 
 # The shell palette.
@@ -171,7 +172,8 @@ def image_html(name: str, *, size: int, css_class: str) -> str | None:
     src = asset_data_url(name)
     if src is None:
         return None
+    alt = i18n.t("app.name")
     return (
-        f'<img src="{src}" alt="StemForge" width="{size}" height="{size}"'
+        f'<img src="{src}" alt="{alt}" width="{size}" height="{size}"'
         f' class="{css_class}" style="display:block">'
     )
