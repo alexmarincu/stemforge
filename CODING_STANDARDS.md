@@ -7,12 +7,12 @@ Judgement calls only. Formatting, typing, and import direction are enforced by
 
 - User-facing strings resolve through the English catalog at
   `src/stemforge/i18n/catalogs/en.json`, using flat semantic message IDs and
-  named placeholders. The page shell renders catalog keys with `i18n.t`;
-  components keep the legacy constants in `src/stemforge/ui/formatting.py` until
-  their copy migration lands. The UI copy module keeps formatting, not prose.
-- `tests/unit/test_copy_policy.py` fails on a prose literal at a page-shell copy
-  sink, on an `i18n.t` key missing from `en.json`, and on an avoided Import
-  synonym in the English catalog.
+  named placeholders. The page shell and components render catalog keys with
+  `i18n.t`. The UI copy module keeps formatting and the coded error table until
+  their own migrations land.
+- `tests/unit/test_copy_policy.py` fails on a prose literal at a UI copy sink,
+  on an `i18n.t` key missing from `en.json`, and on an avoided Import synonym in
+  the English catalog.
 - `GLOSSARY.md` is normative. Use **Import**, never Load, Add, or Ingest.
 - An Instrumental is not a Stem. `OUTPUT_ROLES` includes it; `STEM_ROLES`
   does not.

@@ -1,9 +1,10 @@
 """User-facing copy resolves through the English catalog.
 
-The page shell renders catalog keys with ``i18n.t``; the English catalog is the
-copy source, so a page-shell prose literal or a key missing from ``en.json`` is a
-defect. Components keep the older constant rule until their own migration, and
-the catalog's values are scanned for the glossary's avoided Import verbs.
+The page shell and components render catalog keys with ``i18n.t``; the English
+catalog is the copy source, so a prose literal at any UI copy sink or a key
+missing from ``en.json`` is a defect. The catalog's values are scanned for the
+glossary's avoided Import verbs, and the legacy copy module keeps that check
+until the final contraction.
 """
 
 from __future__ import annotations
@@ -221,16 +222,20 @@ def _load_english_catalog() -> Mapping[str, object]:
     return payload
 
 
-def test_components_render_copy_constants() -> None:
+def test_components_have_no_prose_literals_at_copy_sinks() -> None:
     violations: list[str] = []
     for path in COMPONENT_SOURCES:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        relative = path.relative_to(REPO_ROOT).as_posix()
         for line, sink, text in _literal_copy(tree):
-            relative = path.relative_to(REPO_ROOT).as_posix()
+            violations.append(f"{relative}:{line}: {sink} takes {text!r}")
+        for line, sink, text in _props_literals(tree):
+            violations.append(f"{relative}:{line}: {sink} takes {text!r}")
+        for line, sink, text in _alt_literals(tree):
             violations.append(f"{relative}:{line}: {sink} takes {text!r}")
     assert not violations, (
-        "Visible component copy belongs in ui/formatting.py until its migration; "
-        "render the constant instead of an inline literal.\n" + "\n".join(violations)
+        "Component copy resolves through i18n.t and the English catalog; "
+        "render a catalog key instead of an inline literal.\n" + "\n".join(violations)
     )
 
 
