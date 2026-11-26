@@ -539,6 +539,21 @@ def _storage_path_from_message(message: str) -> str | None:
     return None
 
 
+def _native_chrome() -> preflight.NativeChrome:
+    """Resolve the pre-window dialog chrome through the active catalog."""
+    from stemforge import i18n
+
+    return preflight.NativeChrome(
+        fatal_title=i18n.t("preflight.fatal_title"),
+        details_label=i18n.t("preflight.details_label"),
+        logs_unavailable=i18n.t("preflight.logs_unavailable"),
+        copy_details_label=i18n.t("preflight.copy_details"),
+        ok_label=i18n.t("preflight.ok"),
+        already_running_title=i18n.t("preflight.already_running_title"),
+        already_running_body=i18n.t("preflight.already_running_body"),
+    )
+
+
 def _show_fatal(
     report: preflight.PreflightReport,
     paths: AppPaths,
@@ -554,6 +569,7 @@ def _show_fatal(
         fix_line=fix_line,
         log_path=log_path if log_path.is_file() else None,
         copy_text=diagnostics,
+        chrome=_native_chrome(),
     )
     preflight.show_fatal_message(message)
 
@@ -614,7 +630,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     lock = InstanceLock(paths.config / "instance.lock")
     if not lock.acquire():
-        preflight.show_already_running()
+        preflight.show_already_running(chrome=_native_chrome())
         return 0
     try:
         report = _browser_preflight(preflight.run_preflight(paths, fail_on_degraded=False))

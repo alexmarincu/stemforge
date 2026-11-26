@@ -761,10 +761,10 @@ User-facing headlines, hints, and remediation resolve through the locale catalog
 `ui/formatting.py` maps `(code, reason)` to catalog rows and composes the dynamic
 sentences (duration, folder, required and free space, path). An unknown code from a
 newer worker falls back to `internal.unexpected`. A degraded capability is announced,
-never silent. The rule is wider than errors: visible page-shell copy resolves through
-the catalog, component copy still comes from `formatting.py` until its migration, and
-`tests/unit/test_copy_policy.py` fails on an inline literal passed to a label, button,
-notification, tooltip, or placeholder, or on an avoided Import synonym.
+never silent. The rule is wider than errors: visible page-shell and component copy
+resolves through the catalog, and `tests/unit/test_copy_policy.py` fails on an inline
+literal passed to a label, button, notification, tooltip, or placeholder, or on an
+avoided Import synonym.
 `CODING_STANDARDS.md` records the judgement calls around that rule.
 
 Retryability is a property of the failure, not a guess by the UI: a download, a missing

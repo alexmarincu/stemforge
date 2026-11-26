@@ -192,6 +192,27 @@ def format_human(report: PreflightReport) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeChrome:
+    """The dialog text the Interface language owns.
+
+    The English defaults keep this module importable and usable before the
+    catalog or the window exists; ``__main__`` resolves the catalog and passes
+    the result in.
+    """
+
+    fatal_title: str = "StemForge can't start"
+    details_label: str = "Details:"
+    logs_unavailable: str = "Logs are unavailable."
+    copy_details_label: str = "Copy details"
+    ok_label: str = "OK"
+    already_running_title: str = "StemForge is already running"
+    already_running_body: str = "StemForge is already running. Only one copy can run at a time."
+
+
+DEFAULT_CHROME: Final = NativeChrome()
+
+
+@dataclass(frozen=True, slots=True)
 class FatalMessage:
     """The native-box payload for one fatal preflight result."""
 
@@ -200,12 +221,18 @@ class FatalMessage:
     fix_line: str
     log_path: Path | None
     copy_text: str
-    title: str = "StemForge can't start"
+    chrome: NativeChrome = DEFAULT_CHROME
+
+    @property
+    def title(self) -> str:
+        return self.chrome.fatal_title
 
     @property
     def body(self) -> str:
         details = (
-            f"Details: {self.log_path}" if self.log_path is not None else "Logs are unavailable."
+            f"{self.chrome.details_label} {self.log_path}"
+            if self.log_path is not None
+            else self.chrome.logs_unavailable
         )
         return f"{self.sentence}\n\n{self.fix_line}\n\n{details}"
 
@@ -217,6 +244,7 @@ def build_fatal_message(
     fix_line: str,
     log_path: Path | None,
     copy_text: str,
+    chrome: NativeChrome | None = None,
 ) -> FatalMessage:
     """Assemble the body of the native fatal box."""
     return FatalMessage(
@@ -225,6 +253,7 @@ def build_fatal_message(
         fix_line=fix_line,
         log_path=log_path,
         copy_text=copy_text,
+        chrome=DEFAULT_CHROME if chrome is None else chrome,
     )
 
 
@@ -1085,6 +1114,8 @@ def _show_native_message(
     body: str,
     copy_text: str | None,
     *,
+    copy_label: str = DEFAULT_CHROME.copy_details_label,
+    ok_label: str = DEFAULT_CHROME.ok_label,
     backend: MessageBackend | None = None,
 ) -> None:
     if backend is not None:
@@ -1097,22 +1128,34 @@ def _show_native_message(
             shown = True
         if shown:
             return
-    if _gtk_message_dialog(title, body, copy_text):
+    if _gtk_message_dialog(title, body, copy_text, copy_label=copy_label, ok_label=ok_label):
         return
     _stderr_message(title, body)
 
 
 def show_fatal_message(message: FatalMessage, *, backend: MessageBackend | None = None) -> None:
     """Show one fatal preflight result through the native or stderr backend."""
-    _show_native_message(message.title, message.body, message.copy_text, backend=backend)
-
-
-def show_already_running(*, backend: MessageBackend | None = None) -> None:
-    """Show the native single-instance message and return; the caller exits 0."""
     _show_native_message(
-        "StemForge is already running",
-        "StemForge is already running. Only one copy can run at a time.",
+        message.title,
+        message.body,
+        message.copy_text,
+        copy_label=message.chrome.copy_details_label,
+        ok_label=message.chrome.ok_label,
+        backend=backend,
+    )
+
+
+def show_already_running(
+    *, backend: MessageBackend | None = None, chrome: NativeChrome | None = None
+) -> None:
+    """Show the native single-instance message and return; the caller exits 0."""
+    text = DEFAULT_CHROME if chrome is None else chrome
+    _show_native_message(
+        text.already_running_title,
+        text.already_running_body,
         None,
+        copy_label=text.copy_details_label,
+        ok_label=text.ok_label,
         backend=backend,
     )
 
@@ -1122,7 +1165,14 @@ def _stderr_message(title: str, body: str) -> None:
     print(body, file=sys.stderr)
 
 
-def _gtk_message_dialog(title: str, body: str, copy_text: str | None) -> bool:
+def _gtk_message_dialog(
+    title: str,
+    body: str,
+    copy_text: str | None,
+    *,
+    copy_label: str = DEFAULT_CHROME.copy_details_label,
+    ok_label: str = DEFAULT_CHROME.ok_label,
+) -> bool:
     try:
         gi = importlib.import_module("gi")
         gi.require_version("Gtk", "3.0")
@@ -1146,8 +1196,8 @@ def _gtk_message_dialog(title: str, body: str, copy_text: str | None) -> bool:
         dialog.format_secondary_text(body)
         copy_response = 1
         if copy_text:
-            dialog.add_button("Copy details", copy_response)
-        dialog.add_button("OK", gtk.ResponseType.OK)
+            dialog.add_button(copy_label, copy_response)
+        dialog.add_button(ok_label, gtk.ResponseType.OK)
         dialog.set_default_response(gtk.ResponseType.OK)
         while True:
             response = dialog.run()

@@ -16,7 +16,7 @@ from typing import Protocol
 
 from nicegui import ui
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.errors import StemForgeError
 from stemforge.integration.shell import PathOpener
 from stemforge.ui import formatting
@@ -71,7 +71,7 @@ def open_diagnostics_modal(
     text: str,
     clipboard: ClipboardWriter | None = None,
     *,
-    title: str = formatting.DIAGNOSTICS_TITLE,
+    title: str | None = None,
 ) -> None:
     """Show the report in a read-only textarea and offer a copy button."""
     writer = clipboard if clipboard is not None else BrowserClipboard()
@@ -80,11 +80,13 @@ def open_diagnostics_modal(
         ui.card().classes("sf-card sf-diagnostics").mark("diagnostics-dialog"),
     ):
         with ui.row().classes("w-full items-center justify-between"):
-            ui.label(title).classes("sf-title")
+            ui.label(title if title is not None else i18n.t("diagnostics.title")).classes(
+                "sf-title"
+            )
             ui.button(icon="close", on_click=dialog.close, color=None).props(
                 "flat dense round size=sm"
             ).mark("diagnostics-dismiss")
-        ui.label(formatting.DIAGNOSTICS_NOTICE).classes("sf-fineprint").mark("diagnostics-notice")
+        ui.label(i18n.t("diagnostics.notice")).classes("sf-fineprint").mark("diagnostics-notice")
         ui.textarea(value=text).props("readonly outlined autogrow").classes(
             "sf-diagnostics-text"
         ).mark("diagnostics-text")
@@ -93,17 +95,17 @@ def open_diagnostics_modal(
         async def copy() -> None:
             copied = await writer.write_text(text)
             status.set_text(
-                formatting.DIAGNOSTICS_COPIED if copied else formatting.DIAGNOSTICS_COPY_FAILED
+                i18n.t("diagnostics.copied") if copied else i18n.t("diagnostics.copy_failed")
             )
 
         with ui.row().classes("w-full justify-end gap-2"):
             (
-                ui.button(formatting.DIAGNOSTICS_COPY, on_click=copy)
+                ui.button(i18n.t("diagnostics.copy"), on_click=copy)
                 .props("unelevated no-caps")
                 .mark("diagnostics-copy")
             )
             (
-                ui.button(formatting.DIAGNOSTICS_CLOSE, on_click=dialog.close, color=None)
+                ui.button(i18n.t("common.close"), on_click=dialog.close, color=None)
                 .props("flat no-caps")
                 .mark("diagnostics-close")
             )
@@ -118,14 +120,16 @@ def error_details(
     diagnostics: DiagnosticsProvider | None = None,
     clipboard: ClipboardWriter | None = None,
     open_path: PathOpener | None = None,
-    label: str = formatting.DETAILS_LABEL,
+    label: str | None = None,
     marker: str = "error-details",
 ) -> None:
     """Render the Details disclosure for one coded failure."""
-    with ui.expansion(label).classes("sf-details").mark(marker):
-        line = (
-            formatting.ERROR_CODE_WITH_JOB.format(code=code, job_id=job_id[:8]) if job_id else code
-        )
+    with (
+        ui.expansion(label if label is not None else i18n.t("diagnostics.details"))
+        .classes("sf-details")
+        .mark(marker)
+    ):
+        line = i18n.t("diagnostics.with_job", code=code, job_id=job_id[:8]) if job_id else code
         ui.label(line).classes("sf-notice-detail").mark(f"{marker}-code")
         if log_path is not None:
             ui.label(str(log_path)).classes("sf-notice-detail").mark(f"{marker}-log")
@@ -133,7 +137,7 @@ def error_details(
             if log_path is not None and open_path is not None:
                 (
                     ui.button(
-                        formatting.OPEN_LOG_LABEL,
+                        i18n.t("diagnostics.open_log"),
                         on_click=lambda: _open_log(open_path, log_path),
                         color=None,
                     )
@@ -143,7 +147,7 @@ def error_details(
             if diagnostics is not None:
                 (
                     ui.button(
-                        formatting.COPY_DIAGNOSTICS_LABEL,
+                        i18n.t("diagnostics.copy_action"),
                         on_click=lambda: open_diagnostics_modal(diagnostics(job_id), clipboard),
                         color=None,
                     )
