@@ -154,7 +154,7 @@ pipeline
 jobs | engines | artifacts | models | settings
 domain | workers
 worker_protocol
-platform | errors
+platform | errors | i18n
 ```
 
 A layer may import lower layers, not higher ones. Siblings on one line are independent:
@@ -184,6 +184,7 @@ flowchart BT
     pipeline["pipeline"]
     app["application | integration"]
     ui["ui"]
+    i18n["i18n"]
 
     protocol --> platform
     protocol --> errors
@@ -196,8 +197,11 @@ flowchart BT
     ui --> app
 ```
 
-`platform` and `errors` are siblings at the base; neither imports the other. `workers`
-sits beside `domain` because both are foundation code: the separation worker needs
+`platform`, `errors`, and `i18n` are independent base modules; none imports another.
+`i18n` is stdlib-only, so every higher layer and `__main__` can resolve catalog copy;
+the platform layer keeps its no-StemForge-import rule, and the pre-window fatal path
+passes translated chrome in from the caller rather than pulling it up from `platform`.
+`workers` sits beside `domain` because both are foundation code: the separation worker needs
 `worker_protocol`, `platform`, and `errors`, but must not reach the server's pipeline or
 application layers. Keeping it beside `domain` rather than under it makes that prohibition
 explicit. `worker_protocol` is below both because the parent engine adapter and the worker
@@ -225,6 +229,7 @@ contract.
 | `worker_protocol.py` (module) | The JSONL event names, parser, exit codes, and block arithmetic shared across the process boundary. | `parse_event`, `format_event` | Standard library only |
 | `platform` (package) | Paths, environment setup, preflight, the instance lock, resource roots, vendor binaries, process helpers, storage constants. | `paths.py`, `environment.py`, `preflight.py`, `instance.py`, `resources.py`, `binaries.py`, `process.py`, `storage.py` | Standard library and `platformdirs` only; no `stemforge` imports. |
 | `errors.py` (module) | The one exception type, the cancellation subclass, and the stable code taxonomy. | `StemForgeError`, `JobCancelled`, `ALL_CODES` | Standard library only |
+| `i18n` (package) | Per-locale JSON catalogs, message lookup with English fallback, plural forms, and Interface-language resolution. | `__init__.py`, `catalogs/en.json` | Standard library only; no other `stemforge` import. |
 
 `assets/` is package data (icons and images), not importable code. Other root modules sit
 outside the layer contract:
@@ -249,6 +254,7 @@ outside the layer contract:
 | `AppPaths` | `platform/paths.py` | The six writable roots: `data`, `cache`, `logs`, `models`, `config`, `webview`; construction never touches disk. |
 | `PreflightReport` | `platform/preflight.py` | The six startup checks, exit-code mapping, degraded/fatal state, and JSON/human rendering. |
 | `worker_protocol` | `worker_protocol.py` | Event names, `parse_event`/`format_event`, exit codes, output-name validation, and `block_count`. |
+| `Translator`, `Locale` | `i18n/__init__.py` | Catalog lookup with English fallback and plural selection; each locale's autonym and plural-rule name. |
 
 The application facade is also the composition root: it constructs `WorkspaceState`,
 `JobLedger`, `ArtifactStore`, `ModelStore`, and the nine collaborators. A collaborator

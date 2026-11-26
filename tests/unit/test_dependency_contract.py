@@ -92,6 +92,9 @@ def test_the_import_contract_declares_the_same_edges() -> None:
     layers = next(item["layers"] for item in contracts if item["type"] == "layers")
     assert layers[0] == "stemforge.ui"
     assert "stemforge.domain | stemforge.workers" in layers
+    # The catalog is a base sibling, not a dependency of the platform layer:
+    # __main__ can resolve preflight chrome without platform importing it.
+    assert "stemforge.platform | stemforge.errors | stemforge.i18n" in layers
 
     forbidden = {item["name"]: item for item in contracts if item["type"] == "forbidden"}
     ui = forbidden["UI never imports engines, workers, pipeline, or jobs"]

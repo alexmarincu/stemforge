@@ -19,6 +19,7 @@ _SESSION_TMP = tempfile.TemporaryDirectory(prefix="stemforge-tests-")
 SESSION_HOME = Path(_SESSION_TMP.name)
 os.environ["STEMFORGE_HOME"] = str(SESSION_HOME)
 
+from stemforge import i18n  # noqa: E402
 from stemforge.platform.paths import AppPaths  # noqa: E402
 
 LAYER_MARKERS = frozenset({"unit", "integration", "ui", "licensing"})
@@ -52,6 +53,12 @@ def _install_network_guard(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(socket.socket, "connect", guard(socket.socket.connect))
     monkeypatch.setattr(socket.socket, "connect_ex", guard(socket.socket.connect_ex))
+
+
+@pytest.fixture(autouse=True)
+def english_language() -> None:
+    """Pin the process translator to English; no test reads the host locale."""
+    i18n.set_language("en")
 
 
 @pytest.fixture

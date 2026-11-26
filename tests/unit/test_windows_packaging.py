@@ -166,6 +166,12 @@ def test_windows_spec_is_windowed_with_icon_and_version_resource() -> None:
     assert "version_info.py" in text
 
 
+def test_windows_spec_ships_the_locale_catalogs() -> None:
+    text = _text(SPEC_FILE)
+
+    assert '(str(SRC / "i18n" / "catalogs"), "stemforge/i18n/catalogs")' in text
+
+
 def test_windows_spec_excludes_the_legacy_engine_and_keeps_edge_chromium() -> None:
     text = _text(SPEC_FILE)
     hidden = text[text.index("hiddenimports = [") : text.index("a = Analysis(")]
