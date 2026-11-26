@@ -214,6 +214,53 @@ def test_a_missing_romanian_plural_key_uses_the_english_plural_rule(tmp_path: Pa
     assert language.t("items", count=2) == "2 items"
 
 
+@pytest.mark.parametrize(
+    ("environment", "expected"),
+    [
+        ({"LC_ALL": "ro_RO.UTF-8", "LC_MESSAGES": "en_US.UTF-8", "LANG": "de_DE.UTF-8"}, "ro"),
+        ({"LC_ALL": "", "LC_MESSAGES": "ro_RO.UTF-8", "LANG": "en_US.UTF-8"}, "ro"),
+        ({"LC_ALL": "", "LC_MESSAGES": "", "LANG": "en_US.UTF-8"}, "en_US"),
+        ({"LC_ALL": "", "LC_MESSAGES": "", "LANG": "Romanian_Romania"}, "ro"),
+        ({"LC_ALL": "", "LC_MESSAGES": "", "LANG": "C.UTF-8"}, "en"),
+    ],
+)
+def test_system_locale_reads_the_message_variables_and_normalises_romanian(
+    monkeypatch: pytest.MonkeyPatch,
+    environment: dict[str, str],
+    expected: str,
+) -> None:
+    for name in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        monkeypatch.setenv(name, environment[name])
+
+    assert i18n.system_locale() == expected
+
+
+def test_system_locale_falls_back_to_the_stdlib_locale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("locale.getlocale", lambda: ("ro_RO", "UTF-8"))
+
+    assert i18n.system_locale() == "ro"
+
+
+def test_system_locale_is_absent_when_nothing_reports_a_locale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("locale.getlocale", lambda: (None, None))
+
+    assert i18n.system_locale() is None
+
+
+def test_framework_language_maps_the_catalog_codes_to_nicegui() -> None:
+    assert i18n.framework_language("ro") == "ro"
+    assert i18n.framework_language("en") == "en-GB"
+    assert i18n.framework_language("unknown") == "en-GB"
+
+
 def test_the_process_translator_switches_language_without_reading_the_host_locale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

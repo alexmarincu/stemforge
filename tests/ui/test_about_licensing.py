@@ -147,6 +147,7 @@ class Harness:
     service: WorkspaceService = field(init=False)
     media: FakeMedia = field(default_factory=FakeMedia)
     opener: RecordingOpener = field(default_factory=RecordingOpener)
+    language_changes: list[str] = field(default_factory=list)
     context: page.UiContext = field(init=False)
 
     def __post_init__(self) -> None:
@@ -166,6 +167,7 @@ class Harness:
             service=self.service,
             dialogs=FakeDialog(),
             open_path=self.opener,
+            on_language_change=self.language_changes.append,
         )
 
     def import_local_track(self, name: str = "Local Song.wav") -> None:
@@ -238,6 +240,35 @@ async def test_modal_shows_version_licence_notices_and_source_offer(harness: Har
         await user.should_see(marker="about-partial-note")
         await user.should_see(".partial")
         assert harness.service.licence_files().complete is True
+
+
+async def test_the_language_row_is_first_and_persists_without_reloading(
+    harness: Harness,
+) -> None:
+    from nicegui import app
+
+    from stemforge import i18n
+
+    async for user, _workspace_page in _open_page(harness):
+        await _open_settings(user)
+
+        await user.should_see("Language")
+        await user.should_see("Changes apply immediately.")
+        select = _only(user, "language-select")
+        assert select.value == "system"
+        assert select.options == {
+            "system": "System (English)",
+            "en": "English",
+            "ro": "Română",
+        }
+
+        select.set_value("en")
+        await asyncio.sleep(0.1)
+
+        assert harness.service.language_preference() == "en"
+        assert harness.language_changes == ["en"]
+        assert i18n.preference() == "en"
+        assert app.config.language == "en-GB"
 
 
 async def test_open_licences_folder_calls_the_injected_opener(harness: Harness) -> None:

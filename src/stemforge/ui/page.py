@@ -426,6 +426,7 @@ class UiContext:
     preflight: PreflightView | None = None
     diagnostics: DiagnosticsProvider | None = None
     clipboard: ClipboardWriter | None = None
+    on_language_change: Callable[[str], None] | None = None
     resource_warning_dismissed: bool = False
 
     @property
@@ -2759,11 +2760,15 @@ class WorkspacePage:
         with self._dialog_host if self._dialog_host is not None else contextlib.nullcontext():
             SettingsDialog(
                 self.service,
+                on_language_change=self.context.on_language_change or self._reload_page,
                 on_youtube_toggle=self._on_youtube_toggle,
                 open_path=self.context.open_path,
                 diagnostics=self.context.diagnostics,
                 clipboard=self.context.clipboard,
             ).open()
+
+    def _reload_page(self, _preference: str) -> None:
+        ui.navigate.reload()
 
     def _on_youtube_toggle(self) -> None:
         self._detail.refresh()

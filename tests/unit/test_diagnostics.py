@@ -59,6 +59,8 @@ def _facts(**overrides: object) -> diagnostics.DiagnosticsFacts:
         cache_cap_setting="8.0 GB",
         export_dir="/home/alex/Music",
         first_run=False,
+        interface_language="en",
+        language_source="system",
         model=diagnostics.ModelFact(
             installed=True,
             revision="cbc8a9b1a870",
@@ -94,7 +96,8 @@ def test_report_has_the_full_structure() -> None:
         "Settings: youtube_enabled=True · cache_cap=8.0 GB · "
         "export_dir=/home/alex/Music · first_run=False"
     )
-    assert lines[7] == (
+    assert lines[7] == "Language: en (system)"
+    assert lines[8] == (
         "Model: installed · revision cbc8a9b1a870 · sha256 verified · "
         "verified_at 2026-11-17T10:00:00+00:00"
     )
@@ -158,6 +161,7 @@ def test_collect_reads_cache_counts_settings_model_and_the_open_job_log(
 ) -> None:
     settings = SettingsStore(app_paths)
     settings.set_youtube_enabled(False)
+    settings.set_language("ro")
     store = ArtifactStore(app_paths, cap_bytes=settings.settings.cache_cap_bytes)
     staging = store.stage("source-job")
     (staging / "canonical.wav").write_bytes(b"canonical")
@@ -215,6 +219,7 @@ def test_collect_reads_cache_counts_settings_model_and_the_open_job_log(
 
     assert "Cache: 0.0 MB / 8.0 GB · 1 sources · 0 renders · 0 evictions last 7 days" in text
     assert "Settings: youtube_enabled=False" in text
+    assert "Language: ro (override)" in text
     assert "Model: absent · revision cbc8a9b1a870" in text
     assert "Jobs: job-open export running -" in text
     assert "app line 249" in text
@@ -222,6 +227,17 @@ def test_collect_reads_cache_counts_settings_model_and_the_open_job_log(
     assert "job line 149" in text
     assert "job line 49" not in text
     assert "Preflight: window ok (GTK 3" in text
+
+
+def test_a_system_preference_resolves_from_the_host_locale(
+    app_paths: AppPaths, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(diagnostics.i18n, "system_locale", lambda: "ro_RO.UTF-8")
+    settings = SettingsStore(app_paths)
+
+    text = diagnostics.collect_diagnostics(app_paths, settings=settings)
+
+    assert "Language: ro (system)" in text
 
 
 def test_cli_diagnostics_report_writes_the_same_text(

@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
 
+from stemforge import i18n
 from stemforge.domain.models import ModelConsent, OriginKind
 from stemforge.platform.paths import AppPaths
 from stemforge.platform.storage import DEFAULT_CACHE_CAP_BYTES
@@ -50,6 +51,8 @@ class Settings:
     recent: tuple[RecentFile, ...] = ()
     export_dir: Path | None = None
     first_run: bool = True
+    # ``system`` resolves the OS locale at each launch; ``en``/``ro`` override it.
+    language: str = i18n.SYSTEM_PREFERENCE
     # The audio cache cap, counted over sources/ and renders/ only.
     cache_cap_bytes: int = DEFAULT_CACHE_CAP_BYTES
     # Explicit consent for the htdemucs download.
@@ -92,6 +95,21 @@ class SettingsStore:
     def preferred_export_dir(self) -> Path | None:
         with self._lock:
             return self._settings.export_dir
+
+    # -- Interface language ------------------------------------------------
+
+    @property
+    def language(self) -> str:
+        with self._lock:
+            return self._settings.language
+
+    def set_language(self, preference: str) -> None:
+        """Persist the Behaviour → Language preference (``system``/``en``/``ro``)."""
+        normalized = _language_or_system(preference)
+        with self._lock:
+            if normalized == self._settings.language:
+                return
+            self._write_locked(replace(self._settings, language=normalized))
 
     def model_consent(self) -> ModelConsent | None:
         """The persisted model-weights consent, if any."""
@@ -284,6 +302,7 @@ class SettingsStore:
             recent=recent,
             export_dir=export_dir,
             first_run=first_run,
+            language=_language_or_system(payload.get("language", i18n.SYSTEM_PREFERENCE)),
             cache_cap_bytes=cache_cap_bytes,
             model_consent=_parse_model_consent(payload),
             youtube_enabled=youtube_enabled,
@@ -357,6 +376,7 @@ def _to_payload(settings: Settings) -> dict[str, object]:
         ],
         "export_dir": str(settings.export_dir) if settings.export_dir is not None else None,
         "first_run": settings.first_run,
+        "language": settings.language,
         "cache_cap_bytes": settings.cache_cap_bytes,
         "models": {
             "consent": (
@@ -378,6 +398,19 @@ def _to_payload(settings: Settings) -> dict[str, object]:
             else None
         ),
     }
+
+
+def _language_or_system(value: object) -> str:
+    """Read the persisted Interface language leniently; a bad value means system.
+
+    Language is additive and recoverable in place: an unknown value must not
+    move the whole document aside and lose recent files or consent.
+    """
+    allowed = {i18n.SYSTEM_PREFERENCE, *i18n.LOCALES}
+    if isinstance(value, str) and value in allowed:
+        return value
+    _LOG.warning("unknown Interface language %r; using system", value)
+    return i18n.SYSTEM_PREFERENCE
 
 
 def _parse_youtube_acknowledged(payload: Mapping[str, object]) -> bool:

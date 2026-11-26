@@ -26,6 +26,7 @@ from stemforge.platform import preflight
 if TYPE_CHECKING:
     from stemforge.application import WorkspaceService
     from stemforge.platform.paths import AppPaths
+    from stemforge.settings import SettingsStore
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -110,8 +111,42 @@ def _paths_without_creating() -> AppPaths:
     return AppPaths.from_environment()
 
 
+def _headless_mode(args: argparse.Namespace) -> bool:
+    """Whether this invocation must keep all CLI output in English."""
+    return bool(
+        args.import_path is not None
+        or args.install_model
+        or args.diagnostics
+        or args.self_test
+        or args.smoke_test
+        or args.smoke_separation
+        or (args.report is not None and not args.preflight)
+    )
+
+
+def _pin_headless_english(args: argparse.Namespace) -> None:
+    """Headless modes never follow the Interface-language preference."""
+    if _headless_mode(args):
+        from stemforge import i18n
+
+        i18n.set_language(i18n.SOURCE_LOCALE)
+
+
+def _initialize_language(settings: SettingsStore) -> None:
+    """Resolve the persisted preference and the OS locale before any chrome."""
+    from stemforge import i18n
+
+    i18n.set_language(settings.language, system_locale=i18n.system_locale())
+
+
 def _configuration_failure(args: argparse.Namespace, error: OSError) -> int:
     """Turn a failed ``environment.configure()`` into the storage fatal result."""
+    from stemforge import i18n
+
+    if _headless_mode(args):
+        i18n.set_language(i18n.SOURCE_LOCALE)
+    else:
+        i18n.set_language(i18n.SYSTEM_PREFERENCE, system_locale=i18n.system_locale())
     paths = _paths_without_creating()
     target = _storage_error_path(paths, error)
     report = preflight.PreflightReport(
@@ -242,10 +277,15 @@ def _browser_preflight(report: preflight.PreflightReport) -> preflight.Preflight
     )
 
 
-def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
+def _run_ui(
+    paths: AppPaths,
+    report: preflight.PreflightReport,
+    settings: SettingsStore | None = None,
+) -> int:
     """Open the native workspace window and run the app until it closes."""
     from nicegui import app, ui
 
+    from stemforge import i18n
     from stemforge.application import ServiceEngines, WorkspaceService
     from stemforge.engines.media import FfmpegTool
     from stemforge.engines.pitch import RubberBandEngine
@@ -261,7 +301,11 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     from stemforge.ui import page
     from stemforge.ui.components.diagnostics import BrowserClipboard
 
-    settings = SettingsStore(paths)
+    if settings is None:
+        settings = SettingsStore(paths)
+    i18n.set_language(settings.language, system_locale=i18n.system_locale())
+    framework_language = i18n.framework_language(i18n.language())
+    app.config.language = framework_language
     configure_logging(paths)
     media = FfmpegTool()
     service = WorkspaceService(
@@ -336,7 +380,8 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
                 reload=False,
                 show=True,
                 host="127.0.0.1",
-                title=page.TITLE,
+                title=i18n.t("app.name"),
+                language=framework_language,
                 favicon=favicon if favicon.is_file() else None,
                 fastapi_docs=False,
                 endpoint_documentation="none",
@@ -353,7 +398,8 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
             reload=False,
             show=False,
             window_size=DEFAULT_WINDOW_SIZE,
-            title=page.TITLE,
+            title=i18n.t("app.name"),
+            language=framework_language,
             favicon=favicon if favicon.is_file() else None,
             fastapi_docs=False,
             endpoint_documentation="none",
@@ -599,10 +645,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _dispatch_worker(raw)
 
     args = _build_parser().parse_args(raw)
+    _pin_headless_english(args)
     try:
         paths = _configure()
     except OSError as error:
         return _configuration_failure(args, error)
+
+    settings = None
+    if not _headless_mode(args):
+        from stemforge.settings import SettingsStore
+
+        settings = SettingsStore(paths)
+        _initialize_language(settings)
 
     if args.import_path is not None:
         return _run_import(args.import_path, paths)
@@ -643,7 +697,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 diagnostics=_diagnostics_text(report, paths),
             )
             return report.exit_code
-        return _run_ui(paths, report)
+        return _run_ui(paths, report, settings=settings)
     finally:
         lock.release()
 

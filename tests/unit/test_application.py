@@ -181,6 +181,18 @@ def test_youtube_toggle_and_notice_are_delegated_to_settings(tmp_path: Path) -> 
 
 
 @pytest.mark.unit
+def test_language_preference_is_delegated_to_settings(tmp_path: Path) -> None:
+    service, _, paths = _service(tmp_path)
+
+    assert service.language_preference() == "system"
+
+    service.set_language_preference("ro")
+
+    assert service.language_preference() == "ro"
+    assert SettingsStore(paths).language == "ro"
+
+
+@pytest.mark.unit
 def test_submit_youtube_validates_then_submits_one_import_job(tmp_path: Path) -> None:
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     settings = SettingsStore(paths)

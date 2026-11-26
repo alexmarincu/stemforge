@@ -1168,7 +1168,9 @@ def test_missing_preview_only_degrades_a_normal_launch(
     )
     run_ui: list[preflight.PreflightReport] = []
     monkeypatch.setattr(entry.preflight, "run_preflight", lambda *a, **k: report)
-    monkeypatch.setattr(entry, "_run_ui", lambda paths, report: run_ui.append(report) or 0)
+    monkeypatch.setattr(
+        entry, "_run_ui", lambda paths, report, **kwargs: run_ui.append(report) or 0
+    )
 
     assert entry.main([]) == preflight.EXIT_OK
     assert run_ui == [report]
@@ -1191,7 +1193,9 @@ def test_browser_mode_keeps_a_missing_native_window_from_blocking_the_launch(
     run_ui: list[preflight.PreflightReport] = []
     monkeypatch.setenv("STEMFORGE_BROWSER", "1")
     monkeypatch.setattr(entry.preflight, "run_preflight", lambda *a, **k: report)
-    monkeypatch.setattr(entry, "_run_ui", lambda paths, report: run_ui.append(report) or 0)
+    monkeypatch.setattr(
+        entry, "_run_ui", lambda paths, report, **kwargs: run_ui.append(report) or 0
+    )
     monkeypatch.setattr("stemforge.platform.instance.InstanceLock.acquire", lambda self: True)
     monkeypatch.setattr("stemforge.platform.instance.InstanceLock.release", lambda self: None)
 
