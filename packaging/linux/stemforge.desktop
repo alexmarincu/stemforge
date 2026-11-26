@@ -1,8 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=StemForge
+Name[ro]=StemForge
 GenericName=Stem Separator
+GenericName[ro]=Separator de stemuri
 Comment=Local stem separation, pitch shifting, and export
+Comment[ro]=Separare locală de stemuri, transpunere și export.
 Exec=stemforge
 Icon=stemforge
 Terminal=false

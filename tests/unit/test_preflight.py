@@ -251,6 +251,54 @@ def test_the_default_preflight_chrome_is_the_english_catalog() -> None:
 
 
 @pytest.mark.unit
+def test_a_romanian_startup_translates_the_native_chrome_but_not_report_messages(
+    app_paths: AppPaths, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from stemforge import __main__ as entry
+    from stemforge import i18n
+
+    i18n.set_language("ro", system_locale="ro_RO.UTF-8")
+    chrome = entry._native_chrome()
+
+    assert chrome.fatal_title == "StemForge nu poate porni"
+    assert chrome.details_label == "Detalii:"
+    assert chrome.logs_unavailable == "Jurnalele nu sunt disponibile."
+    assert chrome.copy_details_label == "Copiază detaliile"
+    assert chrome.already_running_title == "StemForge rulează deja"
+    assert "o singură copie" in chrome.already_running_body
+
+    running: list[tuple[str, str, str | None]] = []
+    preflight.show_already_running(
+        chrome=chrome,
+        backend=lambda title, body, copy: running.append((title, body, copy)),
+    )
+    assert running[0][0] == chrome.already_running_title
+
+    report = _report(
+        _check(
+            "window",
+            status=preflight.STATUS_FAIL,
+            message="gi is missing",
+            fatal=True,
+        ),
+        system="linux",
+    )
+    shown: list[preflight.FatalMessage] = []
+    monkeypatch.setattr(
+        entry.preflight,
+        "show_fatal_message",
+        lambda message, **kwargs: shown.append(message),
+    )
+    entry._show_fatal(report, app_paths, diagnostics="english diagnostics")
+
+    assert "gi is missing" in preflight.format_human(report)
+    assert shown[0].title == "StemForge nu poate porni"
+    assert shown[0].chrome.ok_label == "OK"
+    assert shown[0].chrome.copy_details_label == "Copiază detaliile"
+    assert shown[0].copy_text == "english diagnostics"
+
+
+@pytest.mark.unit
 def test_fatal_message_accepts_translated_chrome() -> None:
     chrome = preflight.NativeChrome(
         fatal_title="StemForge nu poate porni",
@@ -1168,7 +1216,9 @@ def test_missing_preview_only_degrades_a_normal_launch(
     )
     run_ui: list[preflight.PreflightReport] = []
     monkeypatch.setattr(entry.preflight, "run_preflight", lambda *a, **k: report)
-    monkeypatch.setattr(entry, "_run_ui", lambda paths, report: run_ui.append(report) or 0)
+    monkeypatch.setattr(
+        entry, "_run_ui", lambda paths, report, **kwargs: run_ui.append(report) or 0
+    )
 
     assert entry.main([]) == preflight.EXIT_OK
     assert run_ui == [report]
@@ -1191,7 +1241,9 @@ def test_browser_mode_keeps_a_missing_native_window_from_blocking_the_launch(
     run_ui: list[preflight.PreflightReport] = []
     monkeypatch.setenv("STEMFORGE_BROWSER", "1")
     monkeypatch.setattr(entry.preflight, "run_preflight", lambda *a, **k: report)
-    monkeypatch.setattr(entry, "_run_ui", lambda paths, report: run_ui.append(report) or 0)
+    monkeypatch.setattr(
+        entry, "_run_ui", lambda paths, report, **kwargs: run_ui.append(report) or 0
+    )
     monkeypatch.setattr("stemforge.platform.instance.InstanceLock.acquire", lambda self: True)
     monkeypatch.setattr("stemforge.platform.instance.InstanceLock.release", lambda self: None)
 

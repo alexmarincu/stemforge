@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from stemforge import __main__ as entry
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.errors import JobCancelled
 from stemforge.models import ModelStatus, ModelStore
 from stemforge.pipeline.model_job import ModelInstallJob, ModelInstallResult
@@ -53,6 +53,23 @@ def test_install_model_without_consent_fails_non_interactively(
     assert f"error {errors.SEPARATION_MODEL_MISSING}: consent required" in output
     assert SettingsStore(home).model_consent() is None
     assert not (home.models / "htdemucs").exists()
+
+
+def test_headless_install_model_keeps_english_on_a_romanian_process(
+    home: AppPaths,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    i18n.set_language("ro", system_locale="ro_RO.UTF-8")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+
+    code = entry.main(["--install-model"])
+
+    output = capsys.readouterr().out
+    assert code == 1
+    assert "Separation model not installed" in output
+    assert "not covered by StemForge's GPL-3.0 licence" in output
+    assert i18n.language() == "en"
 
 
 def test_install_model_accepts_and_reports_the_pinned_result(

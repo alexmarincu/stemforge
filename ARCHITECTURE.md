@@ -223,13 +223,13 @@ contract.
 | `engines` (package) | Adapters for FFmpeg/ffprobe, Rubber Band, the Separation worker, and yt-dlp. | `media.py`, `pitch.py`, `separation.py`, `youtube.py` | `domain`, `worker_protocol`, `platform`, `errors` |
 | `artifacts.py` (module) | The cache layout, manifest parsing, staging, promotion, lookup, and LRU eviction. | `ArtifactStore` | `platform`, `errors` |
 | `models` (package) | The pinned model record and the durable weights store. | `spec.py`, `store.py`, `models.lock.json` | `domain`, `platform`, `errors` |
-| `settings.py` (module) | The one persisted JSON document: recent files, cache cap, consents, export directory. | `SettingsStore` | `domain`, `platform`, `errors` |
+| `settings.py` (module) | The one persisted JSON document: recent files, cache cap, consents, export directory, Interface language. | `SettingsStore` | `domain`, `platform`, `errors`, `i18n` |
 | `domain` (package) | Immutable domain values and pure aggregates: Source, Track, Workspace, roles, cancellation. | `models.py`, `workspace.py`, `roles.py`, `cancellation.py` | `errors` |
 | `workers` (package) | The executable worker entry point; the only place torch and Demucs are imported. | `__init__.py` (`dispatch`), `separation.py` | `worker_protocol`, `platform`, `errors` |
 | `worker_protocol.py` (module) | The JSONL event names, parser, exit codes, and block arithmetic shared across the process boundary. | `parse_event`, `format_event` | Standard library only |
 | `platform` (package) | Paths, environment setup, preflight, the instance lock, resource roots, vendor binaries, process helpers, storage constants. | `paths.py`, `environment.py`, `preflight.py`, `instance.py`, `resources.py`, `binaries.py`, `process.py`, `storage.py` | Standard library and `platformdirs` only; no `stemforge` imports. |
 | `errors.py` (module) | The one exception type, the cancellation subclass, and the stable code taxonomy. | `StemForgeError`, `JobCancelled`, `ALL_CODES` | Standard library only |
-| `i18n` (package) | Per-locale JSON catalogs, message lookup with English fallback, plural forms, and Interface-language resolution. | `__init__.py`, `catalogs/en.json` | Standard library only; no other `stemforge` import. |
+| `i18n` (package) | Per-locale JSON catalogs, message lookup with English fallback, plural forms, and Interface-language resolution. | `__init__.py`, `catalogs/en.json`, `catalogs/ro.json` | Standard library only; no other `stemforge` import. |
 
 `assets/` is package data (icons and images), not importable code. Other root modules sit
 outside the layer contract:
@@ -250,7 +250,7 @@ outside the layer contract:
 | `ArtifactStore` | `artifacts.py` | The only writer of artifact files. It owns `sources/`, `renders/`, `staging/`, manifests, promotion, lookup, and LRU eviction. |
 | `Workspace` | `domain/workspace.py` | The ordered, session-scoped set of Tracks; one Track per Source; snapshots are immutable. It is pure: the service owns locking. |
 | `Track`, `Source` | `domain/models.py` | Immutable identity and on-disk locations. `Track` is the session handle; `Source` is the imported audio record. |
-| `SettingsStore` | `settings.py` | Reads and writes one JSON document atomically; recent files, cache cap, export directory, model consent, and YouTube consent. |
+| `SettingsStore` | `settings.py` | Reads and writes one JSON document atomically; recent files, cache cap, export directory, Interface language, model consent, and YouTube consent. |
 | `AppPaths` | `platform/paths.py` | The six writable roots: `data`, `cache`, `logs`, `models`, `config`, `webview`; construction never touches disk. |
 | `PreflightReport` | `platform/preflight.py` | The six startup checks, exit-code mapping, degraded/fatal state, and JSON/human rendering. |
 | `worker_protocol` | `worker_protocol.py` | Event names, `parse_event`/`format_event`, exit codes, output-name validation, and `block_count`. |
@@ -762,14 +762,18 @@ User-facing headlines, hints, and remediation resolve through the locale catalog
 sentences (duration, folder, required and free space, path). An unknown code from a
 newer worker falls back to `internal.unexpected`. A degraded capability is announced,
 never silent. The rule is wider than errors: visible page, page-shell, and component copy
-resolves at render time through the English catalog in
-`stemforge/i18n/catalogs/en.json`, using flat semantic message IDs. Job snapshots carry
+resolves at render time through the locale catalogs in `stemforge/i18n/catalogs/`,
+using flat semantic message IDs; English is the source locale and per-key fallback,
+and Romanian ships as the first translated Interface language. Job snapshots carry
 stable stage and detail codes plus context alongside the English strings that logs and
 the headless CLI keep; application and pipeline views carry stable role, kind, and
 semitone display keys alongside their legacy labels. The UI prefers the code and falls
 back to the stored English string for an unknown code. Exported filenames still use the
 English role labels in `pipeline/export_names.py`, so translating the interface never
-changes a filename. `tests/unit/test_copy_policy.py` fails on an inline literal passed to
+changes a filename. The Interface language is a `system`/`en`/`ro` preference resolved at
+startup; selecting one swaps the process translator, aligns NiceGUI's framework language
+and the page's `lang` attribute, and reloads the page, while the Workspace and Jobs live in
+the application service. `tests/unit/test_copy_policy.py` fails on an inline literal passed to
 a label, button, notification, tooltip, or placeholder, on a catalog key missing from
 English, or on an avoided Import synonym. `CODING_STANDARDS.md` records the judgement
 calls around that rule.
@@ -787,9 +791,10 @@ the newest 20 and seven days on runner start. Uvicorn loggers stay at warning.
 
 The diagnostics report is copy-only: version, Bundle kind, OS, Python, CPU, cores,
 threads, RAM, free disk, the preflight summary, every writable path, cache usage and cap,
-source and render counts, seven-day evictions, settings, model state, the ten newest Jobs,
-the last 200 app-log lines, and the last 100 lines of one Job log. It never zips, uploads,
-or writes itself; `--report PATH` is the only writer.
+source and render counts, seven-day evictions, settings, the resolved Interface language
+and its `system`/`override` source, model state, the ten newest Jobs, the last 200 app-log
+lines, and the last 100 lines of one Job log. The report body stays English. It never zips,
+uploads, or writes itself; `--report PATH` is the only writer.
 
 ### 8.4 Settings and state
 
@@ -799,9 +804,10 @@ aside as `settings.corrupt-<stamp>.json` and defaults are recreated. The schema 
 versioned.
 
 The document holds the ten-entry MRU recent list, the last export directory, the
-first-run flag, the cache cap, the model consent (with its notice version), the YouTube
-toggle, and the YouTube notice acknowledgement. A consent older than the bundled notice
-version is treated as absent.
+first-run flag, the Interface language preference, the cache cap, the model consent (with
+its notice version), the YouTube toggle, and the YouTube notice acknowledgement. A consent
+older than the bundled notice version is treated as absent. An unknown or wrong-typed
+language value falls back to `system` without moving the document aside.
 
 Settings are separate from the Workspace: the Workspace holds Tracks for this session
 only, while settings, cache, and model store survive restarts.

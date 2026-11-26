@@ -9,8 +9,8 @@ Three sections, in this order:
   through an injected OS seam, so no test launches a file manager.
 * **Storage** — the 8 GiB cache meter, Clear cached audio (live tracks stay),
   Clear recent files, the YouTube tool cache, and Open log folder.
-* **Behaviour** — the persisted YouTube import toggle, the close/shutdown
-  contract, and the force-quit export-partial note.
+* **Behaviour** — the Interface language selector, the persisted YouTube import
+  toggle, the close/shutdown contract, and the force-quit export-partial note.
 
 A missing licence tree is a coded ``licensing.files_missing`` message, not a
 traceback; a file manager that cannot start is ``licensing.open_failed``.
@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from nicegui import ui
+from nicegui import app, ui
 from nicegui.events import ValueChangeEventArguments
 
 from stemforge import __version__, errors, i18n
@@ -44,12 +44,14 @@ class SettingsDialog:
         self,
         service: WorkspaceService,
         *,
+        on_language_change: Callable[[str], None] | None = None,
         on_youtube_toggle: Callable[[], None] | None = None,
         open_path: PathOpener | None = None,
         diagnostics: DiagnosticsProvider | None = None,
         clipboard: ClipboardWriter | None = None,
     ) -> None:
         self._service = service
+        self._on_language_change = on_language_change
         self._on_youtube_toggle = on_youtube_toggle
         self._open_path = open_path
         self._diagnostics = diagnostics
@@ -61,6 +63,7 @@ class SettingsDialog:
         self._clear_youtube_button: ui.button | None = None
         self._licence_error: ui.label | None = None
         self._licence_error_code: ui.label | None = None
+        self._dialog: ui.dialog | None = None
 
     def open(self) -> None:
         files = self._service.licence_files()
@@ -93,6 +96,7 @@ class SettingsDialog:
                     .props("flat no-caps")
                     .mark("settings-close")
                 )
+        self._dialog = dialog
         dialog.open()
 
     # -- App ---------------------------------------------------------------
@@ -157,6 +161,12 @@ class SettingsDialog:
                 .mark("about-open-licences")
             )
         ui.label(i18n.t("settings.weights_note")).classes("sf-fineprint").mark("about-weights-note")
+        ui.label(i18n.t("settings.licence_authoritative")).classes("sf-fineprint").mark(
+            "about-licence-authoritative"
+        )
+        ui.label(i18n.t("settings.translation_credit")).classes("sf-fineprint").mark(
+            "about-translation-credit"
+        )
         self._licence_error = (
             ui.label("").classes("sf-fineprint sf-field-error").mark("about-files-error")
         )
@@ -392,6 +402,7 @@ class SettingsDialog:
 
     def _behaviour_section(self) -> None:
         ui.label(i18n.t("settings.behaviour")).classes("sf-card-title")
+        self._language_row()
         with ui.element("div").classes("sf-setting-row"):
             with ui.element("div").classes("sf-setting-main"):
                 ui.label(i18n.t("settings.youtube_label")).classes("sf-setting-label")
@@ -405,6 +416,42 @@ class SettingsDialog:
         ui.label(i18n.t("settings.youtube_note")).classes("sf-fineprint").mark("about-youtube-note")
         ui.label(i18n.t("settings.close_note")).classes("sf-fineprint").mark("about-close-note")
         ui.label(i18n.t("settings.partial_note")).classes("sf-fineprint").mark("about-partial-note")
+
+    def _language_row(self) -> None:
+        """The first Behaviour row: System / English / Română in their own names."""
+        preference = self._service.language_preference()
+        resolved = i18n.resolve_language(preference, i18n.system_locale())
+        options = {
+            i18n.SYSTEM_PREFERENCE: i18n.t(
+                "settings.language_system",
+                language=i18n.locale_info(resolved).autonym,
+            ),
+            "en": i18n.locale_info("en").autonym,
+            "ro": i18n.locale_info("ro").autonym,
+        }
+        with ui.element("div").classes("sf-setting-row").mark("language-row"):
+            with ui.element("div").classes("sf-setting-main"):
+                ui.label(i18n.t("settings.language_label")).classes("sf-setting-label")
+                ui.label(i18n.t("settings.language_hint")).classes("sf-fineprint").mark(
+                    "language-hint"
+                )
+            (
+                ui.select(options, value=preference, on_change=self._apply_language)
+                .props("dense options-dense")
+                .mark("language-select")
+            )
+
+    def _apply_language(self, event: ValueChangeEventArguments[str | None]) -> None:
+        if event.value is None:
+            return
+        preference = str(event.value)
+        self._service.set_language_preference(preference)
+        i18n.set_language(preference, system_locale=i18n.system_locale())
+        app.config.language = i18n.framework_language(i18n.language())
+        if self._dialog is not None:
+            self._dialog.close()
+        if self._on_language_change is not None:
+            self._on_language_change(preference)
 
     def _apply_youtube_toggle(self, event: ValueChangeEventArguments[bool | None]) -> None:
         self._service.set_youtube_enabled(bool(event.value))

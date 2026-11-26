@@ -57,6 +57,7 @@ role labels stay English so a Romanian interface still writes
 locale; a Romanian page-render smoke test and catalog-parity tests guard the
 translation. `GLOSSARY.md` gains **Interface language**, and
 `docs/i18n/ro/terms.md` records the approved Romanian renderings and the forms the
-copy policy rejects. The implementation lands as a wide refactor in
-expand-contract order: foundation, copy-migration batches, Job and display codes,
-then the Romanian locale and language setting.
+copy policy rejects. Translator credits live in `TRANSLATORS.md` and one About
+line. The implementation landed as a wide refactor in expand-contract order:
+foundation, copy-migration batches, Job and display codes, then the Romanian
+locale and language setting.

@@ -9,12 +9,15 @@ NiceGUI nor another StemForge package and can be used before the window exists.
 from __future__ import annotations
 
 import json
+import locale
 import logging
+import os
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Final
+from typing import Final, Literal
 
 __all__ = [
     "LOCALES",
@@ -22,6 +25,7 @@ __all__ = [
     "SYSTEM_PREFERENCE",
     "Locale",
     "Translator",
+    "framework_language",
     "has_message",
     "language",
     "locale_info",
@@ -30,6 +34,7 @@ __all__ = [
     "preference",
     "resolve_language",
     "set_language",
+    "system_locale",
     "t",
 ]
 
@@ -180,6 +185,47 @@ def preference() -> str:
 def locale_info(code: str) -> Locale:
     """The autonym and plural rule for one shipped catalog."""
     return LOCALES[code]
+
+
+def system_locale() -> str | None:
+    """The host's message locale, read on demand and never at import time.
+
+    ``LC_ALL`` wins over ``LC_MESSAGES`` and ``LANG``; when none is set the
+    stdlib locale is the fallback. Windows reports a display name such as
+    ``Romanian_Romania``, so a Romanian system normalises to the catalog code.
+    """
+    value: str | None = None
+    for variable in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        value = os.environ.get(variable, "").strip()
+        if value:
+            return _normalize_system_locale(value)
+    try:
+        value = locale.getlocale()[0]
+    except (TypeError, ValueError):
+        return None
+    return _normalize_system_locale(value)
+
+
+def _normalize_system_locale(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.casefold().startswith("romanian"):
+        return "ro"
+    base = re.split(r"[.@]", text, maxsplit=1)[0]
+    folded = base.casefold()
+    if folded.startswith("ro") and (len(base) == 2 or base[2] in "-_"):
+        return "ro"
+    if folded in {"c", "posix"}:
+        return "en"
+    return base or None
+
+
+def framework_language(code: str) -> Literal["ro", "en-GB"]:
+    """Map a catalog code to the language NiceGUI's Quasar layer expects."""
+    return "ro" if code == "ro" else "en-GB"
 
 
 def normalize_preference(value: object) -> str:
