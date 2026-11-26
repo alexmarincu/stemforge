@@ -92,10 +92,22 @@ class JobView(Protocol):
     def stage(self) -> str: ...
 
     @property
+    def stage_code(self) -> str | None: ...
+
+    @property
+    def stage_context(self) -> Mapping[str, object]: ...
+
+    @property
     def created_at(self) -> datetime: ...
 
     @property
     def detail(self) -> str | None: ...
+
+    @property
+    def detail_code(self) -> str | None: ...
+
+    @property
+    def detail_context(self) -> Mapping[str, object]: ...
 
     @property
     def active(self) -> bool: ...
@@ -145,6 +157,8 @@ class PreviewTarget:
     label: str
     url: str
     gain_db: float = 0.0
+    label_key: str = ""
+    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +203,8 @@ class ExportBatchItem:
     error_code: str | None = None
     error_detail: str | None = None
     error_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    label_key: str = ""
+    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,6 +301,8 @@ class PitchSet:
     label: str
     created_at: datetime
     based_on_earlier_separation: bool = False
+    label_key: str = ""
+    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,3 +320,5 @@ class SeparationSet:
     label: str
     stem_roles: tuple[str, ...]
     based_on_earlier_separation: bool = False
+    label_key: str = ""
+    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))

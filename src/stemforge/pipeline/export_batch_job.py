@@ -17,11 +17,13 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 from stemforge import errors
 from stemforge.artifacts import ArtifactStore, require_free_space
 from stemforge.domain.models import ExportBatchItemState
+from stemforge.domain.progress import STAGE_EXPORT_BATCH_ITEM, Progress
 from stemforge.engines.media import ExportFormat, MediaTool
 from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.jobs.job import JobContext
@@ -53,6 +55,8 @@ class ExportBatchItemOutcome:
     state: ExportBatchItemState
     path: Path | None = None
     error: StemForgeError | None = None
+    label_key: str = ""
+    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
 
 
 RecordOutcome = Callable[[ExportBatchItemOutcome], None]
@@ -147,8 +151,18 @@ def run_export_batch_job(
             index=index,
             total=total,
             label=target.label,
+            label_key=target.label_key,
+            label_context=target.label_context,
         )
-        item_context.progress(0.0, stage=_stage(index, total), detail=target.label)
+        item_context.progress(
+            0.0,
+            stage=_stage(index, total),
+            stage_code=STAGE_EXPORT_BATCH_ITEM,
+            stage_context={"index": index + 1, "total": total},
+            detail=target.label,
+            detail_code=target.label_key,
+            detail_context=target.label_context,
+        )
         try:
             result = run_export_job(
                 item_context,
@@ -167,6 +181,8 @@ def run_export_batch_job(
                 ExportBatchItemOutcome(
                     key=target.key,
                     label=target.label,
+                    label_key=target.label_key,
+                    label_context=target.label_context,
                     state=ExportBatchItemState.FAILED,
                     error=exc,
                 )
@@ -187,6 +203,8 @@ def run_export_batch_job(
             ExportBatchItemOutcome(
                 key=target.key,
                 label=target.label,
+                label_key=target.label_key,
+                label_context=target.label_context,
                 state=ExportBatchItemState.WRITTEN,
                 path=result.path,
             )
@@ -196,7 +214,11 @@ def run_export_batch_job(
         ctx.progress(
             (index + 1) / total,
             stage=_stage(index, total),
+            stage_code=STAGE_EXPORT_BATCH_ITEM,
+            stage_context={"index": index + 1, "total": total},
             detail=target.label,
+            detail_code=target.label_key,
+            detail_context=target.label_context,
         )
 
     if state.failures:
@@ -267,6 +289,8 @@ def _probe_targets(
                 ExportBatchItemOutcome(
                     key=target.key,
                     label=target.label,
+                    label_key=target.label_key,
+                    label_context=target.label_context,
                     state=ExportBatchItemState.FAILED,
                     error=exc,
                 )
@@ -291,6 +315,8 @@ def _mark_unwritten(
             ExportBatchItemOutcome(
                 key=target.key,
                 label=target.label,
+                label_key=target.label_key,
+                label_context=target.label_context,
                 state=ExportBatchItemState.NOT_EXPORTED,
             )
         )
@@ -302,13 +328,22 @@ def _item_context(
     index: int,
     total: int,
     label: str,
+    label_key: str,
+    label_context: Mapping[str, object],
 ) -> JobContext:
     """A per-item context that maps the item's progress into the batch's slice."""
 
-    def update(fraction: float, stage: str | None, detail: str | None) -> None:
-        del detail
-        overall = (index + min(1.0, max(0.0, fraction))) / total
-        ctx.progress(overall, stage=_stage(index, total), detail=label)
+    def update(progress: Progress) -> None:
+        overall = (index + min(1.0, max(0.0, progress.fraction))) / total
+        ctx.progress(
+            overall,
+            stage=_stage(index, total),
+            stage_code=STAGE_EXPORT_BATCH_ITEM,
+            stage_context={"index": index + 1, "total": total},
+            detail=label,
+            detail_code=label_key,
+            detail_context=label_context,
+        )
 
     return JobContext(
         job_id=ctx.job_id,

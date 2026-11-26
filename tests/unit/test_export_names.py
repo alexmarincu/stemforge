@@ -10,6 +10,7 @@ import pytest
 from stemforge.pipeline.export_names import (
     MAX_BASE_CHARS,
     MAX_FILENAME_BYTES,
+    ROLE_LABELS,
     destination_base_name,
     export_filename,
     required_export_space,
@@ -82,6 +83,17 @@ def test_suggested_names_follow_the_pinned_pattern() -> None:
     assert suggest_base_name("Song", semitones=3) == "Song +3st"
     assert suggest_base_name("Song", role="vocals", semitones=3) == "Song - Vocals +3st"
     assert suggest_base_name("Song", semitones=-2) == "Song -2st"
+
+
+def test_filename_role_labels_stay_english_and_outside_the_catalog() -> None:
+    assert dict(ROLE_LABELS) == {
+        "original": "Original",
+        "vocals": "Vocals",
+        "drums": "Drums",
+        "bass": "Bass",
+        "other": "Other",
+        "instrumental": "Instrumental",
+    }
 
 
 def test_a_long_title_keeps_the_role_suffix_and_the_base_cap() -> None:

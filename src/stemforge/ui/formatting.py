@@ -17,9 +17,17 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from stemforge import errors, i18n
+from stemforge.domain.display import (
+    EXPORT_SHIFTED_LABEL_KEY,
+    RENDER_LABEL_KEY,
+    RENDER_MASTER_LABEL_KEY,
+    RENDER_STEMS_LABEL_KEY,
+    role_label_key,
+)
 from stemforge.domain.models import JobKind, OriginKind
 
 if TYPE_CHECKING:
+    from stemforge.application import JobView
     from stemforge.domain.models import Track
     from stemforge.models.spec import ModelSpec
 
@@ -804,6 +812,71 @@ def format_semitones(semitones: int) -> str:
     if semitones == 0:
         return "0"
     return f"+{semitones}" if semitones > 0 else f"\u2212{abs(semitones)}"
+
+
+def role_label(role: str) -> str:
+    """The display name for one role, resolved from its stable role key."""
+    key = role_label_key(role)
+    if i18n.has_message(key):
+        return i18n.t(key)
+    return role.replace("_", " ").title()
+
+
+def display_label(
+    key: str | None,
+    context: Mapping[str, object] | None = None,
+    *,
+    fallback: str = "",
+) -> str:
+    """Resolve a stable display code, falling back to the stored English label.
+
+    Role codes render their catalog name; render and shifted-export codes format
+    the semitone count at render time. Any other code is a catalog template with
+    its context passed through as named placeholders.
+    """
+    if not key or not i18n.has_message(key):
+        return fallback
+    values = dict(context or {})
+    if key == EXPORT_SHIFTED_LABEL_KEY:
+        role = values.get("role")
+        semitones = _int_value(values.get("semitones"), 0)
+        return i18n.t(
+            key,
+            role=role_label(role) if isinstance(role, str) else "",
+            semitones=format_semitones(semitones),
+        )
+    if key in {RENDER_LABEL_KEY, RENDER_MASTER_LABEL_KEY, RENDER_STEMS_LABEL_KEY}:
+        return i18n.t(
+            key,
+            semitones=format_semitones(_int_value(values.get("semitones"), 0)),
+        )
+    return i18n.t(key, **values)
+
+
+def job_stage(job: JobView) -> str:
+    """A Job's stage from its code, or the English string for an unknown code."""
+    code = job.stage_code
+    if code and i18n.has_message(code):
+        return i18n.t(code, **dict(job.stage_context))
+    return job.stage
+
+
+def job_detail(job: JobView) -> str | None:
+    """A Job's detail from its code, or the English string for an unknown code."""
+    code = job.detail_code
+    if code and i18n.has_message(code):
+        return display_label(
+            code,
+            job.detail_context,
+            fallback=job.detail or "",
+        )
+    return job.detail
+
+
+def _int_value(value: object, default: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    return value
 
 
 def level_adjusted_label(gain_db: float) -> str | None:

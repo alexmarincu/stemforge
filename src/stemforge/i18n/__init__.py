@@ -22,6 +22,7 @@ __all__ = [
     "SYSTEM_PREFERENCE",
     "Locale",
     "Translator",
+    "has_message",
     "language",
     "locale_info",
     "normalize_preference",
@@ -121,6 +122,14 @@ class Translator:
         self._active = catalog if catalog is not None else {}
         return resolved
 
+    def has_message(self, message_id: str) -> bool:
+        """Whether the source locale defines ``message_id``.
+
+        A renderer uses this to prefer a code's catalog copy and fall back to the
+        English string a snapshot already carries when the code is unknown.
+        """
+        return message_id in self._english
+
     def t(self, message_id: str, /, **placeholders: object) -> str:
         """Render one message ID, falling back to English and then the key."""
         entry = self._active.get(message_id)
@@ -144,6 +153,11 @@ class Translator:
 def t(message_id: str, /, **placeholders: object) -> str:
     """Render through the process-wide translator."""
     return _default.t(message_id, **placeholders)
+
+
+def has_message(message_id: str) -> bool:
+    """Whether the source locale defines ``message_id``."""
+    return _default.has_message(message_id)
 
 
 def set_language(

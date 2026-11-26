@@ -237,6 +237,8 @@ def test_export_targets_lists_only_the_master_for_a_plain_source(tmp_path: Path)
     master = targets[0]
     assert isinstance(master, ExportJobTarget)
     assert master.label == "Original"
+    assert master.label_key == "common.original"
+    assert dict(master.label_context) == {}
     assert master.base_name == TITLE
     assert master.gain_db == pytest.approx(-1.5)
     assert master.path == store.sources_dir / SOURCE_ID / "canonical.wav"
@@ -260,6 +262,7 @@ def test_export_targets_adds_unshifted_stems_and_the_instrumental(tmp_path: Path
     ]
     stems = {target.key: target for target in targets}
     assert stems["stem:vocals"].label == "Vocals"
+    assert stems["stem:vocals"].label_key == "role.vocals"
     assert stems["stem:vocals"].base_name == f"{TITLE} - Vocals"
     assert stems["instrumental"].base_name == f"{TITLE} - Instrumental"
     assert stems["instrumental"].gain_db == pytest.approx(-2.0)
@@ -314,7 +317,17 @@ def test_export_targets_adds_every_member_of_a_pitch_set(tmp_path: Path) -> None
         "render:render-stems:instrumental",
     }
     assert by_key["render:render-original:original"].base_name == f"{TITLE} +3st"
+    assert by_key["render:render-original:original"].label_key == "export.target.shifted"
+    assert dict(by_key["render:render-original:original"].label_context) == {
+        "role": "original",
+        "semitones": 3,
+    }
     assert by_key["render:render-stems:vocals"].base_name == f"{TITLE} - Vocals -2st"
+    assert by_key["render:render-stems:vocals"].label_key == "export.target.shifted"
+    assert dict(by_key["render:render-stems:vocals"].label_context) == {
+        "role": "vocals",
+        "semitones": -2,
+    }
     assert by_key["render:render-stems:vocals"].semitones == -2
     assert by_key["render:render-stems:vocals"].gain_db == pytest.approx(-3.0)
     # Newest render set first, after the live master.
@@ -712,8 +725,8 @@ def test_a_tag_verification_failure_is_coded_and_leaves_no_file(tmp_path: Path) 
     destination = tmp_path / "exports"
     destination.mkdir()
 
-    def update(fraction: float, stage: str | None, detail: str | None) -> None:
-        pass
+    def update(progress) -> None:
+        del progress
 
     context = JobContext(
         job_id="job-tags",
@@ -1029,8 +1042,8 @@ def test_the_batch_run_writes_outcomes_into_the_service_record(
     )
     job = runner.submitted[0]
 
-    def update(fraction: float, stage: str | None, detail: str | None) -> None:
-        del fraction, stage, detail
+    def update(progress) -> None:
+        del progress
 
     job.run(
         JobContext(
@@ -1045,6 +1058,14 @@ def test_the_batch_run_writes_outcomes_into_the_service_record(
 
     assert result is not None
     assert [item.state for item in result.items] == [ExportBatchItemState.WRITTEN] * 5
+    assert [item.label_key for item in result.items] == [
+        "role.vocals",
+        "role.instrumental",
+        "role.drums",
+        "role.bass",
+        "role.other",
+    ]
+    assert [dict(item.label_context) for item in result.items] == [{}] * 5
     assert [item.path.name for item in result.written] == [
         "stem:vocals.wav",
         "instrumental.wav",

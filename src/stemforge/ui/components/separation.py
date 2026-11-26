@@ -71,10 +71,10 @@ class SeparationCard:
         self._failures: dict[str, JobFailure] = {}
         self._current_track_id: str | None = None
         self._job: JobView | None = None
-        self._job_signature: tuple[str, int, str] | None = None
+        self._job_signature: tuple[str, int, str, str | None] | None = None
         self._last_change_at: float | None = None
         self._stalled = False
-        self._stall_ack: tuple[str, int, str] | None = None
+        self._stall_ack: tuple[str, int, str, str | None] | None = None
         self._download_failure: JobFailure | None = None
 
     # -- composition --------------------------------------------------------
@@ -166,13 +166,14 @@ class SeparationCard:
             elif download:
                 assert self._job is not None
                 percent = round(max(0.0, min(1.0, self._job.progress)) * 100)
+                detail = formatting.job_detail(self._job)
                 progress = (
                     i18n.t(
                         "separation.model.downloading_detail",
-                        detail=self._job.detail,
+                        detail=detail,
                         percent=percent,
                     )
-                    if self._job.detail
+                    if detail
                     else i18n.t("separation.model.downloading_progress", percent=percent)
                 )
                 ui.label(progress).classes("sf-separation-status").mark("model-download-progress")
@@ -266,8 +267,9 @@ class SeparationCard:
         ui.linear_progress(value=float(self._job.progress), show_value=False).classes(
             "sf-job-progress"
         ).mark("separation-progress")
-        if self._job.stage:
-            ui.label(self._job.stage).classes("sf-fineprint").mark("separation-stage")
+        stage = formatting.job_stage(self._job)
+        if stage:
+            ui.label(stage).classes("sf-fineprint").mark("separation-stage")
         ui.label(i18n.t("separation.worker_note")).classes("sf-fineprint")
         (
             ui.button(
@@ -421,7 +423,7 @@ class SeparationCard:
                 self.build.refresh()
             return
         now = float(self.clock())
-        signature = (job.job_id, round(job.progress * 1000), job.stage)
+        signature = (job.job_id, round(job.progress * 1000), job.stage, job.stage_code)
         changed = (
             self._job is None or self._job.job_id != job.job_id or signature != self._job_signature
         )

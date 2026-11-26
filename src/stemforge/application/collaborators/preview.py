@@ -14,6 +14,7 @@ from stemforge.application.views import (
     PreviewTarget,
 )
 from stemforge.artifacts import ArtifactStore
+from stemforge.domain.display import ORIGINAL_LABEL_KEY, role_label_key
 from stemforge.domain.models import RenderScope, Track
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
 
@@ -81,6 +82,7 @@ class PreviewService:
             label=SEPARATION_ROLE_LABELS.get(role, role.title()),
             url=url,
             gain_db=view.artifact.gain_db,
+            label_key=ORIGINAL_LABEL_KEY if role == "original" else role_label_key(role),
         )
 
     def pitch_preview_target(self, track: Track, render_key: str) -> PreviewTarget | None:
@@ -115,6 +117,7 @@ class PreviewService:
             label=SEPARATION_ROLE_LABELS[stem],
             url=url,
             gain_db=artifact.gain_db,
+            label_key=role_label_key(stem),
         )
 
     def _preview_targets(self, track: Track) -> tuple[PreviewTarget, ...]:
@@ -127,6 +130,7 @@ class PreviewService:
                     label="Original",
                     url=source_url,
                     gain_db=track.gain_db,
+                    label_key=ORIGINAL_LABEL_KEY,
                 )
             )
         for view in render_views(self._artifacts, track.source_id):
@@ -139,6 +143,8 @@ class PreviewService:
                     label=view.label,
                     url=url,
                     gain_db=view.artifact.gain_db,
+                    label_key=view.label_key,
+                    label_context=view.label_context,
                 )
             )
         return tuple(targets)

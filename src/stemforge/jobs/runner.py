@@ -27,6 +27,7 @@ from uuid import uuid4
 from stemforge import errors
 from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.models import JobState
+from stemforge.domain.progress import Progress
 from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.jobs.job import Job, JobContext, ProgressUpdate
 from stemforge.jobs.models import JobSnapshot
@@ -54,7 +55,11 @@ class _Entry:
     state: JobState = JobState.QUEUED
     progress: float = 0.0
     stage: str = ""
+    stage_code: str | None = None
+    stage_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
     detail: str | None = None
+    detail_code: str | None = None
+    detail_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error_code: str | None = None
@@ -71,7 +76,11 @@ class _Entry:
             state=self.state,
             progress=self.progress,
             stage=self.stage,
+            stage_code=self.stage_code,
+            stage_context=self.stage_context,
             detail=self.detail,
+            detail_code=self.detail_code,
+            detail_context=self.detail_context,
             title=self.job.title,
             created_at=self.created_at,
             started_at=self.started_at,
@@ -305,6 +314,8 @@ class JobRunner:
                 entry.result_keys = keys
                 entry.finished_at = datetime.now(UTC)
                 entry.detail = None
+                entry.detail_code = None
+                entry.detail_context = MappingProxyType({})
                 self._cond.notify_all()
             job_log.info("job succeeded in %.2fs", elapsed)
             _LOG.info("job %s %s succeeded in %.2fs", entry.job_id, entry.job.kind.value, elapsed)
@@ -392,18 +403,22 @@ class JobRunner:
         )
 
     def _progress_update(self, job_id: str) -> ProgressUpdate:
-        def update(fraction: float, stage: str | None, detail: str | None) -> None:
+        def update(progress: Progress) -> None:
             with self._cond:
                 entry = self._entries.get(job_id)
                 if entry is None or entry.state is not JobState.RUNNING:
                     return
-                clamped = min(1.0, max(0.0, fraction))
+                clamped = min(1.0, max(0.0, progress.fraction))
                 if clamped > entry.progress:
                     entry.progress = clamped
-                if stage is not None:
-                    entry.stage = stage
-                if detail is not None:
-                    entry.detail = detail
+                if progress.stage is not None:
+                    entry.stage = progress.stage
+                    entry.stage_code = progress.stage_code
+                    entry.stage_context = MappingProxyType(dict(progress.stage_context))
+                if progress.detail is not None:
+                    entry.detail = progress.detail
+                    entry.detail_code = progress.detail_code
+                    entry.detail_context = MappingProxyType(dict(progress.detail_context))
                 self._cond.notify_all()
 
         return update

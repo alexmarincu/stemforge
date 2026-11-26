@@ -38,6 +38,22 @@ from stemforge.artifacts import (
     free_space_requirement,
     require_free_space,
 )
+from stemforge.domain.display import role_label_key
+from stemforge.domain.progress import (
+    DETAIL_SEPARATION_CHECKING_WEIGHTS,
+    DETAIL_SEPARATION_MEASURING_PEAK,
+    DETAIL_SEPARATION_OUTPUTS_VALIDATED,
+    DETAIL_SEPARATION_STARTING_WORKER,
+    DETAIL_SEPARATION_WRITING_MANIFEST,
+    STAGE_SEPARATION_DONE,
+    STAGE_SEPARATION_GAIN,
+    STAGE_SEPARATION_PREVIEWS,
+    STAGE_SEPARATION_SAVING,
+    STAGE_SEPARATION_SEPARATE,
+    STAGE_SEPARATION_VALIDATE,
+    STAGE_SEPARATION_VERIFY,
+    ProgressDetail,
+)
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, OUTPUT_ROLES, STEM_ROLES
 from stemforge.engines.media import (
     CANONICAL_CHANNELS,
@@ -87,6 +103,16 @@ STAGE_GAIN: Final = "Gain"
 STAGE_PREVIEWS: Final = "Previews"
 STAGE_SAVING: Final = "Saving"
 STAGE_DONE: Final = "Done"
+
+_STAGE_CODE_BY_TEXT: Final[Mapping[str, str]] = {
+    STAGE_VERIFY: STAGE_SEPARATION_VERIFY,
+    STAGE_SEPARATE: STAGE_SEPARATION_SEPARATE,
+    STAGE_VALIDATE: STAGE_SEPARATION_VALIDATE,
+    STAGE_GAIN: STAGE_SEPARATION_GAIN,
+    STAGE_PREVIEWS: STAGE_SEPARATION_PREVIEWS,
+    STAGE_SAVING: STAGE_SEPARATION_SAVING,
+    STAGE_DONE: STAGE_SEPARATION_DONE,
+}
 
 ENGINE_NAME: Final = "demucs"
 DEVICE: Final = "cpu"
@@ -142,7 +168,11 @@ def run_separation_job(
     log = ctx.log
     emit = _context_progress(ctx)
     cancel.check()
-    emit(0.0, STAGE_VERIFY, "checking the model weights")
+    emit(
+        0.0,
+        STAGE_VERIFY,
+        ProgressDetail("checking the model weights", code=DETAIL_SEPARATION_CHECKING_WEIGHTS),
+    )
 
     source = artifacts.find_source(source_id, verify_hashes=True)
     if source is None:
@@ -190,7 +220,11 @@ def run_separation_job(
     staging = artifacts.stage(ctx.job_id)
     committed = False
     try:
-        emit(SEPARATE_START, STAGE_SEPARATE, "starting the worker")
+        emit(
+            SEPARATE_START,
+            STAGE_SEPARATE,
+            ProgressDetail("starting the worker", code=DETAIL_SEPARATION_STARTING_WORKER),
+        )
         outputs = engine.separate(
             canonical,
             staging,
@@ -228,10 +262,18 @@ def run_separation_job(
                 code=errors.SEPARATION_OUTPUT_INVALID,
             )
             masters[role] = path
-        emit(VALIDATE_END, STAGE_VALIDATE, "five outputs validated")
+        emit(
+            VALIDATE_END,
+            STAGE_VALIDATE,
+            ProgressDetail("five outputs validated", code=DETAIL_SEPARATION_OUTPUTS_VALIDATED),
+        )
         cancel.check()
 
-        emit(VALIDATE_END, STAGE_GAIN, "measuring the set peak")
+        emit(
+            VALIDATE_END,
+            STAGE_GAIN,
+            ProgressDetail("measuring the set peak", code=DETAIL_SEPARATION_MEASURING_PEAK),
+        )
         peaks: dict[str, float] = {}
         for role, path in masters.items():
             cancel.check()
@@ -263,7 +305,7 @@ def run_separation_job(
             emit(
                 GAIN_END + (PREVIEWS_END - GAIN_END) * (index + 1) / len(preview_roles),
                 STAGE_PREVIEWS,
-                role,
+                ProgressDetail(role, code=role_label_key(role)),
             )
 
         manifest = _manifest(
@@ -276,7 +318,11 @@ def run_separation_job(
             peaks=peaks,
             files=files,
         )
-        emit(PREVIEWS_END, STAGE_SAVING, "writing the manifest")
+        emit(
+            PREVIEWS_END,
+            STAGE_SAVING,
+            ProgressDetail("writing the manifest", code=DETAIL_SEPARATION_WRITING_MANIFEST),
+        )
         artifact = artifacts.commit_separation(staging, source_id, manifest)
         committed = True
         emit(1.0, STAGE_DONE, "")
@@ -472,7 +518,15 @@ def _committed_file(artifact: SeparationArtifact, role: str) -> Path:
 
 def _context_progress(ctx: JobContext) -> ProgressSink:
     def sink(fraction: float, stage: str, detail: str) -> None:
-        ctx.progress(min(1.0, max(0.0, fraction)), stage=stage, detail=detail or None)
+        coded = detail if isinstance(detail, ProgressDetail) else None
+        ctx.progress(
+            min(1.0, max(0.0, fraction)),
+            stage=stage,
+            stage_code=_STAGE_CODE_BY_TEXT.get(stage),
+            detail=detail or None,
+            detail_code=coded.code if coded is not None else None,
+            detail_context=coded.context if coded is not None else None,
+        )
 
     return sink
 

@@ -280,9 +280,9 @@ def _job_context(
     *,
     job_id: str = "job-export",
 ) -> JobContext:
-    def update(fraction: float, stage: str | None, detail: str | None) -> None:
+    def update(progress) -> None:
         if events is not None:
-            events.append((fraction, stage, detail))
+            events.append((progress.fraction, progress.stage, progress.detail))
 
     return JobContext(
         job_id=job_id,
@@ -1136,8 +1136,8 @@ def test_a_cancel_between_items_keeps_the_file_already_written(
             written.append(outcome.key)
             cancel.cancel()
 
-    def update(fraction: float, stage: str | None, detail: str | None) -> None:
-        del fraction, stage, detail
+    def update(progress) -> None:
+        del progress
 
     context = JobContext(
         job_id="job-cancel-batch",

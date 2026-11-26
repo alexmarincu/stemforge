@@ -29,7 +29,26 @@ from stemforge.artifacts import (
     free_space_requirement,
     require_free_space,
 )
+from stemforge.domain.display import role_label_key
 from stemforge.domain.models import RenderScope
+from stemforge.domain.progress import (
+    DETAIL_PITCH_CACHED_RENDER,
+    DETAIL_PITCH_MEASURING_PEAK,
+    DETAIL_PITCH_ORIGINAL,
+    DETAIL_PITCH_SHIFT_STEM,
+    DETAIL_PITCH_SUMMING_NON_VOCAL,
+    DETAIL_PITCH_WRITING_MANIFEST,
+    STAGE_PITCH_DONE,
+    STAGE_PITCH_GAIN,
+    STAGE_PITCH_INSTRUMENTAL,
+    STAGE_PITCH_PREVIEWS,
+    STAGE_PITCH_PROCESSING,
+    STAGE_PITCH_PROFILE,
+    STAGE_PITCH_SAVING,
+    STAGE_PITCH_STUDYING,
+    STAGE_PITCH_VALIDATING,
+    ProgressDetail,
+)
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, NON_VOCAL_ROLES, STEM_ROLES
 from stemforge.engines.media import CANONICAL_CHANNELS, CANONICAL_SAMPLE_RATE, MediaTool
 from stemforge.engines.pitch import (
@@ -59,6 +78,18 @@ STAGE_GAIN: Final = "Gain"
 STAGE_PREVIEWS: Final = "Previews"
 STAGE_SAVING: Final = "Saving"
 STAGE_DONE: Final = "Done"
+
+_STAGE_CODE_BY_TEXT: Final[Mapping[str, str]] = {
+    "Studying": STAGE_PITCH_STUDYING,
+    "Calculating profile": STAGE_PITCH_PROFILE,
+    "Processing": STAGE_PITCH_PROCESSING,
+    "Validating": STAGE_PITCH_VALIDATING,
+    STAGE_INSTRUMENTAL: STAGE_PITCH_INSTRUMENTAL,
+    STAGE_GAIN: STAGE_PITCH_GAIN,
+    STAGE_PREVIEWS: STAGE_PITCH_PREVIEWS,
+    STAGE_SAVING: STAGE_PITCH_SAVING,
+    STAGE_DONE: STAGE_PITCH_DONE,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +167,11 @@ def run_pitch_job(
     existing = artifacts.find_render(render_key, verify_hashes=True)
     if existing is not None:
         artifacts.touch_render(render_key)
-        emit(1.0, STAGE_DONE, "this render set already exists")
+        emit(
+            1.0,
+            STAGE_DONE,
+            ProgressDetail("this render set already exists", code=DETAIL_PITCH_CACHED_RENDER),
+        )
         return _render_set(existing, resolved_scope, shift, existing.gain_db)
 
     # One master or five stem outputs (WAV + preview each); the
@@ -156,7 +191,15 @@ def run_pitch_job(
             cancel.check()
             start = index / total * SHIFT_SHARE
             span = SHIFT_SHARE / total
-            detail = f"stem {index + 1} of {total}" if resolved_scope is RenderScope.STEMS else ""
+            detail: str | ProgressDetail = (
+                ProgressDetail(
+                    f"stem {index + 1} of {total}",
+                    code=DETAIL_PITCH_SHIFT_STEM,
+                    context={"index": index + 1, "total": total},
+                )
+                if resolved_scope is RenderScope.STEMS
+                else ProgressDetail("original", code=DETAIL_PITCH_ORIGINAL)
+            )
             destination = staging / f"{item.role}.wav"
             pitch.shift(
                 item.path,
@@ -164,13 +207,20 @@ def run_pitch_job(
                 semitones=shift,
                 cancel=cancel,
                 log=log,
-                progress=_scaled(emit, start=start, span=span, detail=detail or ORIGINAL_ROLE),
+                progress=_scaled(emit, start=start, span=span, detail=detail),
             )
             outputs[item.role] = destination
 
         if resolved_scope is RenderScope.STEMS:
             cancel.check()
-            emit(SHIFT_SHARE, STAGE_INSTRUMENTAL, "summing the shifted non-vocal stems")
+            emit(
+                SHIFT_SHARE,
+                STAGE_INSTRUMENTAL,
+                ProgressDetail(
+                    "summing the shifted non-vocal stems",
+                    code=DETAIL_PITCH_SUMMING_NON_VOCAL,
+                ),
+            )
             instrumental = staging / f"{INSTRUMENTAL_ROLE}.wav"
             pitch.sum_stems(
                 [outputs[role] for role in NON_VOCAL_ROLES],
@@ -180,7 +230,11 @@ def run_pitch_job(
             )
             outputs[INSTRUMENTAL_ROLE] = instrumental
 
-        emit(SHIFT_SHARE + INSTRUMENTAL_SHARE, STAGE_GAIN, "measuring the set peak")
+        emit(
+            SHIFT_SHARE + INSTRUMENTAL_SHARE,
+            STAGE_GAIN,
+            ProgressDetail("measuring the set peak", code=DETAIL_PITCH_MEASURING_PEAK),
+        )
         peaks: dict[str, float] = {}
         for role, path in outputs.items():
             cancel.check()
@@ -209,7 +263,7 @@ def run_pitch_job(
             emit(
                 preview_start + (preview_end - preview_start) * (index + 1) / len(outputs),
                 STAGE_PREVIEWS,
-                role,
+                ProgressDetail(role, code=role_label_key(role)),
             )
 
         manifest = _manifest(
@@ -224,7 +278,11 @@ def run_pitch_job(
             input_hashes=input_hashes,
             files=files,
         )
-        emit(preview_end, STAGE_SAVING, "writing the manifest")
+        emit(
+            preview_end,
+            STAGE_SAVING,
+            ProgressDetail("writing the manifest", code=DETAIL_PITCH_WRITING_MANIFEST),
+        )
         artifact = artifacts.commit_render(staging, render_key, manifest)
         committed = True
         emit(1.0, STAGE_DONE, "")
@@ -291,7 +349,15 @@ def _resolve_inputs(
 
 def _context_progress(ctx: JobContext) -> ProgressSink:
     def sink(fraction: float, stage: str, detail: str) -> None:
-        ctx.progress(min(1.0, max(0.0, fraction)), stage=stage, detail=detail or None)
+        coded = detail if isinstance(detail, ProgressDetail) else None
+        ctx.progress(
+            min(1.0, max(0.0, fraction)),
+            stage=stage,
+            stage_code=_STAGE_CODE_BY_TEXT.get(stage),
+            detail=detail or None,
+            detail_code=coded.code if coded is not None else None,
+            detail_context=coded.context if coded is not None else None,
+        )
 
     return sink
 

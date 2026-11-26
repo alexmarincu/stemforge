@@ -23,8 +23,9 @@ import hashlib
 import json
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 from uuid import uuid4
 
@@ -37,7 +38,17 @@ from stemforge.artifacts import (
     require_free_space,
 )
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.display import EXPORT_SHIFTED_LABEL_KEY, role_label_key
 from stemforge.domain.models import RenderScope
+from stemforge.domain.progress import (
+    DETAIL_EXPORT_CHECKING_DESTINATION,
+    DETAIL_EXPORT_VERIFYING_TAGS,
+    DETAIL_EXPORT_WRITING_FILE,
+    STAGE_EXPORT_ENCODING,
+    STAGE_EXPORT_TAGGING,
+    STAGE_EXPORT_WRITING,
+    ProgressDetail,
+)
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, OUTPUT_ROLES, STEM_ROLES
 from stemforge.engines.media import (
     EXPORT_TAG_FIELDS,
@@ -76,6 +87,12 @@ STAGE_ENCODING: Final = "Encoding"
 STAGE_TAGGING: Final = "Tagging"
 STAGE_WRITING: Final = "Writing file"
 
+_STAGE_CODE_BY_TEXT: Final[Mapping[str, str]] = {
+    STAGE_ENCODING: STAGE_EXPORT_ENCODING,
+    STAGE_TAGGING: STAGE_EXPORT_TAGGING,
+    STAGE_WRITING: STAGE_EXPORT_WRITING,
+}
+
 _COPY_CHUNK_BYTES: Final = 1024 * 1024
 _DISK_FULL_ERRNOS: Final = frozenset({errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC)})
 _ProgressSink = Callable[[float, str, str], None]
@@ -95,6 +112,8 @@ class ExportTarget:
     scope: str
     render_key: str | None
     title: str
+    label_key: str = ""
+    label_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
 
     @property
     def base_name(self) -> str:
@@ -265,7 +284,11 @@ def run_export_job(
         else resolved.base_name
     )
 
-    emit(0.02, STAGE_ENCODING, "checking the destination")
+    emit(
+        0.02,
+        STAGE_ENCODING,
+        ProgressDetail("checking the destination", code=DETAIL_EXPORT_CHECKING_DESTINATION),
+    )
     _require_destination(destination)
     required_bytes = required_export_space(duration_s)
     require_free_space(destination, required_bytes, floor=0)
@@ -274,7 +297,15 @@ def run_export_job(
     staging = artifacts.stage(ctx.job_id)
     try:
         encoded = staging / f"export{export_format.suffix}"
-        emit(0.05, STAGE_ENCODING, resolved.label)
+        emit(
+            0.05,
+            STAGE_ENCODING,
+            ProgressDetail(
+                resolved.label,
+                code=resolved.label_key,
+                context=resolved.label_context,
+            ),
+        )
         try:
             media.encode_export(
                 resolved.path,
@@ -299,7 +330,11 @@ def run_export_job(
                 ) from exc
             raise
 
-        emit(0.60, STAGE_TAGGING, "verifying tags and cover")
+        emit(
+            0.60,
+            STAGE_TAGGING,
+            ProgressDetail("verifying tags and cover", code=DETAIL_EXPORT_VERIFYING_TAGS),
+        )
         output_info = _verify_output(
             media,
             encoded,
@@ -309,7 +344,11 @@ def run_export_job(
         digest = _sha256(encoded)
         size_bytes = encoded.stat().st_size
 
-        emit(0.80, STAGE_WRITING, "writing the file")
+        emit(
+            0.80,
+            STAGE_WRITING,
+            ProgressDetail("writing the file", code=DETAIL_EXPORT_WRITING_FILE),
+        )
         final_path = _write_destination(
             encoded,
             destination=destination,
@@ -370,6 +409,7 @@ def _master_target(source: SourceArtifact, title: str) -> ExportTarget | None:
         scope="master",
         render_key=None,
         title=title,
+        label_key=role_label_key(ORIGINAL_ROLE),
     )
 
 
@@ -399,6 +439,7 @@ def _separation_target(
         scope="separation",
         render_key=None,
         title=title,
+        label_key=role_label_key(role),
     )
 
 
@@ -444,6 +485,8 @@ def _render_target(render: RenderArtifact, role: str, title: str) -> ExportTarge
         scope=scope.value,
         render_key=render.render_key,
         title=title,
+        label_key=EXPORT_SHIFTED_LABEL_KEY,
+        label_context={"role": role, "semitones": semitones},
     )
 
 
@@ -732,7 +775,15 @@ def _number(value: object) -> float | None:
 
 def _progress_sink(ctx: JobContext) -> _ProgressSink:
     def sink(fraction: float, stage: str, detail: str) -> None:
-        ctx.progress(min(1.0, max(0.0, fraction)), stage=stage, detail=detail or None)
+        coded = detail if isinstance(detail, ProgressDetail) else None
+        ctx.progress(
+            min(1.0, max(0.0, fraction)),
+            stage=stage,
+            stage_code=_STAGE_CODE_BY_TEXT.get(stage),
+            detail=detail or None,
+            detail_code=coded.code if coded is not None else None,
+            detail_context=coded.context if coded is not None else None,
+        )
 
     return sink
 

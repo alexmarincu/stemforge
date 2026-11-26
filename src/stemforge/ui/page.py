@@ -514,17 +514,7 @@ def _render_unconfigured() -> None:
 
 def _role_label(role: str) -> str:
     """The display name for one Separation output role."""
-    if role == "vocals":
-        return i18n.t("role.vocals")
-    if role == "instrumental":
-        return i18n.t("role.instrumental")
-    if role == "drums":
-        return i18n.t("role.drums")
-    if role == "bass":
-        return i18n.t("role.bass")
-    if role == "other":
-        return i18n.t("role.other")
-    return role
+    return formatting.role_label(role)
 
 
 def _export_batch_headline(
@@ -1073,7 +1063,13 @@ class WorkspacePage:
         if key == "original":
             return i18n.t("common.original")
         item = next((view for view in sets if view.render_key == key), None)
-        return item.label if item is not None else i18n.t("common.original")
+        if item is None:
+            return i18n.t("common.original")
+        return formatting.display_label(
+            item.label_key,
+            item.label_context,
+            fallback=item.label,
+        )
 
     def _version_rows(self, track: Track) -> tuple[tuple[OutputRow, ...], str]:
         sets = self.service.pitch_sets(track)
@@ -1268,7 +1264,11 @@ class WorkspacePage:
                     )
                     (
                         ui.button(
-                            latest.label
+                            formatting.display_label(
+                                latest.label_key,
+                                latest.label_context,
+                                fallback=latest.label,
+                            )
                             if latest is not None
                             else i18n.t("page.ab_latest_fallback"),
                             on_click=lambda _=None: self._select_ab(track, "latest"),
@@ -1391,10 +1391,15 @@ class WorkspacePage:
                     classes += " is-active"
                 if item.based_on_earlier_separation:
                     classes += " is-stale"
+                label = formatting.display_label(
+                    item.label_key,
+                    item.label_context,
+                    fallback=item.label,
+                )
                 text = (
-                    i18n.t("page.version_tab_stale", label=item.label)
+                    i18n.t("page.version_tab_stale", label=label)
                     if item.based_on_earlier_separation
-                    else item.label
+                    else label
                 )
                 (
                     ui.button(
@@ -1851,7 +1856,7 @@ class WorkspacePage:
         with ui.element("div").classes("sf-jobbar").mark("job-bar"):
             ui.element("span").classes("sf-dot is-run")
             label = self._job_label(snapshot.kind.value)
-            stage = snapshot.stage or i18n.t("page.job.starting")
+            stage = formatting.job_stage(snapshot) or i18n.t("page.job.starting")
             if snapshot.kind.value == "export_batch":
                 text = i18n.t("page.job.stage_inline", label=label, stage=stage)
             else:
@@ -1860,8 +1865,9 @@ class WorkspacePage:
             # Local imports keep their filename out of the bar until the Track
             # exists; YouTube's wait countdown and a batch's current output are
             # user-facing.
-            if snapshot.kind.value in {"import_youtube", "export_batch"} and snapshot.detail:
-                ui.label(snapshot.detail).classes("sf-job-detail").mark("job-detail")
+            detail = formatting.job_detail(snapshot)
+            if snapshot.kind.value in {"import_youtube", "export_batch"} and detail:
+                ui.label(detail).classes("sf-job-detail").mark("job-detail")
             ui.linear_progress(value=float(snapshot.progress), show_value=False).classes(
                 "sf-job-progress"
             )
@@ -2895,19 +2901,28 @@ class WorkspacePage:
         if failure is not None and failure != errors.SEPARATION_MODEL_MISSING:
             return i18n.t("page.track_status_failed"), "is-bad"
         latest = self._latest_render(track)
+        latest_label = (
+            formatting.display_label(
+                latest.label_key,
+                latest.label_context,
+                fallback=latest.label,
+            )
+            if latest is not None
+            else ""
+        )
         if self.service.has_separation(track):
             if latest is not None:
                 return (
                     i18n.t(
                         "page.track_status_stems_rendered",
                         stems=i18n.t("page.stems_count"),
-                        label=latest.label,
+                        label=latest_label,
                     ),
                     "is-ok",
                 )
             return i18n.t("page.stems_count"), "is-ok"
         if latest is not None:
-            return i18n.t("page.rendered_label", label=latest.label), ""
+            return i18n.t("page.rendered_label", label=latest_label), ""
         return i18n.t("page.track_status_no_stems"), ""
 
     def _track_meta(self, track: Track, status: str) -> str:
@@ -2962,7 +2977,14 @@ class WorkspacePage:
                     ui.element("span").classes("sf-dot")
                 ui.label(i18n.t("page.signal_pitch")).classes("sf-chip-label")
                 ui.label(
-                    i18n.t("page.rendered_label", label=latest.label)
+                    i18n.t(
+                        "page.rendered_label",
+                        label=formatting.display_label(
+                            latest.label_key,
+                            latest.label_context,
+                            fallback=latest.label,
+                        ),
+                    )
                     if latest is not None
                     else i18n.t("page.signal_not_rendered")
                 )

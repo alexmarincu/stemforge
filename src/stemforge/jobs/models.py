@@ -28,7 +28,11 @@ class JobSnapshot:
     state: JobState
     progress: float = 0.0
     stage: str = ""
+    stage_code: str | None = None
+    stage_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
     detail: str | None = None
+    detail_code: str | None = None
+    detail_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
     title: str = ""
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None

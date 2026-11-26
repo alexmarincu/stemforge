@@ -34,6 +34,22 @@ from stemforge.artifacts import (
     require_free_space,
 )
 from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
+from stemforge.domain.progress import (
+    DETAIL_YOUTUBE_DOWNLOAD_COMPLETE,
+    DETAIL_YOUTUBE_ENCODING_PREVIEW,
+    DETAIL_YOUTUBE_METADATA_RESOLVED,
+    DETAIL_YOUTUBE_OPENING_CACHED,
+    DETAIL_YOUTUBE_REPAIRING_CACHED,
+    DETAIL_YOUTUBE_RESOLVING_METADATA,
+    DETAIL_YOUTUBE_TRACK_ADDED,
+    DETAIL_YOUTUBE_WAITING,
+    DETAIL_YOUTUBE_WRITING_MANIFEST,
+    STAGE_YOUTUBE_CHECKING,
+    STAGE_YOUTUBE_DECODING,
+    STAGE_YOUTUBE_DOWNLOADING,
+    STAGE_YOUTUBE_FINISHING,
+    ProgressDetail,
+)
 from stemforge.engines.media import MediaTool
 from stemforge.engines.youtube import (
     YOUTUBE_MAX_DURATION_S,
@@ -91,7 +107,13 @@ def run_youtube_import(
     sleep: Callable[[float], None] = time.sleep,
 ) -> YouTubeImportResult:
     """Import one validated YouTube video into the cache and the Workspace."""
-    ctx.progress(0.0, stage=STAGE_CHECKING, detail="Resolving metadata")
+    ctx.progress(
+        0.0,
+        stage=STAGE_CHECKING,
+        stage_code=STAGE_YOUTUBE_CHECKING,
+        detail="Resolving metadata",
+        detail_code=DETAIL_YOUTUBE_RESOLVING_METADATA,
+    )
 
     cached = artifacts.find_source(video.source_id, verify_hashes=True)
     if cached is not None:
@@ -105,7 +127,13 @@ def run_youtube_import(
 
     ctx.cancel.check()
     metadata = youtube.resolve(video, cancel=ctx.cancel, log=ctx.log)
-    ctx.progress(0.05, stage=STAGE_CHECKING, detail="Metadata resolved")
+    ctx.progress(
+        0.05,
+        stage=STAGE_CHECKING,
+        stage_code=STAGE_YOUTUBE_CHECKING,
+        detail="Metadata resolved",
+        detail_code=DETAIL_YOUTUBE_METADATA_RESOLVED,
+    )
 
     source_id = f"yt-{metadata.video_id}"
     if source_id != video.source_id:
@@ -121,9 +149,9 @@ def run_youtube_import(
     staging: Path | None = None
     try:
         staging = artifacts.stage(ctx.job_id)
-        _polite_wait(ctx, 0.05, STAGE_CHECKING, sleep)
+        _polite_wait(ctx, 0.05, STAGE_CHECKING, STAGE_YOUTUBE_CHECKING, sleep)
 
-        ctx.progress(0.05, stage=STAGE_DOWNLOADING)
+        ctx.progress(0.05, stage=STAGE_DOWNLOADING, stage_code=STAGE_YOUTUBE_DOWNLOADING)
         download_dir = artifacts.create_youtube_scratch(ctx.job_id)
         downloaded = youtube.download(
             video,
@@ -133,14 +161,23 @@ def run_youtube_import(
             progress=lambda fraction, detail: ctx.progress(
                 0.05 + min(1.0, max(0.0, fraction)) * 0.69,
                 stage=STAGE_DOWNLOADING,
+                stage_code=STAGE_YOUTUBE_DOWNLOADING,
                 detail=detail,
+                detail_code=_detail_code(detail),
+                detail_context=_detail_context(detail),
             ),
         )
-        ctx.progress(0.74, stage=STAGE_DOWNLOADING, detail="Download complete")
-        _polite_wait(ctx, 0.74, STAGE_DOWNLOADING, sleep)
+        ctx.progress(
+            0.74,
+            stage=STAGE_DOWNLOADING,
+            stage_code=STAGE_YOUTUBE_DOWNLOADING,
+            detail="Download complete",
+            detail_code=DETAIL_YOUTUBE_DOWNLOAD_COMPLETE,
+        )
+        _polite_wait(ctx, 0.74, STAGE_DOWNLOADING, STAGE_YOUTUBE_DOWNLOADING, sleep)
         ctx.cancel.check()
 
-        ctx.progress(0.75, stage=STAGE_DECODING)
+        ctx.progress(0.75, stage=STAGE_DECODING, stage_code=STAGE_YOUTUBE_DECODING)
         native_path = _move_native(downloaded.path, staging)
         try:
             artifacts.discard_youtube_scratch(ctx.job_id)
@@ -158,12 +195,18 @@ def run_youtube_import(
             cancel=ctx.cancel,
             log=ctx.log,
         )
-        ctx.progress(0.86, stage=STAGE_DECODING)
+        ctx.progress(0.86, stage=STAGE_DECODING, stage_code=STAGE_YOUTUBE_DECODING)
         peak_dbfs = media.peak_dbfs(decoded.path, cancel=ctx.cancel, log=ctx.log)
         gain_db = 0.0 if peak_dbfs <= 0.0 else -1.0 - peak_dbfs
         ctx.cancel.check()
 
-        ctx.progress(0.90, stage=STAGE_FINISHING, detail="Encoding preview")
+        ctx.progress(
+            0.90,
+            stage=STAGE_FINISHING,
+            stage_code=STAGE_YOUTUBE_FINISHING,
+            detail="Encoding preview",
+            detail_code=DETAIL_YOUTUBE_ENCODING_PREVIEW,
+        )
         preview_path = staging / PREVIEW_NAME
         media.encode_preview(
             decoded.path,
@@ -178,7 +221,13 @@ def run_youtube_import(
 
         # The estimate is checked again before promotion.
         _check_free_space(artifacts, decoded.duration_s)
-        ctx.progress(0.95, stage=STAGE_FINISHING, detail="Writing manifest")
+        ctx.progress(
+            0.95,
+            stage=STAGE_FINISHING,
+            stage_code=STAGE_YOUTUBE_FINISHING,
+            detail="Writing manifest",
+            detail_code=DETAIL_YOUTUBE_WRITING_MANIFEST,
+        )
         manifest = _source_manifest(
             source_id=source_id,
             metadata=metadata,
@@ -200,9 +249,15 @@ def run_youtube_import(
         staging = None
 
         source = _source_from_artifact(artifact, fallback_origin=metadata.canonical_url)
-        ctx.progress(0.99, stage=STAGE_FINISHING, detail="Track added")
+        ctx.progress(
+            0.99,
+            stage=STAGE_FINISHING,
+            stage_code=STAGE_YOUTUBE_FINISHING,
+            detail="Track added",
+            detail_code=DETAIL_YOUTUBE_TRACK_ADDED,
+        )
         track = finalize(source)
-        ctx.progress(1.0, stage=STAGE_FINISHING)
+        ctx.progress(1.0, stage=STAGE_FINISHING, stage_code=STAGE_YOUTUBE_FINISHING)
         return YouTubeImportResult(source=source, track=track, artifact=artifact)
     except BaseException:
         if staging is not None:
@@ -232,11 +287,17 @@ def _finish_cached(
     origin: str | None = None,
 ) -> YouTubeImportResult:
     """Open a committed artifact without a network call or a pacing wait."""
-    ctx.progress(0.9, stage=STAGE_FINISHING, detail="Opening cached audio")
+    ctx.progress(
+        0.9,
+        stage=STAGE_FINISHING,
+        stage_code=STAGE_YOUTUBE_FINISHING,
+        detail="Opening cached audio",
+        detail_code=DETAIL_YOUTUBE_OPENING_CACHED,
+    )
     artifacts.touch_source(artifact.source_id)
     source = _source_from_artifact(artifact, fallback_origin=origin or video.canonical_url)
     track = finalize(source)
-    ctx.progress(1.0, stage=STAGE_FINISHING)
+    ctx.progress(1.0, stage=STAGE_FINISHING, stage_code=STAGE_YOUTUBE_FINISHING)
     return YouTubeImportResult(
         source=source,
         track=track,
@@ -293,7 +354,13 @@ def _recover_from_native(
         extractor_version=_as_str(manifest.get("extractor_version")) or None,
     )
 
-    ctx.progress(0.75, stage=STAGE_DECODING, detail="Repairing cached audio")
+    ctx.progress(
+        0.75,
+        stage=STAGE_DECODING,
+        stage_code=STAGE_YOUTUBE_DECODING,
+        detail="Repairing cached audio",
+        detail_code=DETAIL_YOUTUBE_REPAIRING_CACHED,
+    )
     duration_s = _as_float(_metadata_mapping(manifest).get("duration_s")) or 0.0
     artifacts.enforce_cap(estimate_import_bytes(duration_s, youtube=True))
     staging = artifacts.stage(ctx.job_id)
@@ -306,12 +373,18 @@ def _recover_from_native(
             cancel=ctx.cancel,
             log=ctx.log,
         )
-        ctx.progress(0.86, stage=STAGE_DECODING)
+        ctx.progress(0.86, stage=STAGE_DECODING, stage_code=STAGE_YOUTUBE_DECODING)
         peak_dbfs = media.peak_dbfs(decoded.path, cancel=ctx.cancel, log=ctx.log)
         gain_db = 0.0 if peak_dbfs <= 0.0 else -1.0 - peak_dbfs
         ctx.cancel.check()
 
-        ctx.progress(0.90, stage=STAGE_FINISHING, detail="Encoding preview")
+        ctx.progress(
+            0.90,
+            stage=STAGE_FINISHING,
+            stage_code=STAGE_YOUTUBE_FINISHING,
+            detail="Encoding preview",
+            detail_code=DETAIL_YOUTUBE_ENCODING_PREVIEW,
+        )
         preview_path = staging / PREVIEW_NAME
         media.encode_preview(
             decoded.path,
@@ -324,7 +397,13 @@ def _recover_from_native(
         )
         ctx.cancel.check()
 
-        ctx.progress(0.95, stage=STAGE_FINISHING, detail="Writing manifest")
+        ctx.progress(
+            0.95,
+            stage=STAGE_FINISHING,
+            stage_code=STAGE_YOUTUBE_FINISHING,
+            detail="Writing manifest",
+            detail_code=DETAIL_YOUTUBE_WRITING_MANIFEST,
+        )
         rebuilt = _source_manifest(
             source_id=source_id,
             metadata=metadata,
@@ -362,9 +441,15 @@ def _recover_from_native(
         raise
 
     source = _source_from_artifact(artifact, fallback_origin=metadata.canonical_url)
-    ctx.progress(0.99, stage=STAGE_FINISHING, detail="Track added")
+    ctx.progress(
+        0.99,
+        stage=STAGE_FINISHING,
+        stage_code=STAGE_YOUTUBE_FINISHING,
+        detail="Track added",
+        detail_code=DETAIL_YOUTUBE_TRACK_ADDED,
+    )
     track = finalize(source)
-    ctx.progress(1.0, stage=STAGE_FINISHING)
+    ctx.progress(1.0, stage=STAGE_FINISHING, stage_code=STAGE_YOUTUBE_FINISHING)
     return YouTubeImportResult(
         source=source,
         track=track,
@@ -431,6 +516,7 @@ def _polite_wait(
     ctx: JobContext,
     fraction: float,
     stage: str,
+    stage_code: str,
     sleep: Callable[[float], None],
     *,
     seconds: float = WAIT_SECONDS,
@@ -443,15 +529,27 @@ def _polite_wait(
     remaining = seconds
     while remaining > 0:
         ctx.cancel.check()
+        whole_seconds = math.ceil(remaining)
         ctx.progress(
             fraction,
             stage=stage,
-            detail=f"Waiting for YouTube · {math.ceil(remaining)} s",
+            stage_code=stage_code,
+            detail=f"Waiting for YouTube · {whole_seconds} s",
+            detail_code=DETAIL_YOUTUBE_WAITING,
+            detail_context={"seconds": whole_seconds},
         )
         chunk = min(_WAIT_TICK_S, remaining)
         sleep(chunk)
         remaining -= chunk
     ctx.cancel.check()
+
+
+def _detail_code(detail: str) -> str | None:
+    return detail.code if isinstance(detail, ProgressDetail) else None
+
+
+def _detail_context(detail: str) -> Mapping[str, object] | None:
+    return detail.context if isinstance(detail, ProgressDetail) else None
 
 
 def _require_duration_cap(duration_s: float) -> None:
