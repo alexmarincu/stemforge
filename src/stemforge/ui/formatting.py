@@ -611,20 +611,21 @@ REASON_COPY: Final[Mapping[tuple[str, str], ErrorCopy]] = MappingProxyType(
 
 
 def model_licence_copy(spec: ModelSpec) -> ModelLicenceCopy:
-    """Return the model-gate copy for one pinned model record.
-
-    The licence prose lives here, not in the lock or the pipeline, so the UI is
-    the only module with user-facing sentences.
-    """
+    """Return the model-gate copy for one pinned model record."""
     megabytes = f"{spec.size_bytes / 1_000_000:.0f} MB"
     return ModelLicenceCopy(
-        title=MODEL_LICENCE_TITLE,
-        summary=f"{MODEL_LICENCE_SUMMARY[:-1]} ({megabytes}).",
-        identity=(f"{spec.repo_id} · revision {spec.revision[:8]}… · {spec.size_bytes:,} bytes"),
-        notice=MODEL_LICENCE_NOTICE,
-        accept_label=MODEL_LICENCE_ACCEPT_LABEL,
-        details_label=MODEL_LICENCE_DETAILS_LABEL,
-        decline_label=MODEL_LICENCE_DECLINE_LABEL,
+        title=i18n.t("separation.model.title"),
+        summary=i18n.t("separation.model.summary", size=megabytes),
+        identity=i18n.t(
+            "separation.model.identity",
+            repo=spec.repo_id,
+            revision=spec.revision[:8],
+            size=f"{spec.size_bytes:,}",
+        ),
+        notice=i18n.t("separation.model.notice"),
+        accept_label=i18n.t("separation.model.accept"),
+        details_label=i18n.t("separation.model.details"),
+        decline_label=i18n.t("common.cancel"),
     )
 
 
@@ -860,12 +861,13 @@ def format_bytes(size: int) -> str:
 
 def cache_cleared_message(freed_bytes: int) -> str:
     """The one sentence both Clear cached audio surfaces show."""
-    return SETTINGS_CACHE_CLEARED.format(size=format_bytes(freed_bytes))
+    return i18n.t("page.cache_cleared", size=format_bytes(freed_bytes))
 
 
 def imported_file_meta(suffix: str, size_bytes: int) -> str:
     """The Imported file block's container and size, e.g. ``FLAC · 12.3 MB``."""
-    return IMPORTED_FILE_META.format(
+    return i18n.t(
+        "export.imported_file_meta",
         format=suffix.lstrip(".").upper(),
         size=format_bytes(size_bytes),
     )
@@ -873,19 +875,17 @@ def imported_file_meta(suffix: str, size_bytes: int) -> str:
 
 def file_count_label(count: int) -> str:
     """Name a count of recent files, singular only at one."""
-    template = SETTINGS_ONE_FILE if count == 1 else SETTINGS_MANY_FILES
-    return template.format(count=count)
+    return i18n.t("settings.file_count", count=count)
 
 
 def export_batch_confirm(count: int) -> str:
     """The batch sheet's confirm label, singular only at one."""
-    template = EXPORT_BATCH_CONFIRM_ONE if count == 1 else EXPORT_BATCH_CONFIRM
-    return template.format(count=count)
+    return i18n.t("export.batch.confirm", count=count)
 
 
 def export_batch_remaining(count: int) -> str:
     """The results bar's recovery action for the items that were not written."""
-    return EXPORT_BATCH_REMAINING.format(count=count)
+    return i18n.t("export.batch.remaining", count=count)
 
 
 def export_batch_headline(
@@ -903,19 +903,24 @@ def export_batch_headline(
     """
     total = written + failed + not_exported
     if cancelled:
-        return EXPORT_BATCH_CANCELLED.format(written=written, total=total)
+        return i18n.t("page.export_batch.cancelled", written=written, total=total)
     if total and written == total and destination is not None:
-        template = EXPORT_BATCH_SUCCESS_ONE if written == 1 else EXPORT_BATCH_SUCCESS
-        return template.format(count=written, path=destination)
+        return i18n.t("page.export_batch.success", count=written, path=destination)
     if total == 0:
-        return EXPORT_BATCH_NONE
+        return i18n.t("page.export_batch.none")
     if not_exported:
-        return EXPORT_BATCH_PARTIAL_STOPPED.format(
+        return i18n.t(
+            "page.export_batch.partial_stopped",
             written=written,
             total=total,
             count=failed + not_exported,
         )
-    return EXPORT_BATCH_PARTIAL_FAILED.format(count=failed, written=written, total=total)
+    return i18n.t(
+        "page.export_batch.partial_failed",
+        count=failed,
+        written=written,
+        total=total,
+    )
 
 
 def cache_percent(used: int, cap: int) -> int:

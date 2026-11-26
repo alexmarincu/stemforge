@@ -24,7 +24,7 @@ from pathlib import Path
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
-from stemforge import __version__, errors
+from stemforge import __version__, errors, i18n
 from stemforge.application import LicenceFiles, WorkspaceService
 from stemforge.errors import StemForgeError
 from stemforge.integration.shell import PathOpener
@@ -73,7 +73,7 @@ class SettingsDialog:
                     mark = theme.image_html(theme.ABOUT_PNG, size=40, css_class="sf-settings-mark")
                     if mark is not None:
                         ui.html(mark, sanitize=False).mark("about-app-mark")
-                    ui.label(formatting.SETTINGS_TITLE).classes("sf-title")
+                    ui.label(i18n.t("settings.title")).classes("sf-title")
                 (
                     ui.button(icon="close", on_click=dialog.close, color=None)
                     .props("flat dense round size=sm")
@@ -89,7 +89,7 @@ class SettingsDialog:
             )
             with ui.row().classes("w-full justify-end"):
                 (
-                    ui.button(formatting.SETTINGS_CLOSE, on_click=dialog.close, color=None)
+                    ui.button(i18n.t("common.close"), on_click=dialog.close, color=None)
                     .props("flat no-caps")
                     .mark("settings-close")
                 )
@@ -98,70 +98,65 @@ class SettingsDialog:
     # -- App ---------------------------------------------------------------
 
     def _app_section(self, files: LicenceFiles) -> None:
-        ui.label(formatting.SETTINGS_APP).classes("sf-card-title")
+        ui.label(i18n.t("settings.app")).classes("sf-card-title")
         self._row(
-            formatting.SETTINGS_VERSION_LABEL,
-            formatting.SETTINGS_VERSION_VALUE.format(
-                app=formatting.APP_NAME,
-                version=__version__,
-            ),
+            i18n.t("settings.version_label"),
+            i18n.t("settings.version_value", app=i18n.t("app.name"), version=__version__),
             marker="about-version",
         )
         versions = self._service.youtube_tool_versions()
-        ui.label(formatting.SETTINGS_BUNDLED_TOOLS).classes("sf-fineprint")
+        ui.label(i18n.t("settings.bundled_tools")).classes("sf-fineprint")
         self._row(
-            formatting.SETTINGS_YTDLP_LABEL,
-            versions.get("yt_dlp", formatting.SETTINGS_UNKNOWN_VERSION),
+            i18n.t("settings.ytdlp"),
+            versions.get("yt_dlp", i18n.t("settings.unknown_version")),
             marker="about-ytdlp-version",
         )
         self._row(
-            formatting.SETTINGS_YTDLP_EJS_LABEL,
-            versions.get("yt_dlp_ejs", formatting.SETTINGS_UNKNOWN_VERSION),
+            i18n.t("settings.ytdlp_ejs"),
+            versions.get("yt_dlp_ejs", i18n.t("settings.unknown_version")),
             marker="about-ytdlp-ejs-version",
         )
         self._row(
-            formatting.SETTINGS_DENO_LABEL,
-            versions.get("deno", formatting.SETTINGS_UNKNOWN_VERSION),
+            i18n.t("settings.deno"),
+            versions.get("deno", i18n.t("settings.unknown_version")),
             marker="about-deno-version",
         )
         self._document_row(
-            formatting.SETTINGS_LICENCE_LABEL,
+            i18n.t("settings.licence"),
             "GPL-3.0-only",
             files.license,
-            title=formatting.SETTINGS_LICENCE_DOCUMENT,
+            title=i18n.t("settings.licence_document"),
             marker="about-licence",
             button_marker="about-view-licence",
         )
         self._document_row(
-            formatting.SETTINGS_NOTICES_LABEL,
+            i18n.t("settings.notices"),
             "THIRD_PARTY_NOTICES.md",
             files.notices,
-            title=formatting.SETTINGS_NOTICES_LABEL,
+            title=i18n.t("settings.notices"),
             marker="about-notices",
             button_marker="about-view-notices",
         )
         self._document_row(
-            formatting.SETTINGS_SOURCE_LABEL,
+            i18n.t("settings.source"),
             "SOURCE_OFFER.md",
             files.source_offer,
-            title=formatting.SETTINGS_SOURCE_LABEL,
+            title=i18n.t("settings.source"),
             marker="about-source-offer",
             button_marker="about-view-source",
         )
         with ui.element("div").classes("sf-setting-row"):
             with ui.element("div").classes("sf-setting-main"):
-                ui.label(formatting.SETTINGS_LICENCES_LABEL).classes("sf-setting-label")
+                ui.label(i18n.t("settings.licence_files")).classes("sf-setting-label")
                 ui.label(str(files.licenses_dir)).classes("sf-fineprint")
             (
                 ui.button(
-                    formatting.SETTINGS_OPEN_LICENCES, on_click=self._open_licences, color=None
+                    i18n.t("settings.open_licences"), on_click=self._open_licences, color=None
                 )
                 .props("flat no-caps")
                 .mark("about-open-licences")
             )
-        ui.label(formatting.SETTINGS_WEIGHTS_NOTE).classes("sf-fineprint").mark(
-            "about-weights-note"
-        )
+        ui.label(i18n.t("settings.weights_note")).classes("sf-fineprint").mark("about-weights-note")
         self._licence_error = (
             ui.label("").classes("sf-fineprint sf-field-error").mark("about-files-error")
         )
@@ -203,7 +198,7 @@ class SettingsDialog:
                 ui.label(value).classes("sf-fineprint").mark(marker)
             (
                 ui.button(
-                    formatting.SETTINGS_VIEW,
+                    i18n.t("settings.view"),
                     on_click=lambda: self._show_document(title, path),
                     color=None,
                 )
@@ -231,7 +226,7 @@ class SettingsDialog:
                 ui.label(text).classes("whitespace-pre-wrap")
             with ui.row().classes("w-full justify-end"):
                 (
-                    ui.button(formatting.SETTINGS_CLOSE, on_click=dialog.close, color=None)
+                    ui.button(i18n.t("common.close"), on_click=dialog.close, color=None)
                     .props("flat no-caps")
                     .mark("about-document-close")
                 )
@@ -274,33 +269,33 @@ class SettingsDialog:
     # -- Storage -----------------------------------------------------------
 
     def _storage_section(self) -> None:
-        ui.label(formatting.SETTINGS_STORAGE).classes("sf-card-title")
+        ui.label(i18n.t("settings.storage")).classes("sf-card-title")
         with ui.element("div").classes("sf-setting-row"):
             with ui.element("div").classes("sf-setting-main"):
-                ui.label(formatting.SETTINGS_CACHE_LABEL).classes("sf-setting-label")
+                ui.label(i18n.t("settings.cache_label")).classes("sf-setting-label")
                 self._cache_size = (
                     ui.label(self._size_text()).classes("sf-fineprint").mark("about-cache-size")
                 )
             self._clear_cache_button = (
-                ui.button(formatting.SETTINGS_CACHE_CLEAR, on_click=self._clear_cache, color=None)
+                ui.button(i18n.t("settings.cache.clear"), on_click=self._clear_cache, color=None)
                 .props("flat no-caps")
                 .mark("clear-cached-audio")
             )
         with ui.element("div").classes("sf-setting-row"):
             with ui.element("div").classes("sf-setting-main"):
-                ui.label(formatting.SETTINGS_RECENT_CLEAR).classes("sf-setting-label")
+                ui.label(i18n.t("settings.recent_clear")).classes("sf-setting-label")
                 self._recent_size = (
                     ui.label(self._recent_text()).classes("sf-fineprint").mark("about-recent-size")
                 )
             (
-                ui.button(formatting.SETTINGS_RECENT_CLEAR, on_click=self._clear_recent, color=None)
+                ui.button(i18n.t("settings.recent_clear"), on_click=self._clear_recent, color=None)
                 .props("flat no-caps")
                 .mark("clear-recent")
             )
         with ui.element("div").classes("sf-setting-row"):
             with ui.element("div").classes("sf-setting-main"):
-                ui.label(formatting.YOUTUBE_CACHE_LABEL).classes("sf-setting-label")
-                ui.label(formatting.YOUTUBE_CACHE_HINT).classes("sf-fineprint")
+                ui.label(i18n.t("settings.youtube_cache_label")).classes("sf-setting-label")
+                ui.label(i18n.t("settings.youtube_cache_hint")).classes("sf-fineprint")
             with ui.row().classes("items-center gap-3"):
                 self._youtube_cache_size = (
                     ui.label(self._youtube_size_text())
@@ -309,7 +304,7 @@ class SettingsDialog:
                 )
                 self._clear_youtube_button = (
                     ui.button(
-                        formatting.YOUTUBE_CACHE_CLEAR,
+                        i18n.t("settings.youtube_cache_clear"),
                         on_click=self._clear_youtube_cache,
                         color=None,
                     )
@@ -318,20 +313,20 @@ class SettingsDialog:
                 )
         with ui.element("div").classes("sf-setting-row"):
             with ui.element("div").classes("sf-setting-main"):
-                ui.label(formatting.SETTINGS_LOG_LABEL).classes("sf-setting-label")
-                ui.label(formatting.SETTINGS_LOG_HINT).classes("sf-fineprint")
+                ui.label(i18n.t("settings.log_label")).classes("sf-setting-label")
+                ui.label(i18n.t("settings.log_hint")).classes("sf-fineprint")
             (
-                ui.button(formatting.SETTINGS_OPEN_LOG_FOLDER, on_click=self._open_logs, color=None)
+                ui.button(i18n.t("settings.open_log_folder"), on_click=self._open_logs, color=None)
                 .props("flat no-caps")
                 .mark("open-log-folder")
             )
         with ui.element("div").classes("sf-setting-row"):
             with ui.element("div").classes("sf-setting-main"):
-                ui.label(formatting.COPY_DIAGNOSTICS_LABEL).classes("sf-setting-label")
-                ui.label(formatting.DIAGNOSTICS_NOTICE).classes("sf-fineprint")
+                ui.label(i18n.t("diagnostics.copy_action")).classes("sf-setting-label")
+                ui.label(i18n.t("diagnostics.notice")).classes("sf-fineprint")
             button = (
                 ui.button(
-                    formatting.COPY_DIAGNOSTICS_LABEL, on_click=self._copy_diagnostics, color=None
+                    i18n.t("diagnostics.copy_action"), on_click=self._copy_diagnostics, color=None
                 )
                 .props("flat no-caps")
                 .mark("about-copy-diagnostics")
@@ -353,12 +348,15 @@ class SettingsDialog:
             return
         report = self._service.clear_cache()
         self._refresh_storage()
-        toast(formatting.cache_cleared_message(report.freed_bytes), type="positive")
+        toast(
+            i18n.t("page.cache_cleared", size=formatting.format_bytes(report.freed_bytes)),
+            type="positive",
+        )
 
     def _clear_recent(self) -> None:
         self._service.clear_recent()
         self._refresh_storage()
-        toast(formatting.SETTINGS_RECENT_CLEARED, type="positive")
+        toast(i18n.t("settings.recent_cleared"), type="positive")
 
     def _clear_youtube_cache(self) -> None:
         if self._any_job_active():
@@ -367,7 +365,7 @@ class SettingsDialog:
         if self._youtube_cache_size is not None:
             self._youtube_cache_size.set_text(self._youtube_size_text())
         toast(
-            formatting.YOUTUBE_CACHE_CLEARED.format(size=formatting.format_bytes(freed)),
+            i18n.t("settings.youtube_cache_cleared", size=formatting.format_bytes(freed)),
             type="positive",
         )
 
@@ -378,9 +376,10 @@ class SettingsDialog:
             self._recent_size.set_text(self._recent_text())
 
     def _size_text(self) -> str:
-        return (
-            f"{formatting.format_bytes(self._service.cache_usage_bytes())} / "
-            f"{formatting.format_bytes(self._service.cache_cap_bytes())}"
+        return i18n.t(
+            "page.cache_usage",
+            used=formatting.format_bytes(self._service.cache_usage_bytes()),
+            cap=formatting.format_bytes(self._service.cache_cap_bytes()),
         )
 
     def _recent_text(self) -> str:
@@ -392,26 +391,20 @@ class SettingsDialog:
     # -- Behaviour ---------------------------------------------------------
 
     def _behaviour_section(self) -> None:
-        ui.label(formatting.SETTINGS_BEHAVIOUR).classes("sf-card-title")
+        ui.label(i18n.t("settings.behaviour")).classes("sf-card-title")
         with ui.element("div").classes("sf-setting-row"):
             with ui.element("div").classes("sf-setting-main"):
-                ui.label(formatting.YOUTUBE_SETTING_LABEL).classes("sf-setting-label")
-                ui.label(formatting.YOUTUBE_SETTING_HINT).classes("sf-fineprint")
+                ui.label(i18n.t("settings.youtube_label")).classes("sf-setting-label")
+                ui.label(i18n.t("settings.youtube_hint")).classes("sf-fineprint")
             toggle = (
                 ui.switch(value=self._service.youtube_enabled())
                 .mark("youtube-toggle")
                 .props("dense")
             )
             toggle.on_value_change(self._apply_youtube_toggle)
-        ui.label(formatting.SETTINGS_YOUTUBE_NOTE).classes("sf-fineprint").mark(
-            "about-youtube-note"
-        )
-        ui.label(formatting.SETTINGS_BEHAVIOUR_CLOSE).classes("sf-fineprint").mark(
-            "about-close-note"
-        )
-        ui.label(formatting.SETTINGS_BEHAVIOUR_PARTIAL).classes("sf-fineprint").mark(
-            "about-partial-note"
-        )
+        ui.label(i18n.t("settings.youtube_note")).classes("sf-fineprint").mark("about-youtube-note")
+        ui.label(i18n.t("settings.close_note")).classes("sf-fineprint").mark("about-close-note")
+        ui.label(i18n.t("settings.partial_note")).classes("sf-fineprint").mark("about-partial-note")
 
     def _apply_youtube_toggle(self, event: ValueChangeEventArguments[bool | None]) -> None:
         self._service.set_youtube_enabled(bool(event.value))
