@@ -489,6 +489,14 @@ def test_the_packaging_scripts_parse(script: str, shell: str) -> None:
     assert completed.returncode == 0, completed.stderr
 
 
+def test_the_linux_spec_ships_the_locale_catalogs() -> None:
+    spec = (PROJECT_ROOT / "packaging" / "pyinstaller" / "stemforge_linux.spec").read_text(
+        encoding="utf-8"
+    )
+
+    assert '(str(SRC / "i18n" / "catalogs"), "stemforge/i18n/catalogs")' in spec
+
+
 def test_the_build_script_wires_the_release_gates() -> None:
     script = (PROJECT_ROOT / "packaging" / "linux" / "build.sh").read_text("utf-8")
 

@@ -22,6 +22,7 @@ CORE_MODULES = [
     "stemforge.application",
     "stemforge.artifacts",
     "stemforge.errors",
+    "stemforge.i18n",
     "stemforge.logging_setup",
     "stemforge.settings",
     "stemforge.smoke",
@@ -266,6 +267,7 @@ def test_foundation_modules_do_not_import_other_stemforge_packages() -> None:
     foundation = [
         root / "errors.py",
         root / "worker_protocol.py",
+        *sorted((root / "i18n").glob("*.py")),
         *sorted((root / "platform").glob("*.py")),
         *sorted((root / "domain").glob("*.py")),
     ]

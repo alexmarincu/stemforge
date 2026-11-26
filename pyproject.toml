@@ -184,7 +184,7 @@ layers = [
   "stemforge.jobs | stemforge.engines | stemforge.artifacts | stemforge.models | stemforge.settings",
   "stemforge.domain | stemforge.workers",
   "stemforge.worker_protocol",
-  "stemforge.platform | stemforge.errors",
+  "stemforge.platform | stemforge.errors | stemforge.i18n",
 ]
 
 [[tool.importlinter.contracts]]
