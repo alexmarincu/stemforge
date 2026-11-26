@@ -15,6 +15,12 @@ Judgement calls only. Formatting, typing, and import direction are enforced by
 - `tests/unit/test_copy_policy.py` fails on a prose literal at a UI copy sink,
   on an `i18n.t` key missing from `en.json`, and on an avoided Import synonym in
   the English catalog.
+- `src/stemforge/i18n/catalogs/ro.json` translates every English key with the
+  same named placeholders. `tests/unit/test_romanian_catalog.py` fails on a
+  missing or orphaned key, placeholder drift, a wrong plural shape, a cedilla
+  diacritic, or an avoided Romanian rendering from `docs/i18n/ro/terms.md`.
+- The Interface language setting is `system`/`en`/`ro`; an unknown persisted
+  value falls back to `system` without corrupt-setting recovery.
 - `GLOSSARY.md` is normative. Use **Import**, never Load, Add, or Ingest.
 - An Instrumental is not a Stem. `OUTPUT_ROLES` includes it; `STEM_ROLES`
   does not.

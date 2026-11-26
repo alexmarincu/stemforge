@@ -115,15 +115,15 @@ definition, the definition wins and this table changes.
 
 ## Plurals
 
-Romanian uses three CLDR forms: **one** for 1, **few** for 0 and 2–19 (and
-102–119, 202–219, …), and **other** for everything else. The **other** form
-takes **de** before the noun.
+Romanian uses three CLDR forms: **one** for 1, **few** for 0, 2–19, and the
+hundreds that end in 01–19 (`101–119`, `201–219`, …), and **other** for
+everything else. The **other** form takes **de** before the noun.
 
 | Count | Form | Example |
 |---:|---|---|
 | 1 | one | `1 fișier`, `1 stem`, `1 minut` |
-| 0, 2–19 | few | `2 fișiere`, `19 stemuri`, `12 minute` |
-| 20+ | other | `20 de fișiere`, `101 stemuri`, `20 de minute` |
+| 0, 2–19, 101–119, 201–219, … | few | `2 fișiere`, `19 stemuri`, `101 stemuri` |
+| 20–100, 120–199, … | other | `20 de fișiere`, `120 de stemuri`, `20 de minute` |
 
 The English catalog uses **one** and **other** only. A plural entry is an object
 with the locale's forms, not a set of singular/plural constants.

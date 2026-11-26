@@ -52,7 +52,7 @@ The non-vocal mix of a Track, stored as a derived Artifact (the sum of the non-v
 
 ## Interface language
 
-The language StemForge uses for user-visible text: window copy, error headlines and actions, native dialog prose, and launch-failure messages. It is a user preference with a system-derived default, not a property of a Track or Source. Logs, diagnostics, exported filenames, and audio tags remain English.
+The language StemForge uses for user-visible text: window copy, error headlines and actions, and native launch-failure messages. It is a user preference with a system-derived default, not a property of a Track or Source. The shipped selector offers System, English, and Română; System resolves the OS locale at each launch. Logs, diagnostics, exported filenames, and audio tags remain English.
 
 _Avoid_: UI language, language pack.
 
