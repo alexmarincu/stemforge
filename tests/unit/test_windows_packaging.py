@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 import struct
 import sys
 from pathlib import Path
@@ -322,6 +323,29 @@ def test_windows_readme_names_the_data_path_smartscreen_and_webview2() -> None:
     assert "WebView2" in text
     assert "SHA256SUMS" in text
     assert "STEMFORGE_HOME" in text
+
+
+def test_windows_readme_maps_each_data_root_to_its_resolved_path() -> None:
+    text = _text(WINDOWS / "README.txt")
+
+    roots = {
+        match.group(1): match.group(2)
+        for match in re.finditer(
+            r"(?m)^\s+(data|config|cache|logs)\s+"
+            r"(%LOCALAPPDATA%\\StemForge(?:\\Cache|\\Logs)?)\s+\S",
+            text,
+        )
+    }
+
+    assert roots == {
+        "data": r"%LOCALAPPDATA%\StemForge",
+        "config": r"%LOCALAPPDATA%\StemForge",
+        "cache": r"%LOCALAPPDATA%\StemForge\Cache",
+        "logs": r"%LOCALAPPDATA%\StemForge\Logs",
+    }
+    for root in ("data", "config", "cache", "logs"):
+        assert rf"%LOCALAPPDATA%\StemForge\{root}" not in text
+    assert "workspace" not in text.lower()
 
 
 # --- Version resource and SHA256SUMS ---------------------------------------
