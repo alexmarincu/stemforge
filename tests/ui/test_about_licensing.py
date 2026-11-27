@@ -9,20 +9,18 @@ than a traceback.
 from __future__ import annotations
 
 import asyncio
-import logging
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge import __version__, errors
 from stemforge.application import PreviewTarget, ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.errors import StemForgeError
 from stemforge.jobs import Job, JobKind, JobState
 from stemforge.jobs.runner import JobRunner
@@ -48,74 +46,6 @@ def _enabled(user, marker: str) -> bool:
 @pytest.fixture(autouse=True)
 def _no_network(no_external_network: None) -> None:
     """The About modal must work offline."""
-
-
-class FakeMedia:
-    """A local-import stand-in so one live Track can prove Clear cache is safe."""
-
-    def __init__(self) -> None:
-        self._gate: threading.Event | None = None
-        self.decode_started = threading.Event()
-
-    def block_decoding(self) -> threading.Event:
-        self._gate = threading.Event()
-        return self._gate
-
-    def probe(self, path: Path) -> MediaInfo:
-        return MediaInfo(
-            codec="pcm_s16le",
-            sample_rate=44_100,
-            channels=2,
-            duration_s=120.0,
-            format="wav",
-            tags={},
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        self.decode_started.set()
-        if self._gate is not None:
-            self._gate.wait(timeout=10)
-        cancel.check()
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=120.0,
-            sample_rate=44_100,
-            channels=2,
-            downmixed=False,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(
-            title=src.stem,
-            duration_s=120.0,
-            sample_rate=44_100,
-            channels=2,
-        )
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        cancel.check()
-        return -3.0
 
 
 class FakeDialog:

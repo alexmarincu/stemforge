@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge import errors
@@ -31,14 +32,8 @@ from stemforge.application import (
     WorkspaceService,
 )
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.display import LabelRef
-from stemforge.engines.media import (
-    CanonicalMetadata,
-    DecodeResult,
-    ExportFormat,
-    MediaInfo,
-)
+from stemforge.engines.media import ExportFormat
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import (
     NATIVE_SAVE_FILTERS,
@@ -59,129 +54,8 @@ from stemforge.ui.components.export import (
 
 pytestmark = pytest.mark.ui
 
-SAMPLE_RATE = 44_100
-CHANNELS = 2
 DURATION_S = 42.0
 LOG = logging.getLogger("test.export-ui")
-
-
-class FakeMedia:
-    """A scripted ``MediaTool`` that writes tiny stand-ins, never real audio."""
-
-    def __init__(self) -> None:
-        self.duration_s = DURATION_S
-        self.tags_by_path: dict[Path, dict[str, str]] = {}
-        self.encode_error: StemForgeError | None = None
-        self.corrupt_tags = False
-        self.encode_gate: threading.Event | None = None
-        self.encode_gate_after: int | None = None
-        self.encode_started = threading.Event()
-        self.encode_calls = 0
-        self.fail_source_names: set[str] = set()
-
-    def probe(self, path: Path) -> MediaInfo:
-        return MediaInfo(
-            codec="pcm_s24le",
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            duration_s=self.duration_s,
-            format="wav",
-            tags=dict(self.tags_by_path.get(path, {})),
-            bit_depth=24,
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            downmixed=False,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(
-            title=src.stem,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-        )
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        del src, dst_dir
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        del gain_db, title, artist
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def encode_export(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        fmt: ExportFormat,
-        metadata: CanonicalMetadata,
-        gain_db: float,
-        cover: Path | None,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        del fmt, gain_db, cover
-        cancel.check()
-        self.encode_calls += 1
-        self.encode_started.set()
-        if self.encode_gate is not None and (
-            self.encode_gate_after is None or self.encode_calls >= self.encode_gate_after
-        ):
-            self.encode_gate.wait(timeout=10)
-        cancel.check()
-        if src.stem in self.fail_source_names:
-            raise StemForgeError(
-                errors.MEDIA_ENCODE_FAILED,
-                f"fake encode failure for {src.stem}",
-                retryable=True,
-            )
-        if self.encode_error is not None:
-            raise self.encode_error
-        dst.write_bytes(b"encoded:" + src.read_bytes())
-        tags = dict(metadata.tags())
-        if self.corrupt_tags and "title" in tags:
-            tags["title"] = "not the record"
-        self.tags_by_path[dst] = tags
-        log.debug("fake export wrote %s", dst)
-
-    def sum_wavs(
-        self,
-        srcs: Sequence[Path],
-        dst: Path,
-        *,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        del log
-        cancel.check()
-        dst.write_bytes(b"sum:" + b"|".join(path.read_bytes() for path in srcs))
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        del path, log
-        cancel.check()
-        return -3.0
 
 
 class FakeOpenDialog:
@@ -346,7 +220,7 @@ class Harness:
 def harness(tmp_path: Path) -> Iterator[Harness]:
     item = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         open_dialog=FakeOpenDialog(),
         save_backend=FakeSaveBackend(),
         folder_dialog=FakeFolderDialog(),
