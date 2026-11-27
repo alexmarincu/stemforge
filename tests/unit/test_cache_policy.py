@@ -222,17 +222,34 @@ def test_require_free_space_uses_the_floor_and_raises_disk_full(
 
 
 @pytest.mark.unit
-def test_export_space_checks_skip_the_one_gib_floor(tmp_path, monkeypatch) -> None:
+def test_export_space_checks_measure_the_volume_and_skip_the_one_gib_floor(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import shutil
     from collections import namedtuple
 
     from stemforge.artifacts import estimate_export_bytes, require_free_space
+    from stemforge.errors import StemForgeError
 
     Usage = namedtuple("Usage", "total used free")
-    monkeypatch.setattr(shutil, "disk_usage", lambda path: Usage(10**12, 0, 100 * 1024**2))
+    free = 100 * 1024**2
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: Usage(10**12, 0, free))
+    assert estimate_export_bytes(60) < 100 * 1024**2
+    estimate = estimate_export_bytes(60)
 
-    require_free_space(
-        tmp_path,
-        estimate_export_bytes(60),
-        floor=0,
-    )
+    require_free_space(tmp_path, estimate, floor=0)
+
+    with pytest.raises(StemForgeError) as caught:
+        require_free_space(tmp_path, free + 1, floor=0)
+
+    assert caught.value.code == "storage.disk_full"
+    assert caught.value.context["free"] == free
+    assert caught.value.context["required"] == free + 1
+
+    # With the default floor the same volume is short by the one GiB reserve.
+    with pytest.raises(StemForgeError) as floored:
+        require_free_space(tmp_path, estimate)
+
+    assert floored.value.code == "storage.disk_full"
+    assert floored.value.context["free"] == free
+    assert floored.value.context["required"] == 1024**3

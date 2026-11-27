@@ -262,7 +262,11 @@ def test_framework_language_maps_the_catalog_codes_to_nicegui() -> None:
 
 
 def test_the_english_fixture_pins_the_host_locale_for_the_whole_suite() -> None:
-    """The autouse fixture must not inherit the developer's shell locale."""
+    """Environment guard: a developer's shell locale must not change the suite.
+
+    The copy assertions are exact English strings, so this fixture cannot be
+    allowed to inherit the host locale.
+    """
     assert i18n.system_locale() == "en_US"
     assert i18n.language() == "en"
 

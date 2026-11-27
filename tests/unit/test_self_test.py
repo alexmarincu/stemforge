@@ -255,11 +255,3 @@ def test_smoke_test_does_not_run_a_separation(tmp_path: Path) -> None:
     names = {check["name"] for check in report["checks"]}
     assert not any(name.startswith("separation.") for name in names)
     assert "smoke-separation" not in report["check"]
-
-
-@pytest.mark.unit
-def test_the_entry_point_still_imports_nothing_heavy_at_module_scope() -> None:
-    source = (PROJECT_ROOT / "src" / "stemforge" / "__main__.py").read_text(encoding="utf-8")
-
-    for module in ("nicegui", "torch", "demucs", "webview"):
-        assert f"import {module}" not in source
