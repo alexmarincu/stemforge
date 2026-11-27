@@ -325,27 +325,50 @@ def test_windows_readme_names_the_data_path_smartscreen_and_webview2() -> None:
     assert "STEMFORGE_HOME" in text
 
 
-def test_windows_readme_maps_each_data_root_to_its_resolved_path() -> None:
+def _readme_data_root_rows(text: str) -> dict[str, tuple[str, str]]:
+    rows: dict[str, tuple[str, str]] = {}
+    for match in re.finditer(
+        r"(?m)^\s+(?P<root>data|config|cache|logs)\s+"
+        r"(?P<path>%LOCALAPPDATA%\\StemForge(?:\\Cache|\\Logs)?)\s+(?P<detail>\S.*)$",
+        text,
+    ):
+        rows[match.group("root")] = (match.group("path"), match.group("detail"))
+    return rows
+
+
+def test_windows_readme_maps_each_data_root_to_its_documented_path() -> None:
+    # Pin the shipped README; test_paths.py owns the platformdirs mapping.
     text = _text(WINDOWS / "README.txt")
+    rows = _readme_data_root_rows(text)
 
-    roots = {
-        match.group(1): match.group(2)
-        for match in re.finditer(
-            r"(?m)^\s+(data|config|cache|logs)\s+"
-            r"(%LOCALAPPDATA%\\StemForge(?:\\Cache|\\Logs)?)\s+\S",
-            text,
-        )
-    }
-
-    assert roots == {
+    assert {root: path for root, (path, _) in rows.items()} == {
         "data": r"%LOCALAPPDATA%\StemForge",
         "config": r"%LOCALAPPDATA%\StemForge",
         "cache": r"%LOCALAPPDATA%\StemForge\Cache",
         "logs": r"%LOCALAPPDATA%\StemForge\Logs",
     }
-    for root in ("data", "config", "cache", "logs"):
-        assert rf"%LOCALAPPDATA%\StemForge\{root}" not in text
-    assert "workspace" not in text.lower()
+    assert not re.search(
+        r"%LOCALAPPDATA%\\StemForge\\(?:data|config|cache|logs)\b",
+        text,
+    )
+
+
+def test_windows_readme_describes_what_each_data_root_holds() -> None:
+    text = _text(WINDOWS / "README.txt")
+    details = {root: detail for root, (_, detail) in _readme_data_root_rows(text).items()}
+
+    assert "Model weights" in details["data"]
+    assert "models" in details["data"]
+    assert "webview" in details["data"]
+    assert "workspace" not in details["data"].lower()
+    assert "settings" in details["config"]
+    assert "Sources" in details["cache"]
+    assert "Artifacts" in details["cache"]
+    assert "staging" in details["cache"]
+    assert "temporary files" in details["cache"]
+    assert "stemforge.log" in details["logs"]
+    assert "per-Job logs" in details["logs"]
+    assert "The Cache is rebuildable." in text
 
 
 # --- Version resource and SHA256SUMS ---------------------------------------

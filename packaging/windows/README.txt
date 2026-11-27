@@ -50,13 +50,13 @@ Where your data lives
 ---------------------
 
     Root      Windows path                       Contents
-    data      %LOCALAPPDATA%\StemForge           models and webview state
+    data      %LOCALAPPDATA%\StemForge           Model weights under models, webview state under webview
     config    %LOCALAPPDATA%\StemForge           settings
-    cache     %LOCALAPPDATA%\StemForge\Cache     cached Sources and Renders, staging, temporary files
+    cache     %LOCALAPPDATA%\StemForge\Cache     cached Sources and Artifacts, staging, temporary files
     logs      %LOCALAPPDATA%\StemForge\Logs      stemforge.log and per-Job logs
 
-Data and config share one folder; Cache and logs are subfolders of it. The Cache
-is rebuildable and can be cleared to reclaim space.
+By default, data and config share one folder; Cache and logs are subfolders of
+it. The Cache is rebuildable.
 
 Set STEMFORGE_HOME to one directory to keep all of it together, for example:
 
