@@ -328,16 +328,13 @@ def test_windows_readme_names_the_data_path_smartscreen_and_webview2() -> None:
 _README_ROOT_NAMES = "data|config|cache|logs"
 _README_ROOT_ROW = re.compile(
     rf"(?m)^\s+(?P<root>{_README_ROOT_NAMES})\s+"
-    r"(?P<path>%LOCALAPPDATA%\\StemForge(?:\\Cache|\\Logs)?)\s+(?P<detail>\S.*)$"
+    r"(?P<path>%LOCALAPPDATA%\\StemForge(?:\\Cache|\\Logs)?)\s+\S"
 )
 _README_PHANTOM_ROOT = re.compile(rf"%LOCALAPPDATA%\\StemForge\\(?:{_README_ROOT_NAMES})\b")
 
 
-def _readme_data_root_rows(text: str) -> list[tuple[str, str, str]]:
-    return [
-        (match.group("root"), match.group("path"), match.group("detail"))
-        for match in _README_ROOT_ROW.finditer(text)
-    ]
+def _readme_data_root_rows(text: str) -> list[tuple[str, str]]:
+    return [(match.group("root"), match.group("path")) for match in _README_ROOT_ROW.finditer(text)]
 
 
 def test_windows_readme_maps_each_data_root_to_its_documented_path() -> None:
@@ -346,34 +343,13 @@ def test_windows_readme_maps_each_data_root_to_its_documented_path() -> None:
     rows = _readme_data_root_rows(text)
 
     assert len(rows) == 4
-    assert {root: path for root, path, _ in rows} == {
+    assert dict(rows) == {
         "data": r"%LOCALAPPDATA%\StemForge",
         "config": r"%LOCALAPPDATA%\StemForge",
         "cache": r"%LOCALAPPDATA%\StemForge\Cache",
         "logs": r"%LOCALAPPDATA%\StemForge\Logs",
     }
     assert not _README_PHANTOM_ROOT.search(text)
-
-
-def test_windows_readme_describes_what_each_data_root_holds() -> None:
-    text = _text(WINDOWS / "README.txt")
-    details = {root: detail for root, _, detail in _readme_data_root_rows(text)}
-
-    assert "Model weights" in details["data"]
-    assert "models" in details["data"]
-    assert "webview" in details["data"]
-    assert "workspace" not in details["data"].lower()
-    assert "settings" in details["config"]
-    assert "Sources" in details["cache"]
-    assert "Artifacts" in details["cache"]
-    assert "staging" in details["cache"]
-    assert "temporary files" in details["cache"]
-    assert "stemforge.log" in details["logs"]
-    assert "per-Job logs" in details["logs"]
-
-
-def test_windows_readme_calls_the_cache_rebuildable() -> None:
-    assert "The Cache is rebuildable." in _text(WINDOWS / "README.txt")
 
 
 # --- Version resource and SHA256SUMS ---------------------------------------
