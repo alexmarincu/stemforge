@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -14,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from stemforge.artifacts import ArtifactStore, require_free_space
+from stemforge.errors import StemForgeError
 from stemforge.platform.paths import AppPaths
 
 
@@ -229,10 +231,20 @@ def test_stemforge_home_subprocess_writes_only_under_the_portable_root(tmp_path:
 
 
 @pytest.mark.integration
-def test_free_space_check_passes_on_the_real_cache_volume(tmp_path: Path) -> None:
+def test_free_space_check_measures_the_real_cache_volume(tmp_path: Path) -> None:
     paths = AppPaths.for_home(tmp_path / "home").ensure()
+    free = shutil.disk_usage(paths.cache).free
+    assert free > 0
 
-    require_free_space(paths.cache, 1, floor=0)
+    require_free_space(paths.cache, free // 2, floor=0)
+
+    with pytest.raises(StemForgeError) as caught:
+        require_free_space(paths.cache, 2 * free + 1, floor=0)
+
+    assert caught.value.code == "storage.disk_full"
+    assert caught.value.context["path"] == str(paths.cache)
+    assert caught.value.context["required"] == 2 * free + 1
+    assert caught.value.context["free"] > 0
 
 
 @pytest.mark.integration

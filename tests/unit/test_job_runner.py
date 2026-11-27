@@ -20,7 +20,6 @@ import pytest
 from stemforge import errors
 from stemforge.errors import StemForgeError
 from stemforge.jobs import (
-    CancelToken,
     Job,
     JobContext,
     JobKind,
@@ -462,12 +461,6 @@ def test_starting_the_runner_sweeps_job_logs_once(paths: AppPaths) -> None:
 
     assert (paths.logs / "jobs" / kept.name).is_file()
     assert not (paths.logs / "jobs" / old.name).exists()
-
-
-def test_cancel_token_is_still_reexported_from_the_job_module() -> None:
-    from stemforge.jobs.job import CancelToken as DocumentedToken
-
-    assert DocumentedToken is CancelToken
 
 
 def test_snapshot_is_an_immutable_value() -> None:

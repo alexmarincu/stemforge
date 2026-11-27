@@ -15,12 +15,21 @@ pytestmark = pytest.mark.unit
 
 
 def test_loopback_connections_are_allowed() -> None:
+    """The Windows socketpair self-pipe needs a real loopback round trip."""
     server = socket.socket()
     server.bind(("127.0.0.1", 0))
     server.listen(1)
     try:
         client = socket.create_connection(server.getsockname(), timeout=1)
-        client.close()
+        try:
+            peer, _ = server.accept()
+            try:
+                client.sendall(b"ping")
+                assert peer.recv(4) == b"ping"
+            finally:
+                peer.close()
+        finally:
+            client.close()
     finally:
         server.close()
 

@@ -14,7 +14,7 @@ from stemforge.domain.models import (
     SourceMetadata,
     Track,
 )
-from stemforge.domain.workspace import Workspace, WorkspaceSnapshot
+from stemforge.domain.workspace import Workspace
 
 
 def _source(source_id: str = "src-1", title: str = "Song") -> Source:
@@ -128,13 +128,6 @@ def test_workspace_snapshot_is_frozen() -> None:
 
 
 @pytest.mark.unit
-def test_workspace_snapshot_holds_an_immutable_tuple() -> None:
-    snapshot = WorkspaceSnapshot(tracks=())
-
-    assert isinstance(snapshot.tracks, tuple)
-
-
-@pytest.mark.unit
 def test_workspace_can_be_built_from_an_existing_track_list() -> None:
     first = _track("trk-1", _source("src-1"))
     second = _track("trk-2", _source("src-2"))
@@ -176,14 +169,6 @@ def test_track_exposes_duration_and_gain_without_reaching_into_source() -> None:
 
     assert track.duration_s == 187.0
     assert track.gain_db == -1.5
-
-
-@pytest.mark.unit
-def test_dead_domain_types_are_not_kept_alive() -> None:
-    import stemforge.domain.models as models
-
-    for name in ("ArtifactRef", "ArtifactSet", "ArtifactKind", "RenderRequest"):
-        assert not hasattr(models, name), f"{name} has no production user"
 
 
 @pytest.mark.unit

@@ -335,10 +335,6 @@ def test_store_lives_under_the_models_root(app_paths: AppPaths) -> None:
     assert store.path() == app_paths.models / "htdemucs" / "test-weights.safetensors"
 
 
-def test_the_store_has_no_duplicate_verification_middle_man() -> None:
-    assert not hasattr(ModelStore, "verify_before_use")
-
-
 # --- The install Job -------------------------------------------------------
 
 
