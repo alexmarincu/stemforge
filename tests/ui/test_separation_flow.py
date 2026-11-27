@@ -18,13 +18,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.engines.separation import SeparationOutputs
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
@@ -36,8 +36,6 @@ from stemforge.ui import page
 
 pytestmark = pytest.mark.ui
 
-SAMPLE_RATE = 44_100
-CHANNELS = 2
 DURATION_S = 42.0
 PAYLOAD = bytes(range(256)) * 256
 PAYLOAD_SHA256 = hashlib.sha256(PAYLOAD).hexdigest()
@@ -62,76 +60,6 @@ def _tiny_spec() -> ModelSpec:
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
-
-
-class FakeMedia:
-    """A scripted ``MediaTool`` that writes tiny stand-ins, never real audio."""
-
-    def __init__(self) -> None:
-        self.duration_s = DURATION_S
-
-    def probe(self, path: Path) -> MediaInfo:
-        return MediaInfo(
-            codec="pcm_f32le",
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            duration_s=self.duration_s,
-            format="wav",
-            tags={},
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            downmixed=False,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(
-            title=src.stem,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-        )
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def sum_wavs(
-        self,
-        srcs: Sequence[Path],
-        dst: Path,
-        *,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"sum:" + b"|".join(path.read_bytes() for path in srcs))
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        cancel.check()
-        return -3.0
 
 
 class FakeSeparation:
@@ -357,7 +285,7 @@ class Harness:
 def harness(tmp_path: Path) -> Iterator[Harness]:
     item = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         separation=FakeSeparation(),
         dialog=FakeDialog(),
         transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
@@ -446,7 +374,7 @@ async def _poll(harness: Harness, user, workspace_page: page.WorkspacePage) -> N
 async def test_the_gate_shows_size_revision_licence_and_consent(tmp_path: Path) -> None:
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         separation=FakeSeparation(),
         dialog=FakeDialog(),
         transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
@@ -492,7 +420,7 @@ async def test_download_progress_reaches_the_job_bar_and_cancel_returns_the_gate
     response = MemoryResponse(PAYLOAD, gate=gate, gate_after=2)
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         separation=FakeSeparation(),
         dialog=FakeDialog(),
         transport=ScriptedTransport([response]),
@@ -532,7 +460,7 @@ async def test_offline_download_is_coded_and_retry_installs_the_model(tmp_path: 
     transport = ScriptedTransport([urllib.error.URLError(OSError("offline"))])
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         separation=FakeSeparation(),
         dialog=FakeDialog(),
         transport=transport,
@@ -570,7 +498,7 @@ async def test_offline_download_is_coded_and_retry_installs_the_model(tmp_path: 
 async def test_a_missing_model_never_crashes_and_renders_the_gate(tmp_path: Path) -> None:
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         separation=FakeSeparation(),
         dialog=FakeDialog(),
         transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
@@ -596,7 +524,7 @@ async def test_one_successful_install_resubmits_a_pending_separation_exactly_onc
 ) -> None:
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         separation=FakeSeparation(),
         dialog=FakeDialog(),
         transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
@@ -649,7 +577,7 @@ async def test_a_checksum_failure_shows_the_gate_and_latches_one_resubmit(
 ) -> None:
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         separation=FakeSeparation(),
         dialog=FakeDialog(),
         transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
@@ -691,7 +619,7 @@ async def test_an_install_checksum_mismatch_uses_the_checksum_gate_copy(
     corrupt = b"x" * len(PAYLOAD)
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         separation=FakeSeparation(),
         dialog=FakeDialog(),
         transport=ScriptedTransport([MemoryResponse(corrupt)]),
@@ -724,7 +652,7 @@ async def test_an_install_checksum_mismatch_uses_the_checksum_gate_copy(
 async def test_progress_cancel_and_stall_use_the_injected_clock(tmp_path: Path) -> None:
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         separation=FakeSeparation(),
         dialog=FakeDialog(),
         transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),

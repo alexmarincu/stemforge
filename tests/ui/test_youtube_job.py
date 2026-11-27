@@ -15,13 +15,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.engines.youtube import DownloadedAudio, YouTubeMetadata, YouTubeVideo
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
@@ -41,60 +41,6 @@ AGE_HEADLINE = "This video is age-restricted. StemForge doesn't sign in to YouTu
 @pytest.fixture(autouse=True)
 def _no_network(no_external_network: None) -> None:
     """External connections fail; loopback (NiceGUI's test harness) is allowed."""
-
-
-class FakeMedia:
-    """A tiny ``MediaTool`` writing stand-ins; no real codec runs."""
-
-    def __init__(self, *, duration_s: float = 120.0) -> None:
-        self.duration_s = duration_s
-
-    def probe(self, path: Path) -> MediaInfo:
-        return MediaInfo(
-            codec="pcm_s16le",
-            sample_rate=44_100,
-            channels=2,
-            duration_s=self.duration_s,
-            format="wav",
-            tags={},
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=self.duration_s,
-            sample_rate=44_100,
-            channels=2,
-            downmixed=False,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(title=src.stem, duration_s=self.duration_s)
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        cancel.check()
-        return -3.0
 
 
 class FakeYouTube:

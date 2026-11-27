@@ -16,13 +16,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
@@ -33,83 +33,12 @@ from stemforge.ui import page
 
 pytestmark = pytest.mark.ui
 
-SAMPLE_RATE = 44_100
-CHANNELS = 2
 DURATION_S = 187.0
 
 
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
-
-
-class FakeMedia:
-    """A scripted ``MediaTool`` that writes tiny stand-ins, never real audio."""
-
-    def __init__(self, *, duration_s: float = DURATION_S) -> None:
-        self.duration_s = duration_s
-        self._gate: threading.Event | None = None
-        self.decode_started = threading.Event()
-
-    def block_decoding(self) -> threading.Event:
-        self._gate = threading.Event()
-        return self._gate
-
-    def probe(self, path: Path) -> MediaInfo:
-        return MediaInfo(
-            codec="pcm_s16le",
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            duration_s=self.duration_s,
-            format="wav",
-            tags={},
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        self.decode_started.set()
-        if self._gate is not None:
-            self._gate.wait(timeout=10)
-        cancel.check()
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            downmixed=False,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(
-            title=src.stem,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-        )
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        cancel.check()
-        return -3.0
 
 
 class FakePitch:
@@ -309,7 +238,7 @@ class Harness:
 def harness(tmp_path: Path) -> Iterator[Harness]:
     item = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         pitch=FakePitch(),
         dialog=FakeDialog(),
     )
@@ -780,7 +709,7 @@ async def test_degraded_preview_keeps_the_pitch_card_usable_but_silent(
     )
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         pitch=FakePitch(),
         dialog=FakeDialog(),
         preflight_report=report,

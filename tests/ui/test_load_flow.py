@@ -8,20 +8,17 @@ the fake never spawns a process, never touches a real audio codec, and completes
 from __future__ import annotations
 
 import asyncio
-import logging
-import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia, MediaProfile
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
@@ -31,96 +28,7 @@ from stemforge.ui import page, theme
 
 pytestmark = pytest.mark.ui
 
-SAMPLE_RATE = 44_100
-CHANNELS = 2
 DURATION_S = 187.0
-
-
-class FakeMedia:
-    """A scripted ``MediaTool`` that writes tiny stand-ins, never real audio."""
-
-    def __init__(
-        self,
-        *,
-        duration_s: float = DURATION_S,
-        title: str | None = None,
-        fail_probe: bool = False,
-        source_channels: int = CHANNELS,
-    ) -> None:
-        self.duration_s = duration_s
-        self.title = title
-        self.fail_probe = fail_probe
-        self.source_channels = source_channels
-        self.fail_decode: StemForgeError | None = None
-        self._gate: threading.Event | None = None
-        self.decode_started = threading.Event()
-
-    def block_decoding(self) -> threading.Event:
-        self._gate = threading.Event()
-        return self._gate
-
-    def probe(self, path: Path) -> MediaInfo:
-        if self.fail_probe:
-            from stemforge import errors
-            from stemforge.errors import StemForgeError
-
-            raise StemForgeError(errors.MEDIA_PROBE_FAILED, "fake probe failure")
-        return MediaInfo(
-            codec="pcm_s16le",
-            sample_rate=SAMPLE_RATE,
-            channels=self.source_channels,
-            duration_s=self.duration_s,
-            format="wav",
-            tags={},
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        self.decode_started.set()
-        if self._gate is not None:
-            self._gate.wait(timeout=10)
-        cancel.check()
-        if self.fail_decode is not None:
-            raise self.fail_decode
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            downmixed=self.source_channels > CHANNELS,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(
-            title=self.title or src.stem,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-        )
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        cancel.check()
-        return -3.0
 
 
 class FakeDialog:
@@ -176,7 +84,7 @@ class Harness:
 
 @pytest.fixture
 def harness(tmp_path: Path) -> Iterator[Harness]:
-    item = Harness(root=tmp_path, media=FakeMedia(), dialog=FakeDialog())
+    item = Harness(root=tmp_path, media=FakeMedia(duration_s=DURATION_S), dialog=FakeDialog())
     item.runner.start()
     try:
         yield item
@@ -186,7 +94,11 @@ def harness(tmp_path: Path) -> Iterator[Harness]:
 
 @pytest.fixture
 def multichannel_harness(tmp_path: Path) -> Iterator[Harness]:
-    item = Harness(root=tmp_path, media=FakeMedia(source_channels=6), dialog=FakeDialog())
+    item = Harness(
+        root=tmp_path,
+        media=FakeMedia(duration_s=DURATION_S, source_channels=6),
+        dialog=FakeDialog(),
+    )
     item.runner.start()
     try:
         yield item
@@ -319,6 +231,85 @@ async def test_a_selected_file_becomes_a_track_with_audio_facts(harness: Harness
         cache_sources = list((harness.paths.cache / "sources").iterdir())
         assert len(cache_sources) == 1
         assert (cache_sources[0] / "source.json").is_file()
+
+
+async def test_an_empty_metadata_title_falls_back_to_the_file_name(tmp_path: Path) -> None:
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(duration_s=DURATION_S, title=""),
+        dialog=FakeDialog(),
+    )
+    harness.runner.start()
+    source = harness.source_file("Untitled Take.wav")
+    harness.dialog._selections = [(str(source),)]
+    try:
+        async for user, workspace_page in _open_page(harness):
+            user.find(marker="add-audio").click()
+            await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+
+            await user.should_see("Untitled Take")
+            assert harness.service.snapshot().tracks[0].title == "Untitled Take"
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_an_embedded_cover_is_cached_with_the_imported_source(tmp_path: Path) -> None:
+    artwork = tmp_path / "art.png"
+    artwork.write_bytes(b"\x89PNG fake cover")
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(duration_s=DURATION_S, cover=artwork),
+        dialog=FakeDialog(),
+    )
+    harness.runner.start()
+    source = harness.source_file("With Art.flac")
+    harness.dialog._selections = [(str(source),)]
+    try:
+        async for user, workspace_page in _open_page(harness):
+            user.find(marker="add-audio").click()
+            await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+
+            await user.should_see("With Art")
+            cover = harness.service.snapshot().tracks[0].source.cover_path
+            assert cover is not None
+            assert cover.is_file()
+            assert cover.read_bytes() == artwork.read_bytes()
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_a_flac_source_is_probed_with_its_native_format(tmp_path: Path) -> None:
+    flac = MediaProfile(
+        codec="flac",
+        format="flac",
+        sample_rate=96_000,
+        channels=2,
+        bit_depth=24,
+        bit_rate=4_608_000,
+    )
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(duration_s=DURATION_S, formats={".flac": flac}),
+        dialog=FakeDialog(),
+    )
+    harness.runner.start()
+    source = harness.source_file("Lossless.flac")
+    harness.dialog._selections = [(str(source),)]
+    try:
+        async for user, workspace_page in _open_page(harness):
+            user.find(marker="add-audio").click()
+            await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+
+            await user.should_see("Lossless")
+            track = harness.service.snapshot().tracks[0]
+            assert track.source.native_path is not None
+            assert track.source.native_path.name == "native.flac"
+            reported = [info for path, info in harness.media.probed if path == source]
+            assert len(reported) == 1
+            assert (reported[0].format, reported[0].codec) == ("flac", "flac")
+            assert (reported[0].bit_depth, reported[0].bit_rate) == (24, 4_608_000)
+    finally:
+        harness.runner.stop(timeout=10)
 
 
 async def test_outputs_placeholder_is_visible_before_the_model_is_installed(

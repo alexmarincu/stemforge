@@ -10,20 +10,17 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import logging
-import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform import preflight
@@ -33,79 +30,7 @@ from stemforge.ui import page
 
 pytestmark = pytest.mark.ui
 
-SAMPLE_RATE = 44_100
-CHANNELS = 2
 DURATION_S = 187.0
-
-
-class FakeMedia:
-    """A scripted ``MediaTool`` that writes tiny stand-ins, never real audio."""
-
-    def __init__(self, *, duration_s: float = DURATION_S, peak_dbfs: float = -3.0) -> None:
-        self.duration_s = duration_s
-        self.peak_dbfs_value = peak_dbfs
-        self._gate: threading.Event | None = None
-        self.decode_started = threading.Event()
-
-    def block_decoding(self) -> threading.Event:
-        self._gate = threading.Event()
-        return self._gate
-
-    def probe(self, path: Path) -> MediaInfo:
-        return MediaInfo(
-            codec="pcm_s16le",
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            duration_s=self.duration_s,
-            format="wav",
-            tags={},
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        self.decode_started.set()
-        if self._gate is not None:
-            self._gate.wait(timeout=10)
-        cancel.check()
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            downmixed=False,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(
-            title=src.stem,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-        )
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        cancel.check()
-        return self.peak_dbfs_value
 
 
 class FakeDialog:
@@ -188,7 +113,7 @@ class Harness:
 
 @pytest.fixture
 def harness(tmp_path: Path) -> Iterator[Harness]:
-    item = Harness(root=tmp_path, media=FakeMedia(), dialog=FakeDialog())
+    item = Harness(root=tmp_path, media=FakeMedia(duration_s=DURATION_S), dialog=FakeDialog())
     item.runner.start()
     try:
         yield item
@@ -500,7 +425,7 @@ async def test_degraded_preview_keeps_a_banner_and_disables_only_transport(
     )
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         dialog=FakeDialog(),
         preflight_report=report,
     )
@@ -614,7 +539,7 @@ async def test_resource_warnings_are_a_dismissible_banner_and_never_block(
     )
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         dialog=FakeDialog(),
         preflight_report=report,
     )
@@ -656,7 +581,7 @@ async def test_at_most_two_banners_stack_with_degraded_first(tmp_path: Path) -> 
     )
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         dialog=FakeDialog(),
         preflight_report=report,
     )
@@ -701,7 +626,7 @@ async def test_the_gain_badge_is_shown_only_when_the_set_was_attenuated(
 ) -> None:
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(peak_dbfs=1.0),
+        media=FakeMedia(duration_s=DURATION_S, peak_dbfs=1.0),
         dialog=FakeDialog(),
     )
     harness.runner.start()
