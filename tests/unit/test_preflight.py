@@ -394,6 +394,9 @@ def test_fatal_box_passes_translated_button_labels_to_gtk(
         return True
 
     monkeypatch.setattr(preflight, "_gtk_message_dialog", fake_gtk)
+    # The GTK labels are the subject; force the non-Windows branch so a
+    # real message box cannot block the test on Windows CI.
+    monkeypatch.setattr(sys, "platform", "linux")
 
     preflight.show_fatal_message(message)
 
