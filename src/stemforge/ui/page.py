@@ -430,6 +430,7 @@ class UiContext:
     resource_warning_dismissed: bool = False
     separation_clock: Callable[[], float] | None = None
     separation_stall_seconds: float | None = None
+    window_title: Callable[[str], None] | None = None
 
     @property
     def playback_available(self) -> bool:
@@ -605,7 +606,7 @@ class WorkspacePage:
 
     def build(self) -> None:
         self._client = context.client
-        ui.page_title(i18n.t("app.name"))
+        self._set_window_title(i18n.t("app.name"))
         ui.add_css(SHELL_CSS)
         theme.apply().mark("theme-colors")
         ui.dark_mode(True)
@@ -2837,11 +2838,18 @@ class WorkspacePage:
 
     def _sync_title(self) -> None:
         track = self._selected_track()
-        ui.page_title(
+        self._set_window_title(
             i18n.t("app.window_title", app=i18n.t("app.name"), track=track.title)
             if track is not None
             else i18n.t("app.name")
         )
+
+    def _set_window_title(self, title: str) -> None:
+        """Report the title through the injected sink, or NiceGUI's page title."""
+        if self.context.window_title is not None:
+            self.context.window_title(title)
+            return
+        ui.page_title(title)
 
     def _recent_state(self) -> tuple[tuple[str, bool], ...]:
         return tuple(

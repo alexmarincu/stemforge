@@ -16,7 +16,7 @@ import pytest
 from media_fake import FakeMedia, MediaProfile
 from nicegui.testing.user_simulation import user_simulation
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.errors import StemForgeError
@@ -145,22 +145,20 @@ async def _finish_jobs(
 
 async def test_empty_state_explains_the_way_in(harness: Harness) -> None:
     async for user, _workspace_page in _open_page(harness):
+        await user.should_see(marker="empty-state")
+        await user.should_see(marker="dropzone")
         await user.should_see("Import a track")
         await user.should_see("Import audio")
         await user.should_see("Import from YouTube")
-        await user.should_see("Drop a local file or import from YouTube.")
-        await user.should_see("Everything runs on this machine.")
-        await user.should_see("Drop audio files here")
-        await user.should_see("WAV, MP3, FLAC, M4A — or choose files…")
-        await user.should_see("No tracks yet")
+        await user.should_see(i18n.t("page.empty_lede_youtube"))
+        await user.should_see(i18n.t("page.drop_title"))
+        await user.should_see(i18n.t("page.drop_subtitle"))
+        await user.should_see(i18n.t("page.tracks_empty"))
         assert _only(user, "theme-colors").props["primary"] == theme.ACCENT
         brand = _only(user, "brand-mark")
         assert brand.content.startswith('<img src="data:image/svg+xml;base64,')
         await user.should_see(marker="empty-model-card")
-        await user.should_see(
-            "Separation model not installed yet · 84 MB — you can import and preview now; "
-            "Separation asks for the download the first time you use it."
-        )
+        await user.should_see(i18n.t("page.model_card"))
         await user.should_not_see(marker="track-detail")
 
 
@@ -173,7 +171,7 @@ async def test_the_empty_state_omits_the_model_card_once_installed(
     async for user, _workspace_page in _open_page(harness):
         await user.should_see("Import a track")
         await user.should_not_see(marker="empty-model-card")
-        await user.should_not_see("Separation model not installed yet")
+        await user.should_not_see(i18n.t("page.model_card"))
 
 
 async def test_a_multichannel_import_shows_the_downmix_note(
@@ -185,7 +183,6 @@ async def test_a_multichannel_import_shows_the_downmix_note(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
 
         track = harness.service.snapshot().tracks[0]
@@ -206,7 +203,6 @@ async def test_a_selected_file_becomes_a_track_with_audio_facts(harness: Harness
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
 
         await user.should_see("My Song")
@@ -321,7 +317,6 @@ async def test_outputs_placeholder_is_visible_before_the_model_is_installed(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
         await user.should_see(marker="track-row")
 
@@ -329,37 +324,36 @@ async def test_outputs_placeholder_is_visible_before_the_model_is_installed(
         await user.should_see(marker="track-detail")
         with user.scope(marker="outputs"):
             await user.should_see(marker="outputs-placeholder")
-            await user.should_see("Vocals & Instrumental appear here after Separation.")
+            await user.should_see(i18n.t("page.outputs_placeholder"))
             await user.should_see(marker="outputs-separate")
 
 
 async def test_window_title_follows_the_selected_track_and_clears_on_remove(
     harness: Harness,
 ) -> None:
+    titles: list[str] = []
+    harness.context.window_title = titles.append
     source = harness.source_file()
     harness.dialog._selections = [(str(source),)]
 
     async for user, workspace_page in _open_page(harness):
-        assert workspace_page._client is not None
-        assert workspace_page._client.resolve_title() == "StemForge"
+        assert titles == ["StemForge"]
 
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
-        await asyncio.sleep(0.05)
-        assert workspace_page._client.resolve_title() == "StemForge — My Song"
+        assert titles[-1] == "StemForge — My Song"
+        await user.should_see(marker="track-detail")
 
         # The header carries Settings and Remove.
         user.find(marker="detail-settings").click()
         await user.should_see(marker="settings-dialog")
         user.find(marker="settings-close").click()
-        await asyncio.sleep(0.05)
 
         user.find(marker="detail-remove").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="remove-dialog")
         user.find(marker="confirm-remove").click()
-        await asyncio.sleep(0.05)
-        assert workspace_page._client.resolve_title() == "StemForge"
+        await user.should_see("No tracks yet")
+        assert titles[-1] == "StemForge"
 
 
 async def test_signal_path_starts_at_source_only(harness: Harness) -> None:
@@ -368,9 +362,8 @@ async def test_signal_path_starts_at_source_only(harness: Harness) -> None:
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="signal-path")
 
         with user.scope(marker="signal-path"):
             await user.should_see("Source")
@@ -434,7 +427,6 @@ async def test_the_job_bar_and_cancel_follow_the_running_job_not_a_queued_one(
         assert _only(user, "job-stage").text.endswith("Decoding")
 
         user.find(marker="cancel-job").click()
-        await asyncio.sleep(0.05)
         snapshots = harness.runner.jobs()
         running = next(item for item in snapshots if item.state.value == "running")
         queued = next(item for item in snapshots if item.state.value == "queued")
@@ -454,7 +446,6 @@ async def test_import_failure_shows_the_coded_headline_and_keeps_the_app_usable(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
 
         await user.should_see(marker="import-error")
@@ -469,7 +460,6 @@ async def test_import_failure_shows_the_coded_headline_and_keeps_the_app_usable(
         harness.media.fail_probe = False
         harness.dialog._selections = [(str(harness.source_file("good.mp3")),)]
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
         await user.should_see("good")
         await user.should_not_see(marker="import-error")
@@ -494,7 +484,6 @@ async def test_a_disk_full_import_reports_sizes_and_offers_the_cache_action(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
 
         await user.should_see(
@@ -502,7 +491,6 @@ async def test_a_disk_full_import_reports_sizes_and_offers_the_cache_action(
         )
         await user.should_see(marker="notice-clear-cache")
         user.find(marker="notice-clear-cache").click()
-        await asyncio.sleep(0.1)
         await user.should_see("Cleared")
 
 
@@ -520,7 +508,6 @@ async def test_a_retryable_local_import_failure_resubmits_the_same_file(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
 
         await user.should_see(marker="import-error")
@@ -563,7 +550,6 @@ async def test_a_retryable_synchronous_import_error_offers_retry(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.05)
 
         await user.should_see(marker="import-error")
         await user.should_see(marker="import-retry")
@@ -586,7 +572,6 @@ async def test_remove_confirms_cache_deletion_and_never_touches_the_source(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
         await user.should_see("My Song")
 
@@ -602,7 +587,6 @@ async def test_remove_confirms_cache_deletion_and_never_touches_the_source(
         await user.should_see("deletes its cached audio")
         await user.should_see("The file on disk is not touched.")
         user.find(marker="confirm-remove").click()
-        await asyncio.sleep(0.1)
 
         await user.should_not_see(marker="track-row")
         await user.should_see("No tracks yet")
@@ -619,7 +603,6 @@ async def test_recent_reopens_a_file_and_reports_a_missing_source(harness: Harne
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
         await user.should_see(marker="track-row")
         user.find(marker="remove-track").click()
@@ -629,7 +612,6 @@ async def test_recent_reopens_a_file_and_reports_a_missing_source(harness: Harne
 
         # A cache miss for a source that still exists re-imports it.
         user.find(marker="recent-row").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
         await user.should_see(marker="track-row")
         assert len(harness.service.snapshot().tracks) == 1
@@ -642,7 +624,6 @@ async def test_recent_reopens_a_file_and_reports_a_missing_source(harness: Harne
         await user.should_see("missing", retries=10)
 
         user.find(marker="recent-row").click()
-        await asyncio.sleep(0.1)
         await user.should_see(marker="import-error")
         await user.should_see(
             "Can't open that file. It may have moved, been deleted, or be unreadable."
@@ -660,7 +641,6 @@ async def test_track_rows_are_selectable_and_the_detail_follows_the_selection(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
         await user.should_see("First")
@@ -671,14 +651,10 @@ async def test_track_rows_are_selectable_and_the_detail_follows_the_selection(
         second_id = next(track.track_id for track in tracks if track.title == "Second")
 
         user.find(marker=f"track-row-{second_id}").click()
-        await asyncio.sleep(0.1)
-        with user.scope(marker="track-detail"):
-            await user.should_see("Second")
+        await user.should_see("Local file · Second.mp3")
 
         user.find(marker=f"track-row-{first_id}").click()
-        await asyncio.sleep(0.1)
-        with user.scope(marker="track-detail"):
-            await user.should_see("First")
+        await user.should_see("Local file · First.wav")
 
 
 async def test_recovery_banner_shows_once_after_the_sweep_and_stays_dismissed(
@@ -727,7 +703,6 @@ async def test_drop_accepts_real_paths_and_quietly_ignores_fake_ones(harness: Ha
         source = harness.source_file("Dropped.wav")
         with user:
             workspace_page.handle_drop([str(source)])
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
         await user.should_see("Dropped")
 
