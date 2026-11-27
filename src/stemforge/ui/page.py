@@ -428,6 +428,8 @@ class UiContext:
     clipboard: ClipboardWriter | None = None
     on_language_change: Callable[[str], None] | None = None
     resource_warning_dismissed: bool = False
+    separation_clock: Callable[[], float] | None = None
+    separation_stall_seconds: float | None = None
 
     @property
     def playback_available(self) -> bool:
@@ -583,6 +585,8 @@ class WorkspacePage:
             diagnostics=context.diagnostics,
             clipboard=context.clipboard,
             open_path=context.open_path,
+            clock=context.separation_clock,
+            stall_seconds=context.separation_stall_seconds,
         )
         self._separation_jobs: dict[str, str] = {}
         self._export_sheet = ExportSheet(
