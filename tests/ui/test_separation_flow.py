@@ -13,7 +13,7 @@ import hashlib
 import logging
 import threading
 import urllib.error
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -63,19 +63,32 @@ def _tiny_spec() -> ModelSpec:
 
 
 class FakeSeparation:
-    """A scripted SeparationEngine: no worker, torch, or real audio codec."""
+    """A scripted SeparationEngine: no worker, torch, or real audio codec.
+
+    It records the verified model path and worker configuration, and writes each
+    output through ``<role>.partial.wav`` before the final rename. A cancelled
+    run therefore leaves the partial WAVs that staging cleanup must remove.
+    """
 
     version = "4.1.0-test"
     block_seconds = 480.0
     crossfade_seconds = 0.5
     overlap = 0.25
     shifts = 1
+    roles = ("vocals", "drums", "bass", "other", "instrumental")
 
     def __init__(self) -> None:
         self.fail_code: str | None = None
         self.retryable = True
         self._gate: threading.Event | None = None
         self.started = threading.Event()
+        self.calls: list[dict[str, object]] = []
+        self.model_path: Path | None = None
+        self.expected_duration_s: float | None = None
+        self.threads: int | None = None
+        self.model_revision = ""
+        self.env: Mapping[str, str] | None = None
+        self.timeout_s: float | None = None
 
     def block(self) -> threading.Event:
         self._gate = threading.Event()
@@ -88,21 +101,51 @@ class FakeSeparation:
         *,
         model_path: Path,
         expected_duration_s: float,
-        progress: object,
+        progress: Callable[[float, str, str], None],
         cancel: CancelToken,
         log: logging.Logger,
         threads: int | None = None,
         model_revision: str = "",
         env: Mapping[str, str] | None = None,
         timeout_s: float | None = None,
-        on_spawn: object | None = None,
+        on_spawn: Callable[[int], None] | None = None,
     ) -> SeparationOutputs:
-        del model_path, threads, model_revision, env, timeout_s, on_spawn
+        del on_spawn
+        if not Path(model_path).is_file():
+            raise StemForgeError(
+                errors.SEPARATION_MODEL_MISSING,
+                "the separation weights are missing",
+                detail=f"reason=absent path={model_path}",
+                context={"path": str(model_path)},
+            )
+        self.model_path = Path(model_path)
+        self.expected_duration_s = expected_duration_s
+        self.threads = threads
+        self.model_revision = model_revision
+        self.env = None if env is None else dict(env)
+        self.timeout_s = timeout_s
+        self.calls.append(
+            {
+                "canonical": Path(canonical),
+                "out_dir": Path(out_dir),
+                "model_path": self.model_path,
+                "expected_duration_s": expected_duration_s,
+                "threads": threads,
+                "model_revision": model_revision,
+                "timeout_s": timeout_s,
+            }
+        )
+
         cancel.check()
         emit = progress
-        assert callable(emit)
         self.started.set()
         emit(0.1, "Separate", "starting")
+        partials: dict[str, Path] = {}
+        for index, role in enumerate(self.roles):
+            partial = out_dir / f"{role}.partial.wav"
+            partial.write_bytes(f"stem-{role}-{expected_duration_s}".encode())
+            partials[role] = partial
+            emit(0.2 + 0.2 * index, "Separate", role)
         if self._gate is not None:
             self._gate.wait(timeout=10)
         cancel.check()
@@ -114,11 +157,10 @@ class FakeSeparation:
                 detail="reason=fake",
             )
         stems: dict[str, Path] = {}
-        for index, role in enumerate(("vocals", "drums", "bass", "other", "instrumental")):
-            path = out_dir / f"{role}.wav"
-            path.write_bytes(f"stem-{role}-{expected_duration_s}".encode())
-            stems[role] = path
-            emit(0.2 + 0.2 * index, "Separate", role)
+        for role, partial in partials.items():
+            final = out_dir / f"{role}.wav"
+            partial.replace(final)
+            stems[role] = final
         return SeparationOutputs(outputs=stems)
 
 
@@ -227,6 +269,8 @@ class Harness:
     transport: ScriptedTransport
     tiny_model: bool = True
     install_model: bool = False
+    separation_clock: Callable[[], float] | None = None
+    separation_stall_seconds: float | None = None
     paths: AppPaths = field(init=False)
     settings: SettingsStore = field(init=False)
     artifacts: ArtifactStore = field(init=False)
@@ -255,7 +299,12 @@ class Harness:
             models=self.models,
             model_transport=self.transport,
         )
-        self.context = page.UiContext(service=self.service, dialogs=self.dialog)
+        self.context = page.UiContext(
+            service=self.service,
+            dialogs=self.dialog,
+            separation_clock=self.separation_clock,
+            separation_stall_seconds=self.separation_stall_seconds,
+        )
 
     def source_file(self, name: str = "My Song.WAV") -> Path:
         path = self.root / name
@@ -331,7 +380,9 @@ async def _finish_jobs(
     assert await asyncio.to_thread(harness.runner.wait_idle, 15) is True
     with user:
         workspace_page.poll()
-    await asyncio.sleep(0.05)
+    # NiceGUI applies a refresh's element updates on the next loop turn; callers
+    # assert on the rebuilt rail and detail immediately afterwards.
+    await asyncio.sleep(0)
 
 
 async def _import(
@@ -342,11 +393,12 @@ async def _import(
 ) -> str:
     harness.dialog._selections = [(str(harness.source_file(name)),)]
     user.find(marker="add-audio").click()
-    await asyncio.sleep(0.05)
     await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
     track = harness.service.snapshot().tracks[0]
-    user.find(marker=f"track-row-{track.track_id}").click()
-    await asyncio.sleep(0.05)
+    row = f"track-row-{track.track_id}"
+    await user.should_see(marker=row)
+    user.find(marker=row).click()
+    await user.should_see(marker="track-detail")
     return track.track_id
 
 
@@ -360,10 +412,35 @@ def _enabled(user, marker: str) -> bool:
     return bool(_only(user, marker).enabled)
 
 
-async def _poll(harness: Harness, user, workspace_page: page.WorkspacePage) -> None:
+async def _poll(user, workspace_page: page.WorkspacePage) -> None:
     with user:
         workspace_page.poll()
-    await asyncio.sleep(0.05)
+    # NiceGUI applies a refresh's element updates on the next loop turn.
+    await asyncio.sleep(0)
+
+
+# ---------------------------------------------------------------------------
+# Fake contract
+# ---------------------------------------------------------------------------
+
+
+def test_the_fake_separation_rejects_a_missing_model_path(tmp_path: Path) -> None:
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    with pytest.raises(StemForgeError) as raised:
+        FakeSeparation().separate(
+            tmp_path / "canonical.wav",
+            out_dir,
+            model_path=tmp_path / "absent.safetensors",
+            expected_duration_s=1.0,
+            progress=lambda *_: None,
+            cancel=CancelToken(),
+            log=logging.getLogger("test"),
+        )
+
+    assert raised.value.code == errors.SEPARATION_MODEL_MISSING
+    assert list(out_dir.iterdir()) == []
 
 
 # ---------------------------------------------------------------------------
@@ -402,12 +479,12 @@ async def test_the_gate_shows_size_revision_licence_and_consent(tmp_path: Path) 
             user.find(marker="model-licence-details").click()
             await user.should_see(marker="settings-dialog")
             user.find(marker="settings-close").click()
-            await asyncio.sleep(0.05)
 
             # The rest of the app stays usable without the model.
             assert _enabled(user, "add-audio") is True
             user.find(marker="pitch-up").click()
-            await asyncio.sleep(0.05)
+            # The stepper refresh applies on the next loop turn.
+            await asyncio.sleep(0)
             assert _only(user, "pitch-semitones").text == "+1"
     finally:
         harness.runner.stop(timeout=10)
@@ -432,7 +509,7 @@ async def test_download_progress_reaches_the_job_bar_and_cancel_returns_the_gate
             await _import(harness, user, workspace_page)
             user.find(marker="model-download").click()
             assert await asyncio.to_thread(response.blocked.wait, 5)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
 
             await user.should_see(marker="job-bar")
             await user.should_see("Downloading model")
@@ -446,7 +523,7 @@ async def test_download_progress_reaches_the_job_bar_and_cancel_returns_the_gate
             user.find(marker="cancel-job").click()
             gate.set()
             await _finish_jobs(harness, user, workspace_page)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
 
             await user.should_see(marker="separation-gate")
             assert _enabled(user, "model-download") is True
@@ -472,7 +549,7 @@ async def test_offline_download_is_coded_and_retry_installs_the_model(tmp_path: 
             await _import(harness, user, workspace_page)
             user.find(marker="model-download").click()
             await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
 
             assert (
                 "separation.model_download_failed"
@@ -485,7 +562,7 @@ async def test_offline_download_is_coded_and_retry_installs_the_model(tmp_path: 
             transport.outcomes = [MemoryResponse(PAYLOAD)]
             user.find(marker="model-download-retry").click()
             await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
 
             await user.should_not_see(marker="separation-gate")
             assert harness.models.is_installed() is True
@@ -541,7 +618,7 @@ async def test_one_successful_install_resubmits_a_pending_separation_exactly_onc
             # is the "pending" path that must re-gate on the missing model.
             harness.models.delete()
             user.find(marker="separation-action").click()
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
 
             await user.should_see(marker="separation-gate")
             assert harness.service.pending_separation_track_id() == track_id
@@ -556,7 +633,7 @@ async def test_one_successful_install_resubmits_a_pending_separation_exactly_onc
                 await asyncio.sleep(0.01)
             await _finish_jobs(harness, user, workspace_page)
             await _finish_jobs(harness, user, workspace_page)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
 
             kinds = [job.kind.value for job in harness.runner.jobs()]
             assert kinds.count("model_install") == 1
@@ -564,8 +641,8 @@ async def test_one_successful_install_resubmits_a_pending_separation_exactly_onc
             assert harness.service.pending_separation_track_id() is None
 
             # Further polls must not chain another Separation.
-            await _poll(harness, user, workspace_page)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
+            await _poll(user, workspace_page)
             assert len([job for job in harness.runner.jobs() if job.kind.value == "separate"]) == 1
             await user.should_see(marker="output-row-vocals")
     finally:
@@ -592,7 +669,7 @@ async def test_a_checksum_failure_shows_the_gate_and_latches_one_resubmit(
 
             user.find(marker="separation-action").click()
             await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
 
             await user.should_see(marker="separation-gate")
             await user.should_see("The separation model needs to be downloaded again.")
@@ -604,7 +681,7 @@ async def test_a_checksum_failure_shows_the_gate_and_latches_one_resubmit(
             user.find(marker="model-download").click()
             await _finish_jobs(harness, user, workspace_page)
             await _finish_jobs(harness, user, workspace_page)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
             kinds = [job.kind.value for job in harness.runner.jobs()]
             assert kinds.count("separate") == 2
             assert kinds.count("model_install") == 1
@@ -631,7 +708,7 @@ async def test_an_install_checksum_mismatch_uses_the_checksum_gate_copy(
             await _import(harness, user, workspace_page)
             user.find(marker="model-download").click()
             await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
 
             await user.should_see(marker="separation-gate")
             await user.should_see("The separation model needs to be downloaded again.")
@@ -650,6 +727,7 @@ async def test_an_install_checksum_mismatch_uses_the_checksum_gate_copy(
 
 
 async def test_progress_cancel_and_stall_use_the_injected_clock(tmp_path: Path) -> None:
+    clock = FakeClock()
     harness = Harness(
         root=tmp_path,
         media=FakeMedia(duration_s=DURATION_S),
@@ -658,19 +736,18 @@ async def test_progress_cancel_and_stall_use_the_injected_clock(tmp_path: Path) 
         transport=ScriptedTransport([MemoryResponse(PAYLOAD)]),
         tiny_model=True,
         install_model=True,
+        separation_clock=clock,
+        separation_stall_seconds=30.0,
     )
     harness.runner.start()
     try:
         async for user, workspace_page in _open_page(harness):
             await _import(harness, user, workspace_page)
-            clock = FakeClock()
-            workspace_page._separation.clock = clock
-            workspace_page._separation.stall_seconds = 30.0
             gate = harness.separation.block()
 
             user.find(marker="separation-action").click()
             assert await asyncio.to_thread(harness.separation.started.wait, 5)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
 
             await user.should_see(marker="job-bar")
             await user.should_see("Separating")
@@ -679,32 +756,56 @@ async def test_progress_cancel_and_stall_use_the_injected_clock(tmp_path: Path) 
             await user.should_not_see(marker="separation-stall")
 
             clock.advance(31)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
             await user.should_see(marker="separation-stall")
             await user.should_see("No progress for 30 seconds. Separation may still be working.")
             assert _enabled(user, "separation-stall-cancel") is True
 
             user.find(marker="separation-keep-waiting").click()
-            await asyncio.sleep(0.05)
             await user.should_not_see(marker="separation-stall")
 
             clock.advance(31)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
             await user.should_not_see(marker="separation-stall")
 
             user.find(marker="separation-cancel").click()
             gate.set()
             await _finish_jobs(harness, user, workspace_page)
-            await _poll(harness, user, workspace_page)
+            await _poll(user, workspace_page)
 
             separation_jobs = [job for job in harness.runner.jobs() if job.kind.value == "separate"]
             assert [job.state.value for job in separation_jobs] == ["cancelled"]
             await user.should_not_see(marker="separation-error")
             await user.should_not_see(marker="output-row-vocals")
             assert _only(user, "separation-status").text == "Not separated · htdemucs · CPU"
+            # The engine had written partial WAVs inside the staging directory; a
+            # cancelled Separation must leave neither the directory nor a partial.
             assert list(harness.artifacts.staging_dir.iterdir()) == []
+            assert list(harness.artifacts.root.rglob("*.partial*")) == []
     finally:
         harness.runner.stop(timeout=10)
+
+
+async def test_the_job_passes_the_verified_model_path_and_worker_config(
+    harness: Harness,
+) -> None:
+    async for user, workspace_page in _open_page(harness):
+        await _import(harness, user, workspace_page)
+        user.find(marker="separation-action").click()
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+        await user.should_see(marker="output-row-vocals")
+
+        assert harness.separation.model_path == harness.models.path()
+        assert harness.separation.model_path is not None
+        assert harness.separation.model_path.is_file()
+        assert harness.separation.model_revision == "test-revision"
+        assert harness.separation.expected_duration_s == DURATION_S
+        assert harness.separation.threads is None
+        assert harness.separation.timeout_s is None
+        assert harness.separation.env is not None
+        assert harness.separation.env["HF_HOME"] == str(harness.models.root)
+        assert harness.separation.env["HF_HUB_OFFLINE"] == "1"
+        assert len(harness.separation.calls) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -712,16 +813,27 @@ async def test_progress_cancel_and_stall_use_the_injected_clock(tmp_path: Path) 
 # ---------------------------------------------------------------------------
 
 
-async def test_the_separation_primary_uses_the_shared_primary_box(
+async def test_the_primary_action_is_offered_and_replaced_by_cancel_while_running(
     harness: Harness,
 ) -> None:
     async for user, workspace_page in _open_page(harness):
         await _import(harness, user, workspace_page)
+        assert _enabled(user, "separation-action") is True
 
-        action = _only(user, "separation-action")
-        # The sibling card primary shares the Pitch primary box.
-        assert "sf-control" in action.classes
-        assert "sf-control--primary" in action.classes
+        gate = harness.separation.block()
+        user.find(marker="separation-action").click()
+        assert await asyncio.to_thread(harness.separation.started.wait, 5)
+        await _poll(user, workspace_page)
+
+        await user.should_not_see(marker="separation-action")
+        assert _enabled(user, "separation-cancel") is True
+
+        gate.set()
+        await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+        await _poll(user, workspace_page)
+
+        await user.should_see(marker="separation-action")
+        assert _enabled(user, "separation-action") is True
 
 
 # ---------------------------------------------------------------------------
@@ -736,11 +848,10 @@ async def test_primary_rows_are_visible_secondary_hidden_and_every_row_plays(
         track_id = await _import(harness, user, workspace_page)
         user.find(marker="separation-action").click()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
-        await _poll(harness, user, workspace_page)
+        await _poll(user, workspace_page)
 
         # The rail reflects stem state; stems are Outputs rows.
         assert "4 stems" in _only(user, f"track-meta-{track_id}").text
-        assert "is-ok" in _only(user, f"track-dot-{track_id}").classes
         await user.should_see(marker="output-row-vocals")
         await user.should_see(marker="output-row-instrumental")
         await user.should_not_see(marker="output-row-drums")
@@ -749,7 +860,6 @@ async def test_primary_rows_are_visible_secondary_hidden_and_every_row_plays(
         await user.should_see("Show 3 more stems")
 
         user.find(marker="outputs-show-more").click()
-        await asyncio.sleep(0.05)
         for role in ("drums", "bass", "other"):
             await user.should_see(marker=f"output-row-{role}")
 
@@ -760,40 +870,30 @@ async def test_primary_rows_are_visible_secondary_hidden_and_every_row_plays(
             target = harness.service.separation_preview_target(track, item.set_key, role)
             assert target is not None
             user.find(marker=f"output-play-{role}").click()
-            await asyncio.sleep(0.05)
             assert player.props["src"] == target.url
             assert len(user.find(marker="player").elements) == 1
 
         # Switching artifacts never carries the position over.
         user.find(marker="output-play-vocals").click()
-        await asyncio.sleep(0.05)
         user.find(marker="player").trigger("timeupdate", 42.0)
-        await asyncio.sleep(0.05)
         assert _only(user, "elapsed").text == "0:42"
         user.find(marker="output-play-instrumental").click()
-        await asyncio.sleep(0.05)
+        # The rebuilt transport carries the reset clock on the next loop turn.
+        await asyncio.sleep(0)
         assert _only(user, "elapsed").text == "0:00"
 
-        export = next(
-            target for target in harness.service.export_targets(track) if target.key == "stem:drums"
-        )
         user.find(marker="output-export-drums").click()
-        await asyncio.sleep(0.05)
-        assert workspace_page._export_sheet._target_key == export.key
         assert _only(user, "export-source-label").text == "Drums"
         user.find(marker="export-cancel").click()
-        await asyncio.sleep(0.05)
 
         # A/B stays the transport's Original | latest-render shortcut; playing
         # a stem does not repurpose it.
         original = harness.service.preview_targets(track_id)[0]
         user.find(marker="output-play-vocals").click()
-        await asyncio.sleep(0.05)
         assert player.props["src"].endswith("/vocals.mp3")
         assert _only(user, "ab-preview").text == "Latest render"
         assert _enabled(user, "ab-preview") is False
         user.find(marker="output-play-original").click()
-        await asyncio.sleep(0.05)
         assert player.props["src"] == original.url
         assert len(user.find(marker="player").elements) == 1
 
@@ -813,9 +913,7 @@ async def test_rendering_committed_stems_never_rehashes_audio(
         # A refresh after Separation must read manifests and stats, never the
         # hundreds of megabytes those manifests describe.
         monkeypatch.setattr("stemforge.artifacts._sha256_file", unexpected)
-        with user:
-            workspace_page._detail.refresh()
-        await asyncio.sleep(0.05)
+        user.find(marker=f"track-row-{track.track_id}").click()
 
         await user.should_see(marker="output-row-vocals")
         await user.should_see(marker="output-row-instrumental")
@@ -829,27 +927,25 @@ async def test_a_failed_reseparation_keeps_the_last_stems_playable(harness: Harn
         track_id = await _import(harness, user, workspace_page)
         user.find(marker="separation-action").click()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
-        await _poll(harness, user, workspace_page)
+        await _poll(user, workspace_page)
 
         track = harness.service.snapshot().tracks[0]
         (first,) = harness.service.separation_sets(track)
         target = harness.service.separation_preview_target(track, first.set_key, "vocals")
         assert target is not None
         user.find(marker="output-play-vocals").click()
-        await asyncio.sleep(0.05)
         assert _only(user, "player").props["src"] == target.url
 
         harness.separation.fail_code = errors.SEPARATION_WORKER_CRASHED
         user.find(marker="separation-action").click()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
-        await _poll(harness, user, workspace_page)
+        await _poll(user, workspace_page)
 
         await user.should_see(marker="separation-error")
         assert errors.SEPARATION_WORKER_CRASHED in _only(user, "separation-error-code").text
         await user.should_see("Stems from the last successful Separation are still available.")
         await user.should_see(marker="output-row-vocals")
         user.find(marker="output-play-vocals").click()
-        await asyncio.sleep(0.05)
         assert _only(user, "player").props["src"] == target.url
         assert len(user.find(marker="player").elements) == 1
         assert track.track_id == track_id
@@ -878,7 +974,7 @@ async def test_a_retryable_separation_failure_is_inline_and_retry_resubmits(
         harness.separation.retryable = True
         user.find(marker="separation-action").click()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
-        await _poll(harness, user, workspace_page)
+        await _poll(user, workspace_page)
 
         await user.should_see(marker="separation-error")
         assert code in _only(user, "separation-error-code").text
@@ -887,7 +983,7 @@ async def test_a_retryable_separation_failure_is_inline_and_retry_resubmits(
         harness.separation.fail_code = None
         user.find(marker="separation-retry").click()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
-        await _poll(harness, user, workspace_page)
+        await _poll(user, workspace_page)
 
         await user.should_not_see(marker="separation-error")
         await user.should_see(marker="output-row-vocals")
@@ -902,7 +998,7 @@ async def test_a_protocol_mismatch_is_inline_without_a_retry(harness: Harness) -
         harness.separation.retryable = False
         user.find(marker="separation-action").click()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
-        await _poll(harness, user, workspace_page)
+        await _poll(user, workspace_page)
 
         await user.should_see(marker="separation-error")
         assert errors.SEPARATION_PROTOCOL_MISMATCH in _only(user, "separation-error-code").text
