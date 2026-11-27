@@ -1,8 +1,9 @@
 """Integration: the YouTube import Job through real FFmpeg and a stubbed YoutubeDL.
 
-The stub replaces the network boundary only: it writes a generated WAV into the
-Job's staging directory and reports ``requested_downloads`` exactly as yt-dlp
-does. No test here constructs a real ``YoutubeDL`` or opens a socket.
+The stub replaces the network boundary only: it downloads a generated WebM/Opus
+file into the Job's staging directory and reports ``requested_downloads``
+exactly as yt-dlp does. No test here constructs a real ``YoutubeDL`` or opens a
+socket.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 import pytest
 
@@ -35,6 +36,8 @@ VIDEO_ID = "dQw4w9WgXcQ"
 URL = f"https://youtu.be/{VIDEO_ID}?t=5"
 TITLE = "Test Video · One"
 ARTIST = "Test Uploader"
+NATIVE_FORMAT_ID = "251"
+NATIVE_ACODEC = "opus"
 
 
 @pytest.fixture(autouse=True)
@@ -64,9 +67,8 @@ def ffprobe() -> Path:
         pytest.fail(f"ffprobe is required for this layer and was not found: {error}")
 
 
-@pytest.fixture(scope="session")
-def source_wav(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
-    target = tmp_path_factory.mktemp("youtube-fixtures") / "downloaded.wav"
+def _generate_opus_webm(ffmpeg: Path, target: Path, *, channels: str) -> Path:
+    expression = "|".join(["sin(2*PI*440*t)"] * (6 if channels == "5.1" else 2))
     result = subprocess.run(
         [
             str(ffmpeg),
@@ -76,9 +78,11 @@ def source_wav(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
             "-f",
             "lavfi",
             "-i",
-            "aevalsrc=sin(2*PI*440*t)|sin(2*PI*440*t):s=44100:d=3:c=stereo",
+            f"aevalsrc={expression}:s=48000:d=3:c={channels}",
             "-c:a",
-            "pcm_s16le",
+            "libopus",
+            "-b:a",
+            "160k",
             str(target),
         ],
         capture_output=True,
@@ -91,30 +95,15 @@ def source_wav(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
 
 
 @pytest.fixture(scope="session")
-def surround_wav(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
-    target = tmp_path_factory.mktemp("youtube-surround-fixtures") / "surround.wav"
-    result = subprocess.run(
-        [
-            str(ffmpeg),
-            "-v",
-            "error",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            "aevalsrc=sin(2*PI*440*t)|sin(2*PI*440*t)|sin(2*PI*440*t)|"
-            "sin(2*PI*440*t)|sin(2*PI*440*t)|sin(2*PI*440*t):s=48000:d=3:c=5.1",
-            "-c:a",
-            "pcm_s16le",
-            str(target),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    return target
+def native_webm(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
+    target = tmp_path_factory.mktemp("youtube-fixtures") / "downloaded.webm"
+    return _generate_opus_webm(ffmpeg, target, channels="stereo")
+
+
+@pytest.fixture(scope="session")
+def surround_webm(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
+    target = tmp_path_factory.mktemp("youtube-surround-fixtures") / "surround.webm"
+    return _generate_opus_webm(ffmpeg, target, channels="5.1")
 
 
 def _info() -> dict[str, object]:
@@ -131,19 +120,14 @@ def _info() -> dict[str, object]:
     }
 
 
-class StubYoutubeDL:
-    """The network boundary: writes a known WAV and reports it like yt-dlp."""
+@dataclass
+class _ScriptedSession:
+    """One yt-dlp session: writes the native file the stub owns and reports it."""
 
-    source_wav: Path
-    stop: threading.Event | None = None
-    started: threading.Event | None = None
-    constructed: ClassVar[list[dict[str, object]]] = []
+    network: YoutubeStub
+    options: Mapping[str, object]
 
-    def __init__(self, options: Mapping[str, object]) -> None:
-        type(self).constructed.append(dict(options))
-        self.options = options
-
-    def __enter__(self) -> StubYoutubeDL:
+    def __enter__(self) -> _ScriptedSession:
         return self
 
     def __exit__(self, *exc_info: object) -> bool:
@@ -151,12 +135,13 @@ class StubYoutubeDL:
 
     def extract_info(self, url: str, download: bool = False) -> dict[str, object]:
         del url
+        self.network.requests.append(download)
         if not download:
             return _info()
         staging = Path(str(dict(self.options["paths"])["home"]))
-        target = staging / f"{VIDEO_ID}.wav"
+        target = staging / f"{VIDEO_ID}{self.network.source.suffix}"
         partial = target.with_name(f"{target.name}.part")
-        shutil.copyfile(self.source_wav, partial)
+        shutil.copyfile(self.network.source, partial)
         hooks = self.options["progress_hooks"]
         assert isinstance(hooks, list)
         assert hooks
@@ -170,9 +155,8 @@ class StubYoutubeDL:
                 "speed": 2_000_000,
             }
         )
-        if self.started is not None:
-            self.started.set()
-        while self.stop is not None:
+        self.network.started.set()
+        while self.network.stop is not None:
             time.sleep(0.005)
             hook(
                 {
@@ -188,22 +172,63 @@ class StubYoutubeDL:
             "requested_downloads": [
                 {
                     "filepath": str(target),
-                    "format_id": "251",
-                    "acodec": "opus",
+                    "format_id": NATIVE_FORMAT_ID,
+                    "acodec": NATIVE_ACODEC,
                 }
             ],
         }
 
 
-class ExplodingYoutubeDL:
-    """A ``YoutubeDL`` whose construction is a hard failure."""
+@dataclass
+class YoutubeStub:
+    """One test's scripted network boundary.
 
-    constructed = 0
+    Every mutable value belongs to the instance, so a stop event or a request
+    log cannot leak into the next test. ``requests`` records each
+    ``extract_info`` call by its ``download`` flag: the metadata resolve and the
+    media download are the observable behaviour, however many sessions yt-dlp
+    opens.
+    """
 
-    def __init__(self, options: Mapping[str, object]) -> None:
+    source: Path
+    stop: threading.Event | None = None
+    started: threading.Event = field(default_factory=threading.Event)
+    requests: list[bool] = field(default_factory=list)
+
+    def __call__(self, options: Mapping[str, object]) -> _ScriptedSession:
+        return _ScriptedSession(self, options)
+
+    @property
+    def resolves(self) -> int:
+        return sum(1 for download in self.requests if not download)
+
+    @property
+    def downloads(self) -> int:
+        return sum(1 for download in self.requests if download)
+
+
+@dataclass
+class ForbiddenYoutube:
+    """A boundary that fails any Job reaching it, so a cache hit proves its silence."""
+
+    constructions: int = 0
+    extracts: int = 0
+
+    def __call__(self, options: Mapping[str, object]) -> ForbiddenYoutube:
         del options
-        type(self).constructed += 1
-        raise AssertionError("a cache hit must not construct YoutubeDL")
+        self.constructions += 1
+        return self
+
+    def __enter__(self) -> ForbiddenYoutube:
+        return self
+
+    def __exit__(self, *exc_info: object) -> bool:
+        return False
+
+    def extract_info(self, url: str, download: bool = False) -> dict[str, object]:
+        del url, download
+        self.extracts += 1
+        raise AssertionError("a cache hit must not touch YouTube")
 
 
 @dataclass
@@ -211,8 +236,8 @@ class Harness:
     root: Path
     ffmpeg: Path
     ffprobe: Path
-    source_wav: Path
-    factory: Callable[[Mapping[str, object]], Any]
+    native: Path
+    youtube: Any
     delays: list[float] = field(default_factory=list)
     delay: Callable[[float], None] | None = None
     paths: AppPaths = field(init=False)
@@ -230,7 +255,7 @@ class Harness:
             cache_root=self.paths.cache,
             ffmpeg=self.ffmpeg,
             deno=self.root / "deno",
-            youtube_dl_factory=self.factory,
+            youtube_dl_factory=self.youtube,
         )
         self.service = WorkspaceService(
             self.settings,
@@ -254,18 +279,14 @@ class Harness:
 
 @pytest.fixture
 def stub_harness(
-    tmp_path: Path, ffmpeg: Path, ffprobe: Path, source_wav: Path
+    tmp_path: Path, ffmpeg: Path, ffprobe: Path, native_webm: Path
 ) -> Iterator[Harness]:
-    StubYoutubeDL.source_wav = source_wav
-    StubYoutubeDL.stop = None
-    StubYoutubeDL.started = None
-    StubYoutubeDL.constructed = []
     with Harness(
         root=tmp_path,
         ffmpeg=ffmpeg,
         ffprobe=ffprobe,
-        source_wav=source_wav,
-        factory=StubYoutubeDL,
+        native=native_webm,
+        youtube=YoutubeStub(source=native_webm),
     ) as harness:
         yield harness
 
@@ -294,7 +315,7 @@ def test_a_youtube_import_commits_a_source_track_and_recent_file(
     assert manifest["downmixed"] is False
     assert manifest["content_hash"] == manifest["native_sha256"]
     assert manifest["native_bytes"] > 0
-    assert manifest["format_id"] == "251"
+    assert manifest["format_id"] == NATIVE_FORMAT_ID
     assert manifest["extractor"] == "youtube"
     assert manifest["extractor_version"]
     assert manifest["tools"]["yt_dlp"]
@@ -313,19 +334,27 @@ def test_a_youtube_import_commits_a_source_track_and_recent_file(
     assert metadata["channels"] == 2
     assert metadata["album"] == ""
 
-    roles = {entry["role"]: entry["path"] for entry in manifest["files"]}
-    assert {"native", "canonical", "preview"} <= set(roles)
-    assert "cover" not in roles
-    for relative in roles.values():
-        assert (source_dir / relative).is_file()
+    files = {entry["role"]: entry for entry in manifest["files"]}
+    assert {"native", "canonical", "preview"} <= set(files)
+    assert "cover" not in files
+    for entry in files.values():
+        assert (source_dir / entry["path"]).is_file()
+
+    native_entry = files["native"]
+    assert native_entry["path"] == "native.webm"
+    assert Path(native_entry["path"]).suffix == harness.native.suffix
+    assert native_entry["sha256"] == hashlib.sha256(harness.native.read_bytes()).hexdigest()
 
     tool = FfmpegTool(ffmpeg_path=harness.ffmpeg, ffprobe_path=harness.ffprobe)
-    canonical = tool.probe(source_dir / roles["canonical"])
+    native = tool.probe(source_dir / native_entry["path"])
+    assert native.codec == NATIVE_ACODEC
+    assert native.format == "matroska,webm"
+    canonical = tool.probe(source_dir / files["canonical"]["path"])
     assert canonical.codec == "pcm_f32le"
     assert canonical.sample_rate == 44_100
     assert canonical.channels == 2
     assert canonical.duration_s == pytest.approx(3.0, abs=0.05)
-    preview = tool.probe(source_dir / roles["preview"])
+    preview = tool.probe(source_dir / files["preview"]["path"])
     assert preview.codec == "mp3"
     assert preview.duration_s == pytest.approx(3.0, abs=0.05)
 
@@ -345,28 +374,27 @@ def test_a_youtube_import_commits_a_source_track_and_recent_file(
     assert recent[0].origin_kind.value == "youtube"
 
     # Two 5 s politeness waits between the network phases, injected so the test
-    # itself never sleeps. The stub saw only a generated WAV.
+    # itself never sleeps.
     assert sum(harness.delays) == pytest.approx(10.0)
     assert not list(harness.paths.cache.rglob("*.part"))
     assert list((harness.paths.cache / "staging").iterdir()) == []
     assert not (harness.paths.cache / "yt-dlp" / job_id).exists()
-    assert len(StubYoutubeDL.constructed) == 2
+    # The contract is one metadata resolve and one media download; how many
+    # yt-dlp sessions the adapter opens is an internal detail.
+    assert harness.youtube.requests == [False, True]
+    assert harness.youtube.resolves == 1
+    assert harness.youtube.downloads == 1
 
 
 def test_a_valid_native_file_repairs_missing_derived_files_locally(
-    tmp_path: Path, ffmpeg: Path, ffprobe: Path, source_wav: Path
+    tmp_path: Path, ffmpeg: Path, ffprobe: Path, native_webm: Path
 ) -> None:
-    StubYoutubeDL.source_wav = source_wav
-    StubYoutubeDL.stop = None
-    StubYoutubeDL.started = None
-    StubYoutubeDL.constructed = []
-
     with Harness(
         root=tmp_path,
         ffmpeg=ffmpeg,
         ffprobe=ffprobe,
-        source_wav=source_wav,
-        factory=StubYoutubeDL,
+        native=native_webm,
+        youtube=YoutubeStub(source=native_webm),
     ) as first:
         job_id = first.service.submit_youtube(URL)
         assert first.runner.wait_idle(timeout=120)
@@ -381,17 +409,16 @@ def test_a_valid_native_file_repairs_missing_derived_files_locally(
     preview.unlink()
     assert first.store.find_source(f"yt-{VIDEO_ID}") is None
 
-    ExplodingYoutubeDL.constructed = 0
-
     def exploding_delay(seconds: float) -> None:
         raise AssertionError(f"a local repair must not wait ({seconds}s)")
 
+    forbidden = ForbiddenYoutube()
     second = Harness(
         root=tmp_path,
         ffmpeg=ffmpeg,
         ffprobe=ffprobe,
-        source_wav=source_wav,
-        factory=ExplodingYoutubeDL,
+        native=native_webm,
+        youtube=forbidden,
         delay=exploding_delay,
     )
     with second:
@@ -401,7 +428,8 @@ def test_a_valid_native_file_repairs_missing_derived_files_locally(
 
         assert snapshot.state is JobState.SUCCEEDED, snapshot
         assert snapshot.stage == "Finishing"
-        assert ExplodingYoutubeDL.constructed == 0
+        assert forbidden.constructions == 0
+        assert forbidden.extracts == 0
         assert second.delays == []
         repaired = second.store.find_source(f"yt-{VIDEO_ID}")
         assert repaired is not None
@@ -413,19 +441,14 @@ def test_a_valid_native_file_repairs_missing_derived_files_locally(
 
 
 def test_a_six_channel_youtube_source_records_the_downmix(
-    tmp_path: Path, ffmpeg: Path, ffprobe: Path, surround_wav: Path
+    tmp_path: Path, ffmpeg: Path, ffprobe: Path, surround_webm: Path
 ) -> None:
-    StubYoutubeDL.source_wav = surround_wav
-    StubYoutubeDL.stop = None
-    StubYoutubeDL.started = None
-    StubYoutubeDL.constructed = []
-
     with Harness(
         root=tmp_path,
         ffmpeg=ffmpeg,
         ffprobe=ffprobe,
-        source_wav=surround_wav,
-        factory=StubYoutubeDL,
+        native=surround_webm,
+        youtube=YoutubeStub(source=surround_webm),
     ) as harness:
         job_id = harness.service.submit_youtube(URL)
         assert harness.runner.wait_idle(timeout=120) is True
@@ -440,38 +463,32 @@ def test_a_six_channel_youtube_source_records_the_downmix(
         assert track.source.metadata.channels == 2
 
 
-def test_a_second_import_of_the_same_link_constructs_no_youtube_dl(
-    tmp_path: Path, ffmpeg: Path, ffprobe: Path, source_wav: Path
+def test_a_second_import_of_the_same_link_never_touches_youtube(
+    tmp_path: Path, ffmpeg: Path, ffprobe: Path, native_webm: Path
 ) -> None:
-    StubYoutubeDL.source_wav = source_wav
-    StubYoutubeDL.stop = None
-    StubYoutubeDL.started = None
-    StubYoutubeDL.constructed = []
-
     with Harness(
         root=tmp_path,
         ffmpeg=ffmpeg,
         ffprobe=ffprobe,
-        source_wav=source_wav,
-        factory=StubYoutubeDL,
+        native=native_webm,
+        youtube=YoutubeStub(source=native_webm),
     ) as first:
         job_id = first.service.submit_youtube(URL)
         assert first.runner.wait_idle(timeout=120)
         assert first.runner.snapshot(job_id).state is JobState.SUCCEEDED
 
-    # A fresh service over the same home: nothing but the committed artifact can
-    # satisfy the import, and constructing YoutubeDL now raises.
-    ExplodingYoutubeDL.constructed = 0
-
+    # A fresh service over the same home: the committed artifact must satisfy
+    # the import, so neither construction nor extraction may be reached.
     def exploding_delay(seconds: float) -> None:
         raise AssertionError(f"a cache hit must not wait ({seconds}s)")
 
+    forbidden = ForbiddenYoutube()
     second = Harness(
         root=tmp_path,
         ffmpeg=ffmpeg,
         ffprobe=ffprobe,
-        source_wav=source_wav,
-        factory=ExplodingYoutubeDL,
+        native=native_webm,
+        youtube=forbidden,
         delay=exploding_delay,
     )
 
@@ -483,31 +500,27 @@ def test_a_second_import_of_the_same_link_constructs_no_youtube_dl(
         assert snapshot.state is JobState.SUCCEEDED, snapshot
         assert snapshot.stage == "Finishing"
         assert snapshot.result_keys["source_id"] == f"yt-{VIDEO_ID}"
-        assert ExplodingYoutubeDL.constructed == 0
+        assert forbidden.constructions == 0
+        assert forbidden.extracts == 0
         # No pacing either: a cache hit returns before the first wait.
         assert second.delays == []
 
 
 def test_cancelling_mid_download_leaves_no_staging_or_partial(
-    tmp_path: Path, ffmpeg: Path, ffprobe: Path, source_wav: Path
+    tmp_path: Path, ffmpeg: Path, ffprobe: Path, native_webm: Path
 ) -> None:
-    started = threading.Event()
-    StubYoutubeDL.source_wav = source_wav
-    StubYoutubeDL.stop = threading.Event()
-    StubYoutubeDL.started = started
-    StubYoutubeDL.constructed = []
-
+    network = YoutubeStub(source=native_webm, stop=threading.Event())
     with Harness(
         root=tmp_path,
         ffmpeg=ffmpeg,
         ffprobe=ffprobe,
-        source_wav=source_wav,
-        factory=StubYoutubeDL,
+        native=native_webm,
+        youtube=network,
     ) as harness:
         job_id = harness.service.submit_youtube(URL)
-        assert started.wait(10) is True
+        assert network.started.wait(10) is True
         assert harness.runner.cancel(job_id) is True
-        StubYoutubeDL.stop.set()
+        network.stop.set()
         assert harness.runner.wait_idle(timeout=30) is True
 
         snapshot = harness.runner.snapshot(job_id)
@@ -529,8 +542,8 @@ def test_clear_youtube_cache_deletes_only_the_yt_dlp_directory(
     assert harness.runner.wait_idle(timeout=120)
     assert harness.runner.snapshot(job_id).state is JobState.SUCCEEDED
 
-    local_source = harness.root / "local.wav"
-    shutil.copyfile(harness.source_wav, local_source)
+    local_source = harness.root / "local.webm"
+    shutil.copyfile(harness.native, local_source)
     local_job = harness.service.import_local(local_source)
     assert harness.runner.wait_idle(timeout=120)
     assert harness.runner.snapshot(local_job).state is JobState.SUCCEEDED

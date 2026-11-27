@@ -89,7 +89,7 @@ class FakeYouTube:
         del video, log
         cancel.check()
         self.calls.append("download")
-        target = staging / f"{VIDEO_ID}.wav"
+        target = staging / f"{VIDEO_ID}.webm"
         target.write_bytes(b"fake native audio")
         progress(1.0, "Downloading audio · 100%")
         return DownloadedAudio(
@@ -215,7 +215,10 @@ async def test_a_valid_url_submits_and_reports_in_the_job_bar(harness: Harness) 
         with user.scope(marker="track-detail"):
             await user.should_see(TITLE)
             await user.should_see("YouTube")
-        assert harness.service.snapshot().tracks[0].title == TITLE
+        track = harness.service.snapshot().tracks[0]
+        assert track.title == TITLE
+        assert track.source.native_path is not None
+        assert track.source.native_path.suffix == ".webm"
         assert [entry.source_id for entry in harness.service.recent_files()] == [f"yt-{VIDEO_ID}"]
 
 
