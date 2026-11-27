@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import logging
 import threading
+import time
 import urllib.error
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -269,8 +270,8 @@ class Harness:
     transport: ScriptedTransport
     tiny_model: bool = True
     install_model: bool = False
-    separation_clock: Callable[[], float] | None = None
-    separation_stall_seconds: float | None = None
+    separation_clock: Callable[[], float] = time.monotonic
+    separation_stall_seconds: float = 30.0
     paths: AppPaths = field(init=False)
     settings: SettingsStore = field(init=False)
     artifacts: ArtifactStore = field(init=False)

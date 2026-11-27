@@ -121,6 +121,9 @@ EXPECTED_NAMESPACES = frozenset(
 )
 
 HEAVY_MODULES = frozenset({"nicegui", "torch", "demucs"})
+# The entry point also gates the native window: a module-scope webview import
+# would load the webview runtime before --self-test or --worker can dispatch.
+ENTRY_POINT_HEAVY_MODULES = HEAVY_MODULES | {"webview"}
 ALLOWED_FOUNDATION_THIRD_PARTY = frozenset({"platformdirs"})
 
 
@@ -251,8 +254,9 @@ def test_self_test_mode_exits_zero_with_a_message(capsys: pytest.CaptureFixture[
 @pytest.mark.unit
 def test_entry_point_only_imports_the_heavy_stack_lazily() -> None:
     # The UI lands in _run_ui; what matters is that importing __main__ (and
-    # therefore --self-test/--worker dispatch) does not import NiceGUI or torch.
-    assert not _module_scope_import_roots(_main_module_source()) & HEAVY_MODULES
+    # therefore --self-test/--worker dispatch) does not import NiceGUI, torch,
+    # or the native webview runtime.
+    assert not (_module_scope_import_roots(_main_module_source()) & ENTRY_POINT_HEAVY_MODULES)
 
 
 @pytest.mark.unit

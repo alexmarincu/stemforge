@@ -145,19 +145,23 @@ async def test_the_romanian_page_covers_the_main_screen_about_and_export(
     async for user, workspace_page in _open_page(harness):
         await user.should_see("Importă o piesă")
         await user.should_see(marker="dropzone")
-        await user.should_see(i18n.t("page.empty_lede_youtube"))
+        await user.should_see(
+            "Trage un fișier local sau importă de pe YouTube. Totul rulează pe această mașină."
+        )
 
         user.find(marker="settings-about").click()
         await user.should_see("Setări și despre")
         await user.should_see(marker="about-licence-authoritative")
-        assert _only(user, "about-licence-authoritative").text == i18n.t(
-            "settings.licence_authoritative"
+        assert _only(user, "about-licence-authoritative").text == (
+            "Versiunile în engleză ale fișierelor de licență sunt autoritative."
         )
         await user.should_see(marker="about-translation-credit")
-        assert _only(user, "about-translation-credit").text == i18n.t("settings.translation_credit")
-        await user.should_see(i18n.t("settings.behaviour"))
-        await user.should_see(i18n.t("settings.language_label"))
-        assert _only(user, "language-hint").text == i18n.t("settings.language_hint")
+        assert _only(user, "about-translation-credit").text == (
+            "Traducere în română: StemForge contributors."
+        )
+        await user.should_see("Comportament")
+        await user.should_see("Limbă")
+        assert _only(user, "language-hint").text == "Modificările se aplică imediat."
         select = _only(user, "language-select")
         assert select.value == "system"
         assert select.options["system"] == "Sistem (Română)"
@@ -170,7 +174,9 @@ async def test_the_romanian_page_covers_the_main_screen_about_and_export(
         user.find(marker="add-audio").click()
         await _finish_jobs(harness, user, workspace_page)
         await user.should_see(marker="import-error")
-        await user.should_see(i18n.t("error.media.probe_failed.headline"))
+        await user.should_see(
+            "StemForge nu poate citi fișierul. Este deteriorat sau într-un format neacceptat."
+        )
 
         harness.media.fail_probe = False
         gate = harness.media.block_decoding()
@@ -180,7 +186,7 @@ async def test_the_romanian_page_covers_the_main_screen_about_and_export(
         with user:
             workspace_page.poll()
         await user.should_see(marker="job-bar")
-        assert _only(user, "job-stage").text.startswith(i18n.t("page.job.importing"))
+        assert _only(user, "job-stage").text.startswith("Se importă")
         gate.set()
         await _finish_jobs(harness, user, workspace_page)
 
@@ -190,12 +196,12 @@ async def test_the_romanian_page_covers_the_main_screen_about_and_export(
         user.find(marker="export-action").click()
 
         await user.should_see(marker="export-sheet")
-        for key in (
-            "export.format",
-            "export.default_name",
-            "export.destination",
-            "export.imported_file",
-            "export.save_original_action",
+        for label in (
+            "Format",
+            "Nume fișier",
+            "Salvează în",
+            "Fișier importat",
+            "Salvează fișierul importat…",
         ):
-            await user.should_see(i18n.t(key))
-        assert _only(user, "export-source-label").text == i18n.t("common.original")
+            await user.should_see(label)
+        assert _only(user, "export-source-label").text == "Original"

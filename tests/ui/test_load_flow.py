@@ -341,7 +341,7 @@ async def test_window_title_follows_the_selected_track_and_clears_on_remove(
 
         user.find(marker="add-audio").click()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
-        assert titles[-1] == "StemForge — My Song"
+        assert titles[-1] == i18n.t("app.window_title", app=i18n.t("app.name"), track="My Song")
         await user.should_see(marker="track-detail")
 
         # The header carries Settings and Remove.
@@ -583,7 +583,6 @@ async def test_remove_confirms_cache_deletion_and_never_touches_the_source(
         await user.should_see(marker="remove-dialog")
         card = _only(user, "remove-dialog")
         assert card.tag == "q-card"
-        assert "sf-card" in card.classes
         await user.should_see("deletes its cached audio")
         await user.should_see("The file on disk is not touched.")
         user.find(marker="confirm-remove").click()

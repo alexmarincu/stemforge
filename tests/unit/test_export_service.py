@@ -6,6 +6,7 @@ import hashlib
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -32,7 +33,7 @@ from stemforge.domain.models import (
     Track,
 )
 from stemforge.domain.workspace import Workspace
-from stemforge.engines.media import ExportFormat, MediaInfo
+from stemforge.engines.media import ExportFormat, MediaInfo, MediaTool
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import Job, JobContext
 from stemforge.jobs.models import JobSnapshot
@@ -784,13 +785,12 @@ def test_mp3_verification_covers_every_tag_field_the_writer_writes(
         tags=reported,
     )
 
-    class FakeMedia:
-        def probe(self, path: Path) -> MediaInfo:
-            return info
+    media = Mock(spec=MediaTool)
+    media.probe.return_value = info
 
     with pytest.raises(StemForgeError) as raised:
         export_job._verify_output(
-            FakeMedia(),  # type: ignore[arg-type]
+            media,
             tmp_path / "out.mp3",
             export_format=ExportFormat.MP3_320,
             metadata=metadata,

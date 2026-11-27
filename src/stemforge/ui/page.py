@@ -14,6 +14,7 @@ the whole page. Pitch and Separation contribute requests and job state only.
 from __future__ import annotations
 
 import contextlib
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -414,7 +415,7 @@ SHELL_CSS: Final = (
 
 @dataclass(slots=True)
 class UiContext:
-    """Process-wide state the page reads; rebuilt only by a new app launch."""
+    """Process-wide state the page reads or calls; rebuilt only by a new app launch."""
 
     service: WorkspaceService
     dialogs: AudioFileDialog
@@ -428,8 +429,8 @@ class UiContext:
     clipboard: ClipboardWriter | None = None
     on_language_change: Callable[[str], None] | None = None
     resource_warning_dismissed: bool = False
-    separation_clock: Callable[[], float] | None = None
-    separation_stall_seconds: float | None = None
+    separation_clock: Callable[[], float] = time.monotonic
+    separation_stall_seconds: float = 30.0
     window_title: Callable[[str], None] | None = None
 
     @property

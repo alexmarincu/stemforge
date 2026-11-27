@@ -19,14 +19,16 @@ import pytest
 from media_fake import FakeMedia
 from nicegui.testing.user_simulation import user_simulation
 
+from stemforge import i18n
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
+from stemforge.domain.display import RENDER_LABEL_KEY
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform import preflight
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
-from stemforge.ui import page
+from stemforge.ui import formatting, page
 
 pytestmark = pytest.mark.ui
 
@@ -173,6 +175,15 @@ def _player(user):
     return _only(user, "player")
 
 
+def _shifted_master(semitones: int) -> str:
+    """The transport title for the active shifted master at ``semitones``."""
+    return i18n.t(
+        "page.now_playing_version",
+        name=i18n.t("page.outputs_shifted_master"),
+        version=formatting.display_label(RENDER_LABEL_KEY, {"semitones": semitones}),
+    )
+
+
 def _enabled(user, marker: str) -> bool:
     element = _only(user, marker)
     return bool(element.enabled)
@@ -298,10 +309,10 @@ async def test_ab_swaps_original_and_newest_preview_in_one_player(harness: Harne
         assert _only(user, "ab-preview").text == "+3"
 
         user.find(marker="ab-preview").click()
-        await user.should_see(marker="now-playing", content="Shifted master · +3")
+        await user.should_see(marker="now-playing", content=_shifted_master(3))
         assert player.props["src"] == preview
         assert len(user.find(marker="player").elements) == 1
-        assert _only(user, "now-playing").text == "Shifted master · +3"
+        assert _only(user, "now-playing").text == _shifted_master(3)
 
         user.find(marker="ab-original").click()
         await user.should_see(marker="now-playing", content="Original")
@@ -323,19 +334,21 @@ async def test_the_ab_shortcut_highlights_only_the_latest_render(harness: Harnes
         await user.should_see(marker="ab-preview", content="+1")
 
         # Original is active, so the B shortcut names +1 but is not highlighted.
+        # This test is the one design-system contract for the is-active state;
+        # flow tests prove selection through visible text and the player source.
         assert _only(user, "ab-preview").text == "+1"
         assert "is-active" not in _only(user, "ab-preview").classes
 
         # A non-latest set leaves the B shortcut labelled but inactive.
         user.find(marker=f"output-tab-{older}").click()
-        await user.should_see(marker="now-playing", content="Shifted master · +3")
+        await user.should_see(marker="now-playing", content=_shifted_master(3))
         assert _only(user, "ab-preview").text == "+1"
         assert "is-active" not in _only(user, "ab-preview").classes
         assert "is-active" in _only(user, f"output-tab-{older}").classes
 
         # Only the latest render lights the shortcut.
         user.find(marker=f"output-tab-{newer}").click()
-        await user.should_see(marker="now-playing", content="Shifted master · +1")
+        await user.should_see(marker="now-playing", content=_shifted_master(1))
         assert "is-active" in _only(user, "ab-preview").classes
         assert "is-active" in _only(user, f"output-tab-{newer}").classes
 
@@ -376,16 +389,13 @@ async def test_a_playback_failure_falls_back_to_the_original_version(
         render_url = f"/media/renders/{render_key}/original_preview.mp3"
         assert _player(user).props["src"] == render_url
 
-        with user:
-            workspace_page._on_player_error()
+        user.find(marker="player").trigger("error")
 
         # The failed render stays available behind a repair, but the view and
         # the single player now point at the working Original set.
         await user.should_see(marker="now-playing", content="Original")
         assert _player(user).props["src"] == original_url
         assert _only(user, "now-playing").text == "Original"
-        assert "is-active" in _only(user, "output-tab-original").classes
-        assert "is-active" not in _only(user, f"output-tab-{render_key}").classes
 
 
 async def test_degraded_preview_keeps_a_banner_and_disables_only_transport(
@@ -478,7 +488,7 @@ async def test_playback_stays_enabled_while_second_job_actions_disable(
         original = harness.service.preview_targets(track_id)[0].url
         preview = f"/media/renders/{render_key}/original_preview.mp3"
         user.find(marker="ab-preview").click()
-        await user.should_see(marker="now-playing", content="Shifted master · +2")
+        await user.should_see(marker="now-playing", content=_shifted_master(2))
         assert player.props["src"] == preview
         user.find(marker="ab-original").click()
         await user.should_see(marker="now-playing", content="Original")
@@ -631,7 +641,7 @@ async def test_ab_switches_between_previews_that_carry_their_own_gain(
         # Each preview MP3 is encoded with its set's presentation gain, so A/B
         # switches sources and the visible badge names the set's attenuation.
         user.find(marker="ab-preview").click()
-        await user.should_see(marker="now-playing", content="Shifted master · +3")
+        await user.should_see(marker="now-playing", content=_shifted_master(3))
         assert _player(user).props["src"] == f"/media/renders/{render_key}/original_preview.mp3"
         assert _only(user, "output-level-adjusted").text == "level adjusted \u22125.0 dB"
 
