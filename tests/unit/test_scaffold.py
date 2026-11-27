@@ -280,6 +280,9 @@ def test_foundation_modules_do_not_import_other_stemforge_packages() -> None:
         assert not unexpected, f"{path.name} imports {sorted(unexpected)}"
 
 
+# Packaging smoke: every name is a shipped module or an entry point the frozen
+# bundle imports, so a broken import that no behaviour test happens to reach
+# still fails here.
 @pytest.mark.unit
 @pytest.mark.parametrize("module_name", CORE_MODULES)
 def test_core_modules_are_importable(module_name: str) -> None:
@@ -288,6 +291,7 @@ def test_core_modules_are_importable(module_name: str) -> None:
 
 @pytest.mark.unit
 def test_session_home_is_a_temporary_directory() -> None:
+    """Environment guard: no test may write into the real user profile."""
     home = Path(os.environ["STEMFORGE_HOME"])
     assert home.is_dir()
     assert home.name.startswith("stemforge-tests-")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,24 @@ from stemforge.platform.preflight import PreflightReport
 from stemforge.settings import SettingsStore
 
 pytestmark = pytest.mark.unit
+
+
+def _ui_run_double(captured: dict[str, object]) -> Callable[..., None]:
+    """Capture ``ui.run``'s keywords, rejecting any NiceGUI does not declare."""
+    from nicegui import ui
+
+    signature = inspect.signature(ui.run)
+
+    def run(**kwargs: object) -> None:
+        bound = signature.bind(**kwargs)
+        extra = set(bound.arguments.get("kwargs", {})) - set(signature.parameters)
+        assert not extra, f"ui.run() has no parameter(s) {sorted(extra)}"
+        captured.update(bound.arguments.get("kwargs", {}))
+        captured.update(
+            {name: value for name, value in bound.arguments.items() if name != "kwargs"}
+        )
+
+    return run
 
 
 def test_window_configuration_sets_the_minimum_and_no_downloads(tmp_path: Path) -> None:
@@ -120,7 +139,7 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     startup: list[object] = []
     shutdown: list[object] = []
 
-    monkeypatch.setattr(ui, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(ui, "run", _ui_run_double(captured))
     monkeypatch.setattr(app, "on_startup", startup.append)
     monkeypatch.setattr(app, "on_shutdown", shutdown.append)
     monkeypatch.setattr(page, "configure", lambda context: captured.setdefault("context", context))
@@ -181,7 +200,7 @@ def test_run_ui_uses_the_persisted_language_and_passes_it_to_nicegui(
     settings = SettingsStore(paths)
     settings.set_language("ro")
     captured: dict[str, object] = {}
-    monkeypatch.setattr(ui, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(ui, "run", _ui_run_double(captured))
     monkeypatch.setattr(app, "on_startup", lambda callback: None)
     monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
     monkeypatch.setattr(page, "configure", lambda context: None)
@@ -218,7 +237,7 @@ def test_native_window_uses_the_ico_icon_on_windows(
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     captured: dict[str, object] = {}
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(ui, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(ui, "run", _ui_run_double(captured))
     monkeypatch.setattr(app, "on_startup", lambda callback: None)
     monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
     monkeypatch.setattr(page, "configure", lambda context: None)
@@ -240,7 +259,7 @@ def test_native_window_uses_the_png_icon_off_windows(
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     captured: dict[str, object] = {}
     monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr(ui, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(ui, "run", _ui_run_double(captured))
     monkeypatch.setattr(app, "on_startup", lambda callback: None)
     monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
     monkeypatch.setattr(page, "configure", lambda context: None)
@@ -265,7 +284,7 @@ def test_run_ui_connects_the_separation_engine(
 
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     captured: dict[str, object] = {}
-    monkeypatch.setattr(ui, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(ui, "run", _ui_run_double(captured))
     monkeypatch.setattr(app, "on_startup", lambda callback: None)
     monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
     monkeypatch.setattr(page, "configure", lambda context: captured.setdefault("context", context))
@@ -305,7 +324,7 @@ def test_run_ui_enforces_the_cache_cap_after_the_sweep(
     paths = AppPaths.for_home(tmp_path / "home").ensure()
     calls: list[str] = []
 
-    monkeypatch.setattr(ui, "run", lambda **kwargs: None)
+    monkeypatch.setattr(ui, "run", _ui_run_double({}))
     monkeypatch.setattr(app, "on_startup", lambda callback: None)
     monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
     monkeypatch.setattr(page, "configure", lambda context: None)
@@ -339,7 +358,7 @@ def test_run_ui_survives_a_cache_cap_failure(
     def fail(self: WorkspaceService) -> None:
         raise StemForgeError(errors.STORAGE_CACHE_FULL, "cache is full")
 
-    monkeypatch.setattr(ui, "run", lambda **kwargs: None)
+    monkeypatch.setattr(ui, "run", _ui_run_double({}))
     monkeypatch.setattr(app, "on_startup", lambda callback: None)
     monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
     monkeypatch.setattr(page, "configure", lambda context: None)
@@ -359,7 +378,7 @@ def test_run_ui_browser_mode_opens_the_web_server(
     captured: dict[str, object] = {}
 
     monkeypatch.setenv("STEMFORGE_BROWSER", "1")
-    monkeypatch.setattr(ui, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(ui, "run", _ui_run_double(captured))
     monkeypatch.setattr(app, "on_startup", lambda callback: None)
     monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
     monkeypatch.setattr(page, "configure", lambda context: None)

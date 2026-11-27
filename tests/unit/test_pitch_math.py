@@ -83,18 +83,20 @@ def test_shifted_frequency_rejects_non_positive_or_non_finite_input(frequency: f
 
 
 @pytest.mark.unit
-def test_measurement_round_trips_through_the_inverse() -> None:
-    measured = shifted_frequency(440.0, -7)
-
-    semitones = 12 * math.log2(measured / 440.0)
-
-    assert semitones == pytest.approx(-7.0)
+def test_shifted_frequency_matches_known_note_frequencies() -> None:
+    # Equal temperament at A4=440: G4 is 293.66 Hz and C5 is 523.25 Hz.
+    assert shifted_frequency(440.0, -7) == pytest.approx(293.66, abs=0.01)
+    assert shifted_frequency(440.0, 3) == pytest.approx(523.25, abs=0.01)
 
 
 # --- Render key ------------------------------------------------------------
 
 HASH_A = hashlib.sha256(b"a").hexdigest()
 HASH_B = hashlib.sha256(b"b").hexdigest()
+
+# The key is the cache identity of a Render: a silent change to the payload or
+# the digest would invalidate every cached Render, so this literal is the contract.
+RENDER_KEY_ABC123 = "f676f71498ac77f41f797edff70ff4201b2fde3073ec9aec9a7a2134391b28db"
 
 
 def _key(**overrides: object) -> str:
@@ -110,13 +112,8 @@ def _key(**overrides: object) -> str:
 
 
 @pytest.mark.unit
-def test_render_key_is_a_stable_64_hex_digest() -> None:
-    first = _key()
-    second = _key()
-
-    assert first == second
-    assert len(first) == 64
-    int(first, 16)
+def test_render_key_is_pinned_for_the_fixture() -> None:
+    assert _key() == RENDER_KEY_ABC123
 
 
 @pytest.mark.unit
