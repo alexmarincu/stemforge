@@ -51,8 +51,8 @@ class SeparationCard:
         on_cancel: CancelJob,
         on_open_about: Callable[[], None] | None = None,
         on_clear_cache: Callable[[], None] | None = None,
-        clock: Callable[[], float] = time.monotonic,
-        stall_seconds: float = 30.0,
+        clock: Callable[[], float] | None = None,
+        stall_seconds: float | None = None,
         diagnostics: DiagnosticsProvider | None = None,
         clipboard: ClipboardWriter | None = None,
         open_path: PathOpener | None = None,
@@ -66,8 +66,8 @@ class SeparationCard:
         self._clipboard = clipboard
         self._open_path = open_path
         # Injectable so tests advance time instead of sleeping for minutes.
-        self.clock = clock
-        self.stall_seconds = stall_seconds
+        self.clock = time.monotonic if clock is None else clock
+        self.stall_seconds = 30.0 if stall_seconds is None else stall_seconds
         self._failures: dict[str, JobFailure] = {}
         self._current_track_id: str | None = None
         self._job: JobView | None = None
