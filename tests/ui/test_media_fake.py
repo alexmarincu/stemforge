@@ -29,7 +29,7 @@ def test_the_shared_fake_matches_every_media_tool_signature() -> None:
         )
 
 
-def test_probe_reports_the_default_source_as_cd_quality_wav(tmp_path) -> None:
+def test_probe_reports_the_default_source_as_wav(tmp_path) -> None:
     info = FakeMedia().probe(tmp_path / "Song.wav")
 
     assert info.format == "wav"

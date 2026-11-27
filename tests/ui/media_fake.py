@@ -81,7 +81,7 @@ class FakeMedia:
     ) -> None:
         self.duration_s = duration_s
         self.title = title
-        self.peak_dbfs_value = peak_dbfs
+        self.reported_peak_dbfs = peak_dbfs
         self.fail_probe = fail_probe
         self.fail_decode = fail_decode
         self.source_channels = source_channels
@@ -225,7 +225,7 @@ class FakeMedia:
     def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
         del path, log
         cancel.check()
-        return self.peak_dbfs_value
+        return self.reported_peak_dbfs
 
     def _profile(self, path: Path) -> MediaProfile:
         return self.formats.get(path.suffix.lower(), WAV_PROFILE)

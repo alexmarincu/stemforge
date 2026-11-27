@@ -67,8 +67,9 @@ def ffprobe() -> Path:
         pytest.fail(f"ffprobe is required for this layer and was not found: {error}")
 
 
-def _generate_opus_webm(ffmpeg: Path, target: Path, *, channels: str) -> Path:
-    expression = "|".join(["sin(2*PI*440*t)"] * (6 if channels == "5.1" else 2))
+def _generate_opus_webm(ffmpeg: Path, target: Path, *, channels: int) -> Path:
+    layout = {2: "stereo", 6: "5.1"}[channels]
+    expression = "|".join(["sin(2*PI*440*t)"] * channels)
     result = subprocess.run(
         [
             str(ffmpeg),
@@ -78,7 +79,7 @@ def _generate_opus_webm(ffmpeg: Path, target: Path, *, channels: str) -> Path:
             "-f",
             "lavfi",
             "-i",
-            f"aevalsrc={expression}:s=48000:d=3:c={channels}",
+            f"aevalsrc={expression}:s=48000:d=3:c={layout}",
             "-c:a",
             "libopus",
             "-b:a",
@@ -97,13 +98,13 @@ def _generate_opus_webm(ffmpeg: Path, target: Path, *, channels: str) -> Path:
 @pytest.fixture(scope="session")
 def native_webm(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
     target = tmp_path_factory.mktemp("youtube-fixtures") / "downloaded.webm"
-    return _generate_opus_webm(ffmpeg, target, channels="stereo")
+    return _generate_opus_webm(ffmpeg, target, channels=2)
 
 
 @pytest.fixture(scope="session")
 def surround_webm(tmp_path_factory: pytest.TempPathFactory, ffmpeg: Path) -> Path:
     target = tmp_path_factory.mktemp("youtube-surround-fixtures") / "surround.webm"
-    return _generate_opus_webm(ffmpeg, target, channels="5.1")
+    return _generate_opus_webm(ffmpeg, target, channels=6)
 
 
 def _info() -> dict[str, object]:

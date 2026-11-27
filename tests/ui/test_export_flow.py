@@ -297,6 +297,12 @@ def _enabled(user, marker: str) -> bool:
     return bool(_only(user, marker).enabled)
 
 
+def _active_formats(user, formats: Sequence[ExportFormat]) -> set[ExportFormat]:
+    return {
+        fmt for fmt in formats if "is-active" in _only(user, f"export-format-{fmt.value}").classes
+    }
+
+
 def _count(user, marker: str) -> int:
     try:
         return len(user.find(marker=marker).elements)
@@ -347,13 +353,14 @@ async def test_the_sheet_is_format_only_and_keeps_the_entry_point_source(
         await _open_sheet(user)
 
         await user.should_see(i18n.t("export.title"))
-        for fmt, label_key in (
-            (ExportFormat.WAV24, "export.format.wav24"),
-            (ExportFormat.FLAC24, "export.format.flac24"),
-            (ExportFormat.MP3_320, "export.format.mp3_320"),
+        for fmt, label_key, size in (
+            (ExportFormat.WAV24, "export.format.wav24", "11.1"),
+            (ExportFormat.FLAC24, "export.format.flac24", "6.6"),
+            (ExportFormat.MP3_320, "export.format.mp3_320", "1.7"),
         ):
             with user.scope(marker=f"export-format-{fmt.value}"):
                 await user.should_see(i18n.t(label_key))
+                await user.should_see(i18n.t("export.estimate", size=size))
         _assert_active_format(user, ExportFormat.WAV24)
         assert _only(user, "export-source-label").text == i18n.t(ORIGINAL_LABEL_KEY)
         assert _only(user, "export-default-name").text.endswith(".wav")
@@ -368,6 +375,19 @@ async def test_the_sheet_is_format_only_and_keeps_the_entry_point_source(
         assert _only(user, "imported-file-meta").text.startswith("WAV · ")
         assert _only(user, "export-confirm").text == i18n.t("common.export")
         assert _count(user, "export-batch-source") == 0
+
+
+async def test_the_chosen_format_row_is_the_only_active_row(harness: Harness) -> None:
+    """The format row's active class is the one design-system contract for it."""
+    formats = (ExportFormat.WAV24, ExportFormat.FLAC24, ExportFormat.MP3_320)
+
+    async for user, workspace_page in _open_page(harness):
+        await _import(harness, user, workspace_page)
+        await _open_sheet(user)
+
+        assert _active_formats(user, formats) == {ExportFormat.WAV24}
+        user.find(marker="export-format-mp3_320").click()
+        assert _active_formats(user, formats) == {ExportFormat.MP3_320}
 
 
 async def test_a_format_and_target_choice_drives_the_native_save_request_and_success(
