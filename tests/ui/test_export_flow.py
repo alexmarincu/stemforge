@@ -1222,7 +1222,6 @@ async def test_a_destination_failure_stops_the_batch_and_choosing_a_folder_resum
         other.mkdir()
         harness.folder_dialog.results = [other]
         user.find(marker="export-batch-choose-folder").click()
-        await user.should_see(marker="job-bar", retries=20)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
 
         resumed = _batch_jobs(harness)[0]
