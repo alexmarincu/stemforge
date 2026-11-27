@@ -3,22 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia
 from nicegui import app
 from nicegui.testing.user_simulation import user_simulation
 
-from stemforge import errors, i18n
+from stemforge import i18n
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
-from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform import preflight
@@ -27,77 +23,6 @@ from stemforge.settings import SettingsStore
 from stemforge.ui import page
 
 pytestmark = pytest.mark.ui
-
-
-class FakeMedia:
-    """A local-import stand-in; it never touches a real codec or process."""
-
-    def __init__(self) -> None:
-        self.fail_probe = False
-        self._gate: threading.Event | None = None
-        self.decode_started = threading.Event()
-
-    def block_decoding(self) -> threading.Event:
-        self._gate = threading.Event()
-        return self._gate
-
-    def probe(self, path: Path) -> MediaInfo:
-        if self.fail_probe:
-            raise StemForgeError(errors.MEDIA_PROBE_FAILED, "fake probe failure")
-        return MediaInfo(
-            codec="pcm_s16le",
-            sample_rate=44_100,
-            channels=2,
-            duration_s=120.0,
-            format="wav",
-            tags={},
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        self.decode_started.set()
-        if self._gate is not None:
-            self._gate.wait(timeout=10)
-        cancel.check()
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=120.0,
-            sample_rate=44_100,
-            channels=2,
-            downmixed=False,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(
-            title=src.stem,
-            duration_s=120.0,
-            sample_rate=44_100,
-            channels=2,
-        )
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        cancel.check()
-        return -3.0
 
 
 class FakeDialog:
@@ -207,7 +132,7 @@ async def test_the_resource_warning_keeps_the_english_report_body_in_romanian(
     async for user, _workspace_page in _open_page(harness):
         await user.should_see(marker="resource-banner")
         await user.should_see("This computer has 4.0 GB of RAM.")
-        assert _only(user, "resource-dismiss").text == "Închide"
+        assert _only(user, "resource-dismiss").text == i18n.t("common.close")
 
 
 async def test_the_romanian_page_covers_the_main_screen_about_and_export(
@@ -219,60 +144,64 @@ async def test_the_romanian_page_covers_the_main_screen_about_and_export(
 
     async for user, workspace_page in _open_page(harness):
         await user.should_see("Importă o piesă")
-        await user.should_see("Importă audio")
-        await user.should_see("Trage fișiere audio aici")
-        await user.should_see("Trage un fișier local sau importă de pe YouTube.")
+        await user.should_see(marker="dropzone")
+        await user.should_see(
+            "Trage un fișier local sau importă de pe YouTube. Totul rulează pe această mașină."
+        )
 
         user.find(marker="settings-about").click()
         await user.should_see("Setări și despre")
-        await user.should_see("Versiunile în engleză ale fișierelor de licență sunt autoritative.")
-        await user.should_see("Traducere în română: StemForge contributors.")
+        await user.should_see(marker="about-licence-authoritative")
+        assert _only(user, "about-licence-authoritative").text == (
+            "Versiunile în engleză ale fișierelor de licență sunt autoritative."
+        )
+        await user.should_see(marker="about-translation-credit")
+        assert _only(user, "about-translation-credit").text == (
+            "Traducere în română: StemForge contributors."
+        )
         await user.should_see("Comportament")
         await user.should_see("Limbă")
-        await user.should_see("Modificările se aplică imediat.")
+        assert _only(user, "language-hint").text == "Modificările se aplică imediat."
         select = _only(user, "language-select")
         assert select.value == "system"
         assert select.options["system"] == "Sistem (Română)"
         assert select.options["en"] == "English"
         assert select.options["ro"] == "Română"
         user.find(marker="settings-close").click()
-        await asyncio.sleep(0.1)
 
         harness.media.fail_probe = True
         harness.dialog._selections = [(str(harness.source_file("Broken.wav")),)]
         user.find(marker="add-audio").click()
         await _finish_jobs(harness, user, workspace_page)
         await user.should_see(marker="import-error")
-        await user.should_see("StemForge nu poate citi fișierul.")
+        await user.should_see(
+            "StemForge nu poate citi fișierul. Este deteriorat sau într-un format neacceptat."
+        )
 
         harness.media.fail_probe = False
         gate = harness.media.block_decoding()
         harness.dialog._selections = [(str(harness.source_file("Song.wav")),)]
         user.find(marker="add-audio").click()
-        for _ in range(300):
-            if harness.media.decode_started.is_set():
-                break
-            await asyncio.sleep(0.01)
+        assert await asyncio.to_thread(harness.media.decode_started.wait, 5) is True
         with user:
             workspace_page.poll()
         await user.should_see(marker="job-bar")
         assert _only(user, "job-stage").text.startswith("Se importă")
         gate.set()
         await _finish_jobs(harness, user, workspace_page)
-        await asyncio.sleep(0.1)
-        with user:
-            workspace_page.poll()
 
         track = harness.service.snapshot().tracks[0]
+        await user.should_see(marker=f"track-row-{track.track_id}")
         user.find(marker=f"track-row-{track.track_id}").click()
-        await asyncio.sleep(0.05)
         user.find(marker="export-action").click()
-        await asyncio.sleep(0.05)
 
         await user.should_see(marker="export-sheet")
-        await user.should_see("Format")
-        await user.should_see("Nume fișier")
-        await user.should_see("Salvează în")
-        await user.should_see("Fișier importat")
-        await user.should_see("Salvează fișierul importat…")
+        for label in (
+            "Format",
+            "Nume fișier",
+            "Salvează în",
+            "Fișier importat",
+            "Salvează fișierul importat…",
+        ):
+            await user.should_see(label)
         assert _only(user, "export-source-label").text == "Original"

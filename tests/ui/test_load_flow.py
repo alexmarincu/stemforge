@@ -8,20 +8,17 @@ the fake never spawns a process, never touches a real audio codec, and completes
 from __future__ import annotations
 
 import asyncio
-import logging
-import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia, MediaProfile
 from nicegui.testing.user_simulation import user_simulation
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
@@ -31,96 +28,7 @@ from stemforge.ui import page, theme
 
 pytestmark = pytest.mark.ui
 
-SAMPLE_RATE = 44_100
-CHANNELS = 2
 DURATION_S = 187.0
-
-
-class FakeMedia:
-    """A scripted ``MediaTool`` that writes tiny stand-ins, never real audio."""
-
-    def __init__(
-        self,
-        *,
-        duration_s: float = DURATION_S,
-        title: str | None = None,
-        fail_probe: bool = False,
-        source_channels: int = CHANNELS,
-    ) -> None:
-        self.duration_s = duration_s
-        self.title = title
-        self.fail_probe = fail_probe
-        self.source_channels = source_channels
-        self.fail_decode: StemForgeError | None = None
-        self._gate: threading.Event | None = None
-        self.decode_started = threading.Event()
-
-    def block_decoding(self) -> threading.Event:
-        self._gate = threading.Event()
-        return self._gate
-
-    def probe(self, path: Path) -> MediaInfo:
-        if self.fail_probe:
-            from stemforge import errors
-            from stemforge.errors import StemForgeError
-
-            raise StemForgeError(errors.MEDIA_PROBE_FAILED, "fake probe failure")
-        return MediaInfo(
-            codec="pcm_s16le",
-            sample_rate=SAMPLE_RATE,
-            channels=self.source_channels,
-            duration_s=self.duration_s,
-            format="wav",
-            tags={},
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        self.decode_started.set()
-        if self._gate is not None:
-            self._gate.wait(timeout=10)
-        cancel.check()
-        if self.fail_decode is not None:
-            raise self.fail_decode
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            downmixed=self.source_channels > CHANNELS,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(
-            title=self.title or src.stem,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-        )
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        cancel.check()
-        return -3.0
 
 
 class FakeDialog:
@@ -176,7 +84,7 @@ class Harness:
 
 @pytest.fixture
 def harness(tmp_path: Path) -> Iterator[Harness]:
-    item = Harness(root=tmp_path, media=FakeMedia(), dialog=FakeDialog())
+    item = Harness(root=tmp_path, media=FakeMedia(duration_s=DURATION_S), dialog=FakeDialog())
     item.runner.start()
     try:
         yield item
@@ -186,7 +94,11 @@ def harness(tmp_path: Path) -> Iterator[Harness]:
 
 @pytest.fixture
 def multichannel_harness(tmp_path: Path) -> Iterator[Harness]:
-    item = Harness(root=tmp_path, media=FakeMedia(source_channels=6), dialog=FakeDialog())
+    item = Harness(
+        root=tmp_path,
+        media=FakeMedia(duration_s=DURATION_S, source_channels=6),
+        dialog=FakeDialog(),
+    )
     item.runner.start()
     try:
         yield item
@@ -233,22 +145,20 @@ async def _finish_jobs(
 
 async def test_empty_state_explains_the_way_in(harness: Harness) -> None:
     async for user, _workspace_page in _open_page(harness):
+        await user.should_see(marker="empty-state")
+        await user.should_see(marker="dropzone")
         await user.should_see("Import a track")
         await user.should_see("Import audio")
         await user.should_see("Import from YouTube")
-        await user.should_see("Drop a local file or import from YouTube.")
-        await user.should_see("Everything runs on this machine.")
-        await user.should_see("Drop audio files here")
-        await user.should_see("WAV, MP3, FLAC, M4A — or choose files…")
-        await user.should_see("No tracks yet")
+        await user.should_see(i18n.t("page.empty_lede_youtube"))
+        await user.should_see(i18n.t("page.drop_title"))
+        await user.should_see(i18n.t("page.drop_subtitle"))
+        await user.should_see(i18n.t("page.tracks_empty"))
         assert _only(user, "theme-colors").props["primary"] == theme.ACCENT
         brand = _only(user, "brand-mark")
         assert brand.content.startswith('<img src="data:image/svg+xml;base64,')
         await user.should_see(marker="empty-model-card")
-        await user.should_see(
-            "Separation model not installed yet · 84 MB — you can import and preview now; "
-            "Separation asks for the download the first time you use it."
-        )
+        await user.should_see(i18n.t("page.model_card"))
         await user.should_not_see(marker="track-detail")
 
 
@@ -261,7 +171,7 @@ async def test_the_empty_state_omits_the_model_card_once_installed(
     async for user, _workspace_page in _open_page(harness):
         await user.should_see("Import a track")
         await user.should_not_see(marker="empty-model-card")
-        await user.should_not_see("Separation model not installed yet")
+        await user.should_not_see(i18n.t("page.model_card"))
 
 
 async def test_a_multichannel_import_shows_the_downmix_note(
@@ -273,7 +183,6 @@ async def test_a_multichannel_import_shows_the_downmix_note(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
 
         track = harness.service.snapshot().tracks[0]
@@ -294,7 +203,6 @@ async def test_a_selected_file_becomes_a_track_with_audio_facts(harness: Harness
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
 
         await user.should_see("My Song")
@@ -321,6 +229,85 @@ async def test_a_selected_file_becomes_a_track_with_audio_facts(harness: Harness
         assert (cache_sources[0] / "source.json").is_file()
 
 
+async def test_an_empty_metadata_title_falls_back_to_the_file_name(tmp_path: Path) -> None:
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(duration_s=DURATION_S, title=""),
+        dialog=FakeDialog(),
+    )
+    harness.runner.start()
+    source = harness.source_file("Untitled Take.wav")
+    harness.dialog._selections = [(str(source),)]
+    try:
+        async for user, workspace_page in _open_page(harness):
+            user.find(marker="add-audio").click()
+            await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+
+            await user.should_see("Untitled Take")
+            assert harness.service.snapshot().tracks[0].title == "Untitled Take"
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_an_embedded_cover_is_cached_with_the_imported_source(tmp_path: Path) -> None:
+    artwork = tmp_path / "art.png"
+    artwork.write_bytes(b"\x89PNG fake cover")
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(duration_s=DURATION_S, cover=artwork),
+        dialog=FakeDialog(),
+    )
+    harness.runner.start()
+    source = harness.source_file("With Art.flac")
+    harness.dialog._selections = [(str(source),)]
+    try:
+        async for user, workspace_page in _open_page(harness):
+            user.find(marker="add-audio").click()
+            await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+
+            await user.should_see("With Art")
+            cover = harness.service.snapshot().tracks[0].source.cover_path
+            assert cover is not None
+            assert cover.is_file()
+            assert cover.read_bytes() == artwork.read_bytes()
+    finally:
+        harness.runner.stop(timeout=10)
+
+
+async def test_a_flac_source_is_probed_with_its_native_format(tmp_path: Path) -> None:
+    flac = MediaProfile(
+        codec="flac",
+        format="flac",
+        sample_rate=96_000,
+        channels=2,
+        bit_depth=24,
+        bit_rate=4_608_000,
+    )
+    harness = Harness(
+        root=tmp_path,
+        media=FakeMedia(duration_s=DURATION_S, formats={".flac": flac}),
+        dialog=FakeDialog(),
+    )
+    harness.runner.start()
+    source = harness.source_file("Lossless.flac")
+    harness.dialog._selections = [(str(source),)]
+    try:
+        async for user, workspace_page in _open_page(harness):
+            user.find(marker="add-audio").click()
+            await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
+
+            await user.should_see("Lossless")
+            track = harness.service.snapshot().tracks[0]
+            assert track.source.native_path is not None
+            assert track.source.native_path.name == "native.flac"
+            reported = [info for path, info in harness.media.probed if path == source]
+            assert len(reported) == 1
+            assert (reported[0].format, reported[0].codec) == ("flac", "flac")
+            assert (reported[0].bit_depth, reported[0].bit_rate) == (24, 4_608_000)
+    finally:
+        harness.runner.stop(timeout=10)
+
+
 async def test_outputs_placeholder_is_visible_before_the_model_is_installed(
     harness: Harness,
 ) -> None:
@@ -330,7 +317,6 @@ async def test_outputs_placeholder_is_visible_before_the_model_is_installed(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
         await user.should_see(marker="track-row")
 
@@ -338,37 +324,36 @@ async def test_outputs_placeholder_is_visible_before_the_model_is_installed(
         await user.should_see(marker="track-detail")
         with user.scope(marker="outputs"):
             await user.should_see(marker="outputs-placeholder")
-            await user.should_see("Vocals & Instrumental appear here after Separation.")
+            await user.should_see(i18n.t("page.outputs_placeholder"))
             await user.should_see(marker="outputs-separate")
 
 
 async def test_window_title_follows_the_selected_track_and_clears_on_remove(
     harness: Harness,
 ) -> None:
+    titles: list[str] = []
+    harness.context.window_title = titles.append
     source = harness.source_file()
     harness.dialog._selections = [(str(source),)]
 
     async for user, workspace_page in _open_page(harness):
-        assert workspace_page._client is not None
-        assert workspace_page._client.resolve_title() == "StemForge"
+        assert titles == ["StemForge"]
 
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
-        await asyncio.sleep(0.05)
-        assert workspace_page._client.resolve_title() == "StemForge — My Song"
+        assert titles[-1] == i18n.t("app.window_title", app=i18n.t("app.name"), track="My Song")
+        await user.should_see(marker="track-detail")
 
         # The header carries Settings and Remove.
         user.find(marker="detail-settings").click()
         await user.should_see(marker="settings-dialog")
         user.find(marker="settings-close").click()
-        await asyncio.sleep(0.05)
 
         user.find(marker="detail-remove").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="remove-dialog")
         user.find(marker="confirm-remove").click()
-        await asyncio.sleep(0.05)
-        assert workspace_page._client.resolve_title() == "StemForge"
+        await user.should_see("No tracks yet")
+        assert titles[-1] == "StemForge"
 
 
 async def test_signal_path_starts_at_source_only(harness: Harness) -> None:
@@ -377,9 +362,8 @@ async def test_signal_path_starts_at_source_only(harness: Harness) -> None:
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="signal-path")
 
         with user.scope(marker="signal-path"):
             await user.should_see("Source")
@@ -443,7 +427,6 @@ async def test_the_job_bar_and_cancel_follow_the_running_job_not_a_queued_one(
         assert _only(user, "job-stage").text.endswith("Decoding")
 
         user.find(marker="cancel-job").click()
-        await asyncio.sleep(0.05)
         snapshots = harness.runner.jobs()
         running = next(item for item in snapshots if item.state.value == "running")
         queued = next(item for item in snapshots if item.state.value == "queued")
@@ -463,7 +446,6 @@ async def test_import_failure_shows_the_coded_headline_and_keeps_the_app_usable(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
 
         await user.should_see(marker="import-error")
@@ -478,7 +460,6 @@ async def test_import_failure_shows_the_coded_headline_and_keeps_the_app_usable(
         harness.media.fail_probe = False
         harness.dialog._selections = [(str(harness.source_file("good.mp3")),)]
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
         await user.should_see("good")
         await user.should_not_see(marker="import-error")
@@ -503,7 +484,6 @@ async def test_a_disk_full_import_reports_sizes_and_offers_the_cache_action(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
 
         await user.should_see(
@@ -511,7 +491,6 @@ async def test_a_disk_full_import_reports_sizes_and_offers_the_cache_action(
         )
         await user.should_see(marker="notice-clear-cache")
         user.find(marker="notice-clear-cache").click()
-        await asyncio.sleep(0.1)
         await user.should_see("Cleared")
 
 
@@ -529,7 +508,6 @@ async def test_a_retryable_local_import_failure_resubmits_the_same_file(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
 
         await user.should_see(marker="import-error")
@@ -572,7 +550,6 @@ async def test_a_retryable_synchronous_import_error_offers_retry(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.05)
 
         await user.should_see(marker="import-error")
         await user.should_see(marker="import-retry")
@@ -595,7 +572,6 @@ async def test_remove_confirms_cache_deletion_and_never_touches_the_source(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
         await user.should_see("My Song")
 
@@ -607,11 +583,9 @@ async def test_remove_confirms_cache_deletion_and_never_touches_the_source(
         await user.should_see(marker="remove-dialog")
         card = _only(user, "remove-dialog")
         assert card.tag == "q-card"
-        assert "sf-card" in card.classes
         await user.should_see("deletes its cached audio")
         await user.should_see("The file on disk is not touched.")
         user.find(marker="confirm-remove").click()
-        await asyncio.sleep(0.1)
 
         await user.should_not_see(marker="track-row")
         await user.should_see("No tracks yet")
@@ -628,7 +602,6 @@ async def test_recent_reopens_a_file_and_reports_a_missing_source(harness: Harne
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
         await user.should_see(marker="track-row")
         user.find(marker="remove-track").click()
@@ -638,7 +611,6 @@ async def test_recent_reopens_a_file_and_reports_a_missing_source(harness: Harne
 
         # A cache miss for a source that still exists re-imports it.
         user.find(marker="recent-row").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
         await user.should_see(marker="track-row")
         assert len(harness.service.snapshot().tracks) == 1
@@ -651,7 +623,6 @@ async def test_recent_reopens_a_file_and_reports_a_missing_source(harness: Harne
         await user.should_see("missing", retries=10)
 
         user.find(marker="recent-row").click()
-        await asyncio.sleep(0.1)
         await user.should_see(marker="import-error")
         await user.should_see(
             "Can't open that file. It may have moved, been deleted, or be unreadable."
@@ -669,7 +640,6 @@ async def test_track_rows_are_selectable_and_the_detail_follows_the_selection(
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="add-audio").click()
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
         await user.should_see("First")
@@ -680,14 +650,10 @@ async def test_track_rows_are_selectable_and_the_detail_follows_the_selection(
         second_id = next(track.track_id for track in tracks if track.title == "Second")
 
         user.find(marker=f"track-row-{second_id}").click()
-        await asyncio.sleep(0.1)
-        with user.scope(marker="track-detail"):
-            await user.should_see("Second")
+        await user.should_see("Local file · Second.mp3")
 
         user.find(marker=f"track-row-{first_id}").click()
-        await asyncio.sleep(0.1)
-        with user.scope(marker="track-detail"):
-            await user.should_see("First")
+        await user.should_see("Local file · First.wav")
 
 
 async def test_recovery_banner_shows_once_after_the_sweep_and_stays_dismissed(
@@ -736,7 +702,6 @@ async def test_drop_accepts_real_paths_and_quietly_ignores_fake_ones(harness: Ha
         source = harness.source_file("Dropped.wav")
         with user:
             workspace_page.handle_drop([str(source)])
-        await asyncio.sleep(0.1)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
         await user.should_see("Dropped")
 

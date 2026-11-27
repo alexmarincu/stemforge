@@ -18,13 +18,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.errors import StemForgeError
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform.paths import AppPaths
@@ -48,62 +48,6 @@ CONSENT_BODY = (
 @pytest.fixture(autouse=True)
 def _no_network(no_external_network: None) -> None:
     """Any non-local connection attempt in this module fails the test."""
-
-
-class FakeMedia:
-    """A tiny local-import stand-in; the toggle test needs one real Track."""
-
-    def probe(self, path: Path) -> MediaInfo:
-        return MediaInfo(
-            codec="pcm_s16le",
-            sample_rate=44_100,
-            channels=2,
-            duration_s=120.0,
-            format="wav",
-            tags={},
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=120.0,
-            sample_rate=44_100,
-            channels=2,
-            downmixed=False,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(
-            title=src.stem,
-            duration_s=120.0,
-            sample_rate=44_100,
-            channels=2,
-        )
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        cancel.check()
-        return -3.0
 
 
 class FakeYouTube:
@@ -203,9 +147,9 @@ def _enabled(user, marker: str) -> bool:
 
 async def _select_track_and_open_modal(user) -> None:
     user.find(marker="track-row").click()
-    await asyncio.sleep(0.05)
+    await user.should_see(marker="track-detail")
     user.find(marker="youtube-action").click()
-    await asyncio.sleep(0.05)
+    await user.should_see(marker="youtube-modal")
 
 
 def _spy_seam(harness: Harness, monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -275,7 +219,6 @@ async def test_consent_appears_once_then_persists_with_the_disclaimer(
         assert harness.runner.jobs() == []
 
         user.find(marker="youtube-consent-accept").click()
-        await asyncio.sleep(0.1)
 
         await user.should_not_see(marker="youtube-consent")
         await user.should_see(marker="youtube-disclaimer")
@@ -295,9 +238,9 @@ async def test_consent_appears_once_then_persists_with_the_disclaimer(
         await user.should_see(marker="youtube-row")
         user.find(marker="youtube-url").type(VALID_URL)
         user.find(marker="youtube-import").click()
-        await asyncio.sleep(0.05)
         await user.should_not_see(marker="youtube-consent")
         assert len(calls) == 2
+        assert await asyncio.to_thread(harness.runner.wait_idle, 10) is True
         assert "yt_dlp" not in getattr(sys.modules["stemforge.engines.youtube"], "__dict__", {})
 
         # A fresh page build reads the persisted acknowledgment and stays quiet.
@@ -321,7 +264,6 @@ async def test_declining_consent_disables_the_row_and_blocks_the_seam(
         await user.should_see(marker="youtube-consent")
 
         user.find(marker="youtube-consent-cancel").click()
-        await asyncio.sleep(0.1)
 
         await user.should_not_see(marker="youtube-consent")
         await user.should_see("YouTube import is off until you accept the notice.")
@@ -331,7 +273,6 @@ async def test_declining_consent_disables_the_row_and_blocks_the_seam(
 
         # The disabled control cannot reach the seam or create a Job.
         user.find(marker="youtube-import").click()
-        await asyncio.sleep(0.05)
         assert calls == []
         assert harness.runner.jobs() == []
         assert harness.service.youtube_notice_acknowledged() is False
@@ -339,7 +280,6 @@ async def test_declining_consent_disables_the_row_and_blocks_the_seam(
 
         # The decline carries into the persistent modal too.
         user.find(marker="youtube-action").click()
-        await asyncio.sleep(0.05)
         await user.should_see(marker="youtube-modal")
         with user.scope(marker="youtube-modal"):
             await user.should_see("YouTube import is off until you accept the notice.")
@@ -371,9 +311,7 @@ async def test_the_toggle_hides_only_the_youtube_row_and_keeps_consent(
         await user.should_see("YouTube import")
         await user.should_see("Off hides YouTube import.")
         user.find(marker="youtube-toggle").click()
-        await asyncio.sleep(0.1)
         user.find(marker="settings-close").click()
-        await asyncio.sleep(0.1)
 
         await user.should_not_see(marker="youtube-row")
         await user.should_not_see(marker="youtube-disclaimer")
@@ -391,9 +329,7 @@ async def test_the_toggle_hides_only_the_youtube_row_and_keeps_consent(
 
         user.find(marker="settings-about").click()
         user.find(marker="youtube-toggle").click()
-        await asyncio.sleep(0.1)
         user.find(marker="settings-close").click()
-        await asyncio.sleep(0.1)
 
         await user.should_see(marker="youtube-row")
         await user.should_see(marker="youtube-disclaimer")
@@ -423,18 +359,17 @@ async def test_the_rail_action_opens_the_youtube_modal_from_a_track_view(
     harness.import_local_track()
     harness.service.accept_youtube_notice()
 
-    async for user, workspace_page in _open_page(harness):
+    async for user, _workspace_page in _open_page(harness):
         await _select_track_and_open_modal(user)
-        selected = workspace_page._selected_id
-        assert selected is not None
+        track = harness.service.snapshot().tracks[0]
 
-        await user.should_see(marker="youtube-modal")
+        await user.should_see(marker=f"track-{track.track_id}")
         with user.scope(marker="youtube-modal"):
             await user.should_see(marker="youtube-url")
             await user.should_see(marker="youtube-import")
             await user.should_see(marker="youtube-disclaimer")
-        assert workspace_page._selected_id == selected
-        await user.should_see(marker="track-detail")
+        with user.scope(marker="track-detail"):
+            await user.should_see(track.title)
 
 
 async def test_a_modal_submit_keeps_the_existing_youtube_job_path(
@@ -442,6 +377,8 @@ async def test_a_modal_submit_keeps_the_existing_youtube_job_path(
 ) -> None:
     harness.import_local_track()
     harness.service.accept_youtube_notice()
+    gate = threading.Event()
+    harness.youtube.gate = gate
     calls = _spy_seam(harness, monkeypatch)
 
     async for user, workspace_page in _open_page(harness):
@@ -449,7 +386,7 @@ async def test_a_modal_submit_keeps_the_existing_youtube_job_path(
 
         user.find(marker="youtube-url").type(VALID_URL)
         user.find(marker="youtube-import").click()
-        await asyncio.sleep(0.1)
+        assert await asyncio.to_thread(harness.youtube.started.wait, 5) is True
 
         await user.should_not_see(marker="youtube-modal")
         await user.should_see(marker="job-bar")
@@ -458,12 +395,12 @@ async def test_a_modal_submit_keeps_the_existing_youtube_job_path(
             "import_local",
             "import_youtube",
         ]
+        gate.set()
         assert await asyncio.to_thread(harness.runner.wait_idle, 10) is True
 
         with user:
             workspace_page.poll()
         user.find(marker="youtube-action").click()
-        await asyncio.sleep(0.05)
         await user.should_see(marker="youtube-modal")
         assert next(iter(user.find(marker="youtube-url").elements)).value == ""
 
@@ -475,14 +412,12 @@ async def test_declining_in_the_modal_disables_every_youtube_surface(
         await user.should_see(marker="youtube-row")
 
         user.find(marker="youtube-action").click()
-        await asyncio.sleep(0.05)
         with user.scope(marker="youtube-modal"):
             user.find(marker="youtube-url").type(VALID_URL)
             user.find(marker="youtube-import").click()
         await user.should_see(marker="youtube-consent")
 
         user.find(marker="youtube-consent-cancel").click()
-        await asyncio.sleep(0.1)
 
         await user.should_not_see(marker="youtube-consent")
         with user.scope(marker="youtube-modal"):
@@ -491,7 +426,6 @@ async def test_declining_in_the_modal_disables_every_youtube_surface(
             assert _enabled(user, "youtube-import") is False
 
         user.find(marker="youtube-modal-close").click()
-        await asyncio.sleep(0.1)
         await user.should_not_see(marker="youtube-modal")
 
         with user.scope(marker="youtube-row"):
@@ -513,7 +447,6 @@ async def test_the_modal_asks_for_consent_once_and_then_imports(
 
         await user.should_see(marker="youtube-consent")
         user.find(marker="youtube-consent-accept").click()
-        await asyncio.sleep(0.1)
 
         await user.should_not_see(marker="youtube-consent")
         await user.should_not_see(marker="youtube-modal")
@@ -524,10 +457,9 @@ async def test_the_modal_asks_for_consent_once_and_then_imports(
             workspace_page.poll()
 
         user.find(marker="youtube-action").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="youtube-modal")
         user.find(marker="youtube-url").type(VALID_URL)
         user.find(marker="youtube-import").click()
-        await asyncio.sleep(0.05)
         await user.should_not_see(marker="youtube-consent")
         assert len(calls) == 2
 
@@ -561,11 +493,10 @@ async def test_closing_the_modal_discards_the_typed_url(harness: Harness) -> Non
         user.find(marker="youtube-url").type(VALID_URL)
 
         user.find(marker="youtube-modal-close").click()
-        await asyncio.sleep(0.1)
         await user.should_not_see(marker="youtube-modal")
 
         user.find(marker="youtube-action").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="youtube-modal")
         assert next(iter(user.find(marker="youtube-url").elements)).value == ""
 
 
@@ -576,7 +507,7 @@ async def test_the_rail_action_is_disabled_while_a_job_runs(harness: Harness) ->
 
     async for user, workspace_page in _open_page(harness):
         user.find(marker="youtube-action").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="youtube-modal")
         user.find(marker="youtube-url").type(VALID_URL)
         user.find(marker="youtube-import").click()
         assert await asyncio.to_thread(harness.youtube.started.wait, 5) is True

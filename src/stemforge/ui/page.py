@@ -14,6 +14,7 @@ the whole page. Pitch and Separation contribute requests and job state only.
 from __future__ import annotations
 
 import contextlib
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -414,7 +415,7 @@ SHELL_CSS: Final = (
 
 @dataclass(slots=True)
 class UiContext:
-    """Process-wide state the page reads; rebuilt only by a new app launch."""
+    """Process-wide state the page reads or calls; rebuilt only by a new app launch."""
 
     service: WorkspaceService
     dialogs: AudioFileDialog
@@ -428,6 +429,9 @@ class UiContext:
     clipboard: ClipboardWriter | None = None
     on_language_change: Callable[[str], None] | None = None
     resource_warning_dismissed: bool = False
+    separation_clock: Callable[[], float] = time.monotonic
+    separation_stall_seconds: float = 30.0
+    window_title: Callable[[str], None] | None = None
 
     @property
     def playback_available(self) -> bool:
@@ -583,6 +587,8 @@ class WorkspacePage:
             diagnostics=context.diagnostics,
             clipboard=context.clipboard,
             open_path=context.open_path,
+            clock=context.separation_clock,
+            stall_seconds=context.separation_stall_seconds,
         )
         self._separation_jobs: dict[str, str] = {}
         self._export_sheet = ExportSheet(
@@ -601,7 +607,7 @@ class WorkspacePage:
 
     def build(self) -> None:
         self._client = context.client
-        ui.page_title(i18n.t("app.name"))
+        self._set_window_title(i18n.t("app.name"))
         ui.add_css(SHELL_CSS)
         theme.apply().mark("theme-colors")
         ui.dark_mode(True)
@@ -2833,11 +2839,18 @@ class WorkspacePage:
 
     def _sync_title(self) -> None:
         track = self._selected_track()
-        ui.page_title(
+        self._set_window_title(
             i18n.t("app.window_title", app=i18n.t("app.name"), track=track.title)
             if track is not None
             else i18n.t("app.name")
         )
+
+    def _set_window_title(self, title: str) -> None:
+        """Report the title through the injected sink, or NiceGUI's page title."""
+        if self.context.window_title is not None:
+            self.context.window_title(title)
+            return
+        ui.page_title(title)
 
     def _recent_state(self) -> tuple[tuple[str, bool], ...]:
         return tuple(

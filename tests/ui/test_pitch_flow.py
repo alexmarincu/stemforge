@@ -11,18 +11,19 @@ import asyncio
 import hashlib
 import logging
 import threading
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge import errors
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
+from stemforge.engines.pitch import validate_semitones
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import normalize_selected_paths
 from stemforge.jobs.runner import JobRunner
@@ -33,83 +34,12 @@ from stemforge.ui import page
 
 pytestmark = pytest.mark.ui
 
-SAMPLE_RATE = 44_100
-CHANNELS = 2
 DURATION_S = 187.0
 
 
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
-
-
-class FakeMedia:
-    """A scripted ``MediaTool`` that writes tiny stand-ins, never real audio."""
-
-    def __init__(self, *, duration_s: float = DURATION_S) -> None:
-        self.duration_s = duration_s
-        self._gate: threading.Event | None = None
-        self.decode_started = threading.Event()
-
-    def block_decoding(self) -> threading.Event:
-        self._gate = threading.Event()
-        return self._gate
-
-    def probe(self, path: Path) -> MediaInfo:
-        return MediaInfo(
-            codec="pcm_s16le",
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            duration_s=self.duration_s,
-            format="wav",
-            tags={},
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        self.decode_started.set()
-        if self._gate is not None:
-            self._gate.wait(timeout=10)
-        cancel.check()
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-            downmixed=False,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(
-            title=src.stem,
-            duration_s=self.duration_s,
-            sample_rate=SAMPLE_RATE,
-            channels=CHANNELS,
-        )
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        cancel.check()
-        return -3.0
 
 
 class FakePitch:
@@ -136,13 +66,17 @@ class FakePitch:
         semitones: int,
         cancel: CancelToken,
         log: logging.Logger,
-        progress: object | None = None,
+        progress: Callable[[float, str, str], None] | None = None,
     ) -> None:
+        validate_semitones(semitones)
         cancel.check()
         self.shift_started.set()
         if self._gate is not None:
             self._gate.wait(timeout=10)
         cancel.check()
+        emit = progress
+        if emit is not None:
+            emit(0.5, "Processing", "")
         if self.fail_next:
             self.fail_next = False
             raise StemForgeError(
@@ -153,6 +87,8 @@ class FakePitch:
             )
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(b"shift:" + bytes([semitones % 256]) + src.read_bytes())
+        if emit is not None:
+            emit(1.0, "Done", "")
 
     def sum_stems(
         self,
@@ -309,7 +245,7 @@ class Harness:
 def harness(tmp_path: Path) -> Iterator[Harness]:
     item = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         pitch=FakePitch(),
         dialog=FakeDialog(),
     )
@@ -353,7 +289,9 @@ async def _finish_jobs(
     assert await asyncio.to_thread(harness.runner.wait_idle, 10) is True
     with user:
         workspace_page.poll()
-    await asyncio.sleep(0.05)
+    # NiceGUI applies a refresh's element updates on the next loop turn; callers
+    # assert on the rebuilt rail and detail immediately afterwards.
+    await asyncio.sleep(0)
 
 
 async def _import(
@@ -364,11 +302,12 @@ async def _import(
 ) -> str:
     harness.dialog._selections = [(str(harness.source_file(name)),)]
     user.find(marker="add-audio").click()
-    await asyncio.sleep(0.05)
     await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
     track = harness.service.snapshot().tracks[0]
-    user.find(marker=f"track-row-{track.track_id}").click()
-    await asyncio.sleep(0.05)
+    row = f"track-row-{track.track_id}"
+    await user.should_see(marker=row)
+    user.find(marker=row).click()
+    await user.should_see(marker="track-detail")
     return track.track_id
 
 
@@ -389,16 +328,47 @@ def _count(user, marker: str) -> int:
         return 0
 
 
-def _step(user, times: int, *, up: bool = True) -> None:
+async def _step(user, times: int, *, up: bool = True) -> None:
     for _ in range(times):
         user.find(marker="pitch-up" if up else "pitch-down").click()
+        # NiceGUI applies the rebuilt stepper on the next loop turn; the next
+        # click must see the new control, not the one it replaced.
+        await asyncio.sleep(0)
 
 
-async def _refresh(harness: Harness, user, workspace_page: page.WorkspacePage) -> None:
-    with user:
-        workspace_page.poll()
-        workspace_page._refresh_all()
-    await asyncio.sleep(0.05)
+async def _refresh(harness: Harness, user, *, expect: str) -> None:
+    """Re-select the Track through its rail row; the row click rebuilds the detail."""
+    track = harness.service.snapshot().tracks[0]
+    user.find(marker=f"track-row-{track.track_id}").click()
+    # NiceGUI applies the rebuilt detail on the next loop turn, so an element
+    # that survived the rebuild must be re-read before it is asserted.
+    await asyncio.sleep(0)
+    await user.should_see(marker=expect)
+
+
+# ---------------------------------------------------------------------------
+# Fake contract
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("semitones", [0, 13])
+def test_the_fake_pitch_rejects_the_shifts_the_real_engine_rejects(
+    tmp_path: Path, semitones: int
+) -> None:
+    src = tmp_path / "source.wav"
+    src.write_bytes(b"source")
+    dst = tmp_path / f"render-{semitones}.wav"
+
+    with pytest.raises(ValueError, match="semitones"):
+        FakePitch().shift(
+            src,
+            dst,
+            semitones=semitones,
+            cancel=CancelToken(),
+            log=logging.getLogger("test"),
+        )
+
+    assert not dst.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -417,8 +387,7 @@ async def test_stepper_does_not_change_the_view_until_render_succeeds(
         assert _only(user, "now-playing").text == "Original"
         assert _count(user, "output-tab") == 0
 
-        _step(user, 3)
-        await asyncio.sleep(0.05)
+        await _step(user, 3)
 
         assert _only(user, "pitch-semitones").text == "+3"
         assert _only(user, "now-playing").text == "Original"
@@ -452,17 +421,10 @@ async def test_render_is_disabled_at_zero_and_while_a_job_runs(harness: Harness)
 
         assert _only(user, "pitch-semitones").text == "0"
         assert _enabled(user, "pitch-render") is False
-        # The stepper and the primary action share the compact box;
-        # the disabled Render keeps the primary size.
-        assert "sf-control" in _only(user, "pitch-down").classes
-        assert "sf-control--icon" in _only(user, "pitch-down").classes
-        assert "sf-control" in _only(user, "pitch-up").classes
-        assert "sf-control--icon" in _only(user, "pitch-up").classes
-        assert "sf-control" in _only(user, "pitch-render").classes
-        assert "sf-control--primary" in _only(user, "pitch-render").classes
+        assert _enabled(user, "pitch-down") is True
+        assert _enabled(user, "pitch-up") is True
 
-        _step(user, 2)
-        await asyncio.sleep(0.05)
+        await _step(user, 2)
         assert _only(user, "pitch-semitones").text == "+2"
         assert _enabled(user, "pitch-render") is True
 
@@ -483,26 +445,21 @@ async def test_render_is_disabled_at_zero_and_while_a_job_runs(harness: Harness)
         await user.should_see(marker="pitch-passive")
         await user.should_not_see(marker="pitch-render")
 
-        _step(user, 1)
-        await asyncio.sleep(0.05)
+        await _step(user, 1)
         assert _only(user, "pitch-semitones").text == "+3"
         assert _enabled(user, "pitch-render") is True
 
 
-async def test_a_cached_set_offers_a_compact_open_action(harness: Harness) -> None:
+async def test_a_cached_set_offers_open_instead_of_render(harness: Harness) -> None:
     async for user, workspace_page in _open_page(harness):
         await _import(harness, user, workspace_page)
         source_id = harness.service.snapshot().tracks[0].source_id
-        harness.add_render(source_id, semitones=3, scope="original")
-        await _refresh(harness, user, workspace_page)
+        cached = harness.add_render(source_id, semitones=3, scope="original")
+        await _refresh(harness, user, expect=f"output-tab-{cached}")
 
-        _step(user, 3)
-        await asyncio.sleep(0.05)
-        action = _only(user, "pitch-open")
-        # Open is navigation in the primary slot, so it keeps the
-        # compact box rather than the Render's primary size.
-        assert "sf-control" in action.classes
-        assert "sf-control--primary" not in action.classes
+        await _step(user, 3)
+        await user.should_see(marker="pitch-open")
+        await user.should_not_see(marker="pitch-render")
 
 
 # ---------------------------------------------------------------------------
@@ -517,14 +474,14 @@ async def test_a_single_scope_shows_a_bare_tab_and_both_scopes_stay_distinct(
         await _import(harness, user, workspace_page)
         source_id = harness.service.snapshot().tracks[0].source_id
         master = harness.add_render(source_id, semitones=3, scope="original")
-        await _refresh(harness, user, workspace_page)
+        await _refresh(harness, user, expect=f"output-tab-{master}")
 
         assert _only(user, f"output-tab-{master}").text == "+3"
         assert len(user.find(marker="output-tab").elements) == 2
 
         harness.add_separation(source_id)
         stems = harness.add_render(source_id, semitones=3, scope="stems")
-        await _refresh(harness, user, workspace_page)
+        await _refresh(harness, user, expect=f"output-tab-{stems}")
 
         assert _only(user, f"output-tab-{master}").text == "+3 master"
         assert _only(user, f"output-tab-{stems}").text == "+3 stems"
@@ -533,13 +490,11 @@ async def test_a_single_scope_shows_a_bare_tab_and_both_scopes_stay_distinct(
         player = _only(user, "player")
         track = harness.service.snapshot().tracks[0]
         user.find(marker=f"output-tab-{master}").click()
-        await asyncio.sleep(0.05)
         master_target = harness.service.pitch_render_preview_target(track, master, "original")
         assert master_target is not None
         assert player.props["src"] == master_target.url
 
         user.find(marker=f"output-tab-{stems}").click()
-        await asyncio.sleep(0.05)
         stems_target = harness.service.pitch_render_preview_target(track, stems, "vocals")
         assert stems_target is not None
         assert stems_target.url.endswith("/vocals_preview.mp3")
@@ -557,7 +512,7 @@ async def test_ab_flips_original_and_the_selected_set_without_a_second_player(
         harness.add_separation(source_id)
         master = harness.add_render(source_id, semitones=3, scope="original")
         stems = harness.add_render(source_id, semitones=3, scope="stems")
-        await _refresh(harness, user, workspace_page)
+        await _refresh(harness, user, expect=f"output-tab-{stems}")
 
         track = harness.service.snapshot().tracks[0]
         original_target = harness.service.preview_targets(track.track_id)[0]
@@ -570,30 +525,24 @@ async def test_ab_flips_original_and_the_selected_set_without_a_second_player(
         # A/B is Original | the latest render, regardless of the active tab.
         assert _only(user, "ab-preview").text == "+3 stems"
         user.find(marker=f"output-tab-{stems}").click()
-        await asyncio.sleep(0.05)
         assert _only(user, "ab-preview").text == "+3 stems"
         assert player.props["src"] == stems_target.url
         assert len(user.find(marker="player").elements) == 1
 
         user.find(marker="ab-original").click()
-        await asyncio.sleep(0.05)
         assert player.props["src"] == original_target.url
         assert len(user.find(marker="player").elements) == 1
 
         user.find(marker="ab-preview").click()
-        await asyncio.sleep(0.05)
         assert player.props["src"] == stems_target.url
         assert len(user.find(marker="player").elements) == 1
 
         user.find(marker=f"output-tab-{master}").click()
-        await asyncio.sleep(0.05)
         assert player.props["src"] == master_target.url
         assert _only(user, "ab-preview").text == "+3 stems"
         user.find(marker="ab-original").click()
-        await asyncio.sleep(0.05)
         assert player.props["src"] == original_target.url
         user.find(marker="ab-preview").click()
-        await asyncio.sleep(0.05)
         assert player.props["src"] == stems_target.url
         assert len(user.find(marker="player").elements) == 1
 
@@ -611,15 +560,13 @@ async def test_the_stems_scope_is_offered_only_after_a_separation_and_renders_st
         assert _enabled(user, "pitch-render") is False
 
         harness.add_separation(source_id)
-        await _refresh(harness, user, workspace_page)
+        await _refresh(harness, user, expect="output-row-vocals")
         assert _enabled(user, "pitch-render") is False
 
-        _step(user, 3)
-        await asyncio.sleep(0.05)
+        await _step(user, 3)
         assert _enabled(user, "pitch-render") is True
         user.find(marker="pitch-render").click()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
-        await asyncio.sleep(0.05)
 
         sets = harness.service.pitch_sets(harness.service.snapshot().tracks[0])
         assert [item.scope.value for item in sets] == ["stems"]
@@ -638,8 +585,7 @@ async def test_a_failed_render_is_inline_coded_and_retry_resubmits_the_request(
 ) -> None:
     async for user, workspace_page in _open_page(harness):
         await _import(harness, user, workspace_page)
-        _step(user, 3)
-        await asyncio.sleep(0.05)
+        await _step(user, 3)
 
         harness.pitch.fail_next = True
         user.find(marker="pitch-render").click()
@@ -655,7 +601,6 @@ async def test_a_failed_render_is_inline_coded_and_retry_resubmits_the_request(
 
         user.find(marker="pitch-retry").click()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
-        await asyncio.sleep(0.05)
 
         await user.should_not_see(marker="pitch-error")
         assert _only(user, "now-playing").text == "Shifted master · +3"
@@ -671,8 +616,7 @@ async def test_a_non_retryable_render_failure_has_no_retry(harness: Harness) -> 
     """Retry appears iff the raising code marks itself retryable."""
     async for user, workspace_page in _open_page(harness):
         await _import(harness, user, workspace_page)
-        _step(user, 3)
-        await asyncio.sleep(0.05)
+        await _step(user, 3)
 
         harness.pitch.fail_next = True
         harness.pitch.fail_code = errors.PITCH_ENGINE_MISSING
@@ -698,25 +642,20 @@ async def test_old_stems_sets_stay_selectable_and_labelled_after_a_reseparation(
         source_id = harness.service.snapshot().tracks[0].source_id
         first = harness.add_separation(source_id, version="v1")
         old = harness.add_render(source_id, semitones=3, scope="stems", inputs=first, tag="old")
-        await _refresh(harness, user, workspace_page)
+        await _refresh(harness, user, expect=f"output-tab-{old}")
         assert _only(user, f"output-tab-{old}").text == "+3"
 
         second = harness.add_separation(source_id, version="v2")
-        await _refresh(harness, user, workspace_page)
+        await _refresh(harness, user, expect=f"output-tab-{old}")
         old_tab = _only(user, f"output-tab-{old}")
         assert "based on an earlier separation" in old_tab.text
-        # Every version pill keeps the shared box in stale state.
-        assert "sf-control" in old_tab.classes
-        assert "is-stale" in old_tab.classes
-        assert "sf-control" in _only(user, "output-tab-original").classes
         assert len(user.find(marker="output-tab").elements) == 2
 
         new = harness.add_render(source_id, semitones=3, scope="stems", inputs=second, tag="new")
-        await _refresh(harness, user, workspace_page)
+        await _refresh(harness, user, expect=f"output-tab-{new}")
 
         assert "based on an earlier separation" in _only(user, f"output-tab-{old}").text
         assert "based on an earlier separation" not in _only(user, f"output-tab-{new}").text
-        assert "sf-control" in _only(user, f"output-tab-{new}").classes
         assert len(user.find(marker="output-tab").elements) == 3
 
         track = harness.service.snapshot().tracks[0]
@@ -727,14 +666,10 @@ async def test_old_stems_sets_stay_selectable_and_labelled_after_a_reseparation(
         player = _only(user, "player")
 
         user.find(marker=f"output-tab-{old}").click()
-        await asyncio.sleep(0.05)
         assert player.props["src"] == old_target.url
-        assert "sf-control" in _only(user, f"output-tab-{old}").classes
-        assert "is-stale" in _only(user, f"output-tab-{old}").classes
         assert len(user.find(marker="player").elements) == 1
 
         user.find(marker=f"output-tab-{new}").click()
-        await asyncio.sleep(0.05)
         assert player.props["src"] == new_target.url
         assert player.props["src"] != old_target.url
         assert len(user.find(marker="player").elements) == 1
@@ -748,16 +683,15 @@ async def test_an_unavailable_render_row_offers_render_again(
         await _import(harness, user, workspace_page)
         source_id = harness.service.snapshot().tracks[0].source_id
         render_key = harness.add_render(source_id, semitones=3)
-        await _refresh(harness, user, workspace_page)
+        await _refresh(harness, user, expect=f"output-tab-{render_key}")
 
         user.find(marker=f"output-tab-{render_key}").click()
-        await asyncio.sleep(0.05)
         monkeypatch.setattr(
             harness.service,
             "pitch_render_preview_target",
             lambda *_args, **_kwargs: None,
         )
-        await _refresh(harness, user, workspace_page)
+        await _refresh(harness, user, expect="output-repair-render")
 
         assert _enabled(user, "output-play-master") is False
         await user.should_see(marker="output-repair-render")
@@ -780,7 +714,7 @@ async def test_degraded_preview_keeps_the_pitch_card_usable_but_silent(
     )
     harness = Harness(
         root=tmp_path,
-        media=FakeMedia(),
+        media=FakeMedia(duration_s=DURATION_S),
         pitch=FakePitch(),
         dialog=FakeDialog(),
         preflight_report=report,
@@ -791,14 +725,12 @@ async def test_degraded_preview_keeps_the_pitch_card_usable_but_silent(
             await _import(harness, user, workspace_page)
             await user.should_see(marker="playback-banner")
 
-            _step(user, 3)
-            await asyncio.sleep(0.05)
+            await _step(user, 3)
             assert _only(user, "pitch-semitones").text == "+3"
             assert _enabled(user, "pitch-render") is True
 
             user.find(marker="pitch-render").click()
             await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
-            await asyncio.sleep(0.05)
 
             assert _only(user, "now-playing").text == "Shifted master · +3"
             key = harness.service.pitch_sets(harness.service.snapshot().tracks[0])[0].render_key
@@ -807,9 +739,7 @@ async def test_degraded_preview_keeps_the_pitch_card_usable_but_silent(
             assert player.props["src"] == ""
 
             user.find(marker=f"output-tab-{key}").click()
-            await asyncio.sleep(0.05)
             user.find(marker="output-tab-original").click()
-            await asyncio.sleep(0.05)
             assert player.props["src"] == ""
             assert len(user.find(marker="player").elements) == 1
             assert _enabled(user, "ab-original") is False

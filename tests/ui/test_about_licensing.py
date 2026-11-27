@@ -9,20 +9,18 @@ than a traceback.
 from __future__ import annotations
 
 import asyncio
-import logging
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from media_fake import FakeMedia
 from nicegui.testing.user_simulation import user_simulation
 
-from stemforge import __version__, errors
-from stemforge.application import PreviewTarget, ServiceEngines, WorkspaceService
+from stemforge import __version__, errors, i18n
+from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.cancellation import CancelToken
-from stemforge.engines.media import CanonicalMetadata, DecodeResult, MediaInfo
 from stemforge.errors import StemForgeError
 from stemforge.jobs import Job, JobKind, JobState
 from stemforge.jobs.runner import JobRunner
@@ -45,77 +43,18 @@ def _enabled(user, marker: str) -> bool:
     return bool(_only(user, marker).enabled)
 
 
+async def _wait_until_enabled(user, marker: str) -> None:
+    """The modal re-enables storage controls on its own poll; wait for that state."""
+    for _ in range(50):
+        if _enabled(user, marker):
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"{marker} stayed disabled")
+
+
 @pytest.fixture(autouse=True)
 def _no_network(no_external_network: None) -> None:
     """The About modal must work offline."""
-
-
-class FakeMedia:
-    """A local-import stand-in so one live Track can prove Clear cache is safe."""
-
-    def __init__(self) -> None:
-        self._gate: threading.Event | None = None
-        self.decode_started = threading.Event()
-
-    def block_decoding(self) -> threading.Event:
-        self._gate = threading.Event()
-        return self._gate
-
-    def probe(self, path: Path) -> MediaInfo:
-        return MediaInfo(
-            codec="pcm_s16le",
-            sample_rate=44_100,
-            channels=2,
-            duration_s=120.0,
-            format="wav",
-            tags={},
-        )
-
-    def decode_canonical(
-        self, src: Path, dst: Path, *, cancel: CancelToken, log: logging.Logger
-    ) -> DecodeResult:
-        cancel.check()
-        self.decode_started.set()
-        if self._gate is not None:
-            self._gate.wait(timeout=10)
-        cancel.check()
-        dst.write_bytes(b"canonical:" + src.read_bytes())
-        return DecodeResult(
-            path=dst,
-            duration_s=120.0,
-            sample_rate=44_100,
-            channels=2,
-            downmixed=False,
-        )
-
-    def extract_metadata(self, src: Path) -> CanonicalMetadata:
-        return CanonicalMetadata(
-            title=src.stem,
-            duration_s=120.0,
-            sample_rate=44_100,
-            channels=2,
-        )
-
-    def extract_cover(self, src: Path, dst_dir: Path) -> Path | None:
-        return None
-
-    def encode_preview(
-        self,
-        src: Path,
-        dst: Path,
-        *,
-        gain_db: float,
-        title: str,
-        artist: str,
-        cancel: CancelToken,
-        log: logging.Logger,
-    ) -> None:
-        cancel.check()
-        dst.write_bytes(b"preview:" + src.read_bytes())
-
-    def peak_dbfs(self, path: Path, *, cancel: CancelToken, log: logging.Logger) -> float:
-        cancel.check()
-        return -3.0
 
 
 class FakeDialog:
@@ -225,22 +164,27 @@ async def test_modal_shows_version_licence_notices_and_source_offer(harness: Har
         assert _only(user, "about-ytdlp-version").text
         assert _only(user, "about-ytdlp-ejs-version").text
         assert _only(user, "about-deno-version").text == "2.9.8"
-        await user.should_see("YouTube import uses yt-dlp, yt-dlp-ejs, and Deno locally.")
-        await user.should_see("Age-restricted and private videos are not supported")
+        await user.should_see(i18n.t("settings.bundled_tools"))
         await user.should_see("GPL-3.0-only")
-        await user.should_see("Third-party notices")
-        await user.should_see("Corresponding source")
-        await user.should_see("Open licences folder")
-        await user.should_see("htdemucs weights are downloaded from Hugging Face")
-        await user.should_see("The English licence files are authoritative.")
-        await user.should_see("Romanian translation: StemForge contributors.")
-        await user.should_see(marker="clear-cached-audio")
-        await user.should_see(marker="clear-recent")
-        await user.should_see(marker="clear-youtube-cache")
-        await user.should_see(marker="open-log-folder")
-        await user.should_see(marker="about-close-note")
-        await user.should_see("There is no close prompt.")
-        await user.should_see(marker="about-partial-note")
+        await user.should_see(i18n.t("settings.notices"))
+        await user.should_see(i18n.t("settings.source"))
+        await user.should_see(marker="about-open-licences")
+        await user.should_see(i18n.t("settings.open_licences"))
+        assert _only(user, "about-weights-note").text == i18n.t("settings.weights_note")
+        assert _only(user, "about-licence-authoritative").text == i18n.t(
+            "settings.licence_authoritative"
+        )
+        assert _only(user, "about-translation-credit").text == i18n.t("settings.translation_credit")
+        assert _only(user, "about-youtube-note").text == i18n.t("settings.youtube_note")
+        for marker in (
+            "clear-cached-audio",
+            "clear-recent",
+            "clear-youtube-cache",
+            "open-log-folder",
+        ):
+            await user.should_see(marker=marker)
+        assert _only(user, "about-close-note").text == i18n.t("settings.close_note")
+        assert _only(user, "about-partial-note").text == i18n.t("settings.partial_note")
         await user.should_see(".partial")
         assert harness.service.licence_files().complete is True
 
@@ -249,8 +193,6 @@ async def test_the_language_row_is_first_and_persists_without_reloading(
     harness: Harness,
 ) -> None:
     from nicegui import app
-
-    from stemforge import i18n
 
     async for user, _workspace_page in _open_page(harness):
         await _open_settings(user)
@@ -266,7 +208,6 @@ async def test_the_language_row_is_first_and_persists_without_reloading(
         }
 
         select.set_value("en")
-        await asyncio.sleep(0.1)
 
         assert harness.service.language_preference() == "en"
         assert harness.language_changes == ["en"]
@@ -277,8 +218,6 @@ async def test_the_language_row_is_first_and_persists_without_reloading(
 async def test_the_system_option_shows_the_system_language_not_the_override(
     harness: Harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from stemforge import i18n
-
     harness.settings.set_language("en")
     monkeypatch.setattr(i18n, "system_locale", lambda: "ro_RO.UTF-8")
 
@@ -301,7 +240,6 @@ async def test_a_language_change_persists_and_reloads_the_page(
         await _open_settings(user)
 
         _only(user, "language-select").set_value("ro")
-        await asyncio.sleep(0.1)
 
         assert harness.service.language_preference() == "ro"
         assert reloads == [True]
@@ -316,31 +254,34 @@ async def test_a_rebuilt_page_keeps_a_running_job_and_starts_without_a_preview(
     while the shared runner keeps the running Job.
     """
     gate = threading.Event()
+    started = threading.Event()
 
     def wait(ctx) -> None:
+        started.set()
         gate.wait(10)
-        return None
 
+    harness.import_local_track("Reload Source.wav")
+    track_id = harness.service.snapshot().tracks[0].track_id
     job_id = harness.runner.submit(
         Job(kind=JobKind.SEPARATE, identity=("reload-survival",), run=wait)
     )
     try:
-        for _ in range(300):
-            if harness.runner.snapshot(job_id).state is JobState.RUNNING:
-                break
-            await asyncio.sleep(0.01)
+        assert await asyncio.to_thread(started.wait, 5) is True
         assert harness.runner.snapshot(job_id).state is JobState.RUNNING
 
-        async for user, first in _open_page(harness):
-            first._loaded_track_id = "preview-track"
-            first._loaded_preview = PreviewTarget(key="preview", url="/media/preview.mp3")
-            assert _only(user, "player") is not None
+        async for user, _first in _open_page(harness):
+            user.find(marker=f"track-row-{track_id}").click()
+            await user.should_see(marker="output-play-original")
+            user.find(marker="output-play-original").click()
+            assert _only(user, "player").props["src"] != ""
 
         async for user, second in _open_page(harness):
-            assert second is not first
-            assert second._loaded_track_id is None
-            assert second._loaded_preview is None
-            assert _only(user, "player") is not None
+            assert second is not _first
+            assert _only(user, "player").props["src"] == ""
+            with user:
+                second.poll()
+            await user.should_see(marker="job-bar")
+            await user.should_see(marker=f"track-row-{track_id}")
             running = [item for item in harness.service.jobs() if item.job_id == job_id]
             assert len(running) == 1
             assert running[0].state is JobState.RUNNING
@@ -355,7 +296,6 @@ async def test_open_licences_folder_calls_the_injected_opener(harness: Harness) 
         expected = harness.service.licence_files().licenses_dir
 
         user.find(marker="about-open-licences").click()
-        await asyncio.sleep(0.1)
 
         assert harness.opener.calls == [expected]
         assert expected.is_dir()
@@ -366,7 +306,6 @@ async def test_open_log_folder_calls_the_injected_opener(harness: Harness) -> No
     async for user, _workspace_page in _open_page(harness):
         await _open_settings(user)
         user.find(marker="open-log-folder").click()
-        await asyncio.sleep(0.1)
 
         assert harness.opener.calls == [harness.service.logs_dir()]
         assert harness.service.logs_dir().is_dir()
@@ -383,7 +322,6 @@ async def test_missing_tree_shows_the_coded_fallback_and_never_opens(
 
             await user.should_see(MISSING_HEADLINE)
             user.find(marker="about-open-licences").click()
-            await asyncio.sleep(0.1)
 
             assert item.opener.calls == []
             await user.should_see(MISSING_HEADLINE)
@@ -397,7 +335,6 @@ async def test_a_failing_opener_is_a_coded_message_not_a_traceback(harness: Harn
     async for user, _workspace_page in _open_page(harness):
         await _open_settings(user)
         user.find(marker="about-open-licences").click()
-        await asyncio.sleep(0.1)
 
         await user.should_see("Couldn't open the licences folder.")
 
@@ -407,7 +344,6 @@ async def test_a_failing_log_opener_uses_the_logging_code(harness: Harness) -> N
     async for user, _workspace_page in _open_page(harness):
         await _open_settings(user)
         user.find(marker="open-log-folder").click()
-        await asyncio.sleep(0.1)
 
         await user.should_see("Couldn't open the log folder.")
         assert errors.LOGGING_OPEN_FAILED not in _only(user, "about-files-error").text
@@ -422,19 +358,14 @@ async def test_documents_open_as_safe_plain_text(harness: Harness) -> None:
         await user.should_see(marker="about-document")
         await user.should_see("FFmpeg")
         user.find(marker="about-document-close").click()
-        await asyncio.sleep(0.05)
 
         user.find(marker="about-view-source").click()
-        await user.should_see(marker="about-document")
         await user.should_see("Corresponding source offer")
         user.find(marker="about-document-close").click()
-        await asyncio.sleep(0.05)
 
         user.find(marker="about-view-licence").click()
-        await user.should_see(marker="about-document")
         await user.should_see("GNU GENERAL PUBLIC LICENSE")
         user.find(marker="about-document-close").click()
-        await asyncio.sleep(0.05)
 
 
 async def test_storage_controls_clear_only_what_they_own(harness: Harness) -> None:
@@ -464,7 +395,6 @@ async def test_storage_controls_clear_only_what_they_own(harness: Harness) -> No
         await user.should_see(marker="about-recent-size")
 
         user.find(marker="clear-cached-audio").click()
-        await asyncio.sleep(0.1)
 
         assert live_dir.is_dir()
         assert not orphan.exists()
@@ -473,7 +403,6 @@ async def test_storage_controls_clear_only_what_they_own(harness: Harness) -> No
         await user.should_see("Cleared")
 
         user.find(marker="clear-recent").click()
-        await asyncio.sleep(0.1)
 
         assert harness.service.recent_files() == ()
         await user.should_see("Recent files cleared.")
@@ -497,7 +426,7 @@ async def test_storage_clears_are_disabled_while_a_job_runs(harness: Harness) ->
 
             gate.set()
             assert await asyncio.to_thread(harness.runner.wait_idle, 10) is True
-            await asyncio.sleep(0.6)
+            await _wait_until_enabled(user, "clear-cached-audio")
 
             assert _enabled(user, "clear-cached-audio") is True
             assert _enabled(user, "clear-youtube-cache") is True
@@ -512,9 +441,7 @@ async def test_the_youtube_toggle_still_works_from_the_modal(harness: Harness) -
         assert harness.service.youtube_enabled() is True
 
         user.find(marker="youtube-toggle").click()
-        await asyncio.sleep(0.1)
 
         assert harness.service.youtube_enabled() is False
         user.find(marker="settings-close").click()
-        await asyncio.sleep(0.05)
         await user.should_not_see(marker="youtube-row")

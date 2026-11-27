@@ -121,6 +121,9 @@ EXPECTED_NAMESPACES = frozenset(
 )
 
 HEAVY_MODULES = frozenset({"nicegui", "torch", "demucs"})
+# The entry point also gates the native window: a module-scope webview import
+# would load the webview runtime before --self-test or --worker can dispatch.
+ENTRY_POINT_HEAVY_MODULES = HEAVY_MODULES | {"webview"}
 ALLOWED_FOUNDATION_THIRD_PARTY = frozenset({"platformdirs"})
 
 
@@ -251,8 +254,9 @@ def test_self_test_mode_exits_zero_with_a_message(capsys: pytest.CaptureFixture[
 @pytest.mark.unit
 def test_entry_point_only_imports_the_heavy_stack_lazily() -> None:
     # The UI lands in _run_ui; what matters is that importing __main__ (and
-    # therefore --self-test/--worker dispatch) does not import NiceGUI or torch.
-    assert not _module_scope_import_roots(_main_module_source()) & HEAVY_MODULES
+    # therefore --self-test/--worker dispatch) does not import NiceGUI, torch,
+    # or the native webview runtime.
+    assert not (_module_scope_import_roots(_main_module_source()) & ENTRY_POINT_HEAVY_MODULES)
 
 
 @pytest.mark.unit
@@ -280,6 +284,9 @@ def test_foundation_modules_do_not_import_other_stemforge_packages() -> None:
         assert not unexpected, f"{path.name} imports {sorted(unexpected)}"
 
 
+# Packaging smoke: every name is a shipped module or an entry point the frozen
+# bundle imports, so a broken import that no behaviour test happens to reach
+# still fails here.
 @pytest.mark.unit
 @pytest.mark.parametrize("module_name", CORE_MODULES)
 def test_core_modules_are_importable(module_name: str) -> None:
@@ -288,6 +295,7 @@ def test_core_modules_are_importable(module_name: str) -> None:
 
 @pytest.mark.unit
 def test_session_home_is_a_temporary_directory() -> None:
+    """Environment guard: no test may write into the real user profile."""
     home = Path(os.environ["STEMFORGE_HOME"])
     assert home.is_dir()
     assert home.name.startswith("stemforge-tests-")
