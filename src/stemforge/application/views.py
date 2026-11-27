@@ -15,21 +15,15 @@ from types import MappingProxyType
 from typing import Final, Protocol
 
 from stemforge.artifacts import RemoveReport
+from stemforge.domain.display import LabelRef
 from stemforge.domain.models import ExportBatchItemState as ExportBatchItemState
 from stemforge.domain.models import RenderScope, Track
+from stemforge.domain.progress import CodedText
 from stemforge.domain.roles import INSTRUMENTAL_ROLE
 from stemforge.engines.media import ExportFormat
 
-# Presentation order and labels for Separation outputs. Instrumental is a stored
-# Artifact, not a Stem (GLOSSARY), so the map is deliberately not named for stems.
-SEPARATION_ROLE_LABELS: Final[Mapping[str, str]] = {
-    "vocals": "Vocals",
-    INSTRUMENTAL_ROLE: "Instrumental",
-    "drums": "Drums",
-    "bass": "Bass",
-    "other": "Other",
-}
-
+# Presentation order for Separation outputs. Instrumental is a stored Artifact,
+# not a Stem (GLOSSARY), so the tuple is deliberately not named for stems.
 SEPARATION_OUTPUT_ROLES: Final[tuple[str, ...]] = (
     "vocals",
     INSTRUMENTAL_ROLE,
@@ -89,13 +83,13 @@ class JobView(Protocol):
     def progress(self) -> float: ...
 
     @property
-    def stage(self) -> str: ...
+    def stage(self) -> CodedText: ...
 
     @property
     def created_at(self) -> datetime: ...
 
     @property
-    def detail(self) -> str | None: ...
+    def detail(self) -> CodedText | None: ...
 
     @property
     def active(self) -> bool: ...
@@ -142,9 +136,9 @@ class PreviewTarget:
     """
 
     key: str
-    label: str
     url: str
     gain_db: float = 0.0
+    label: LabelRef = field(default_factory=LabelRef)
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,12 +177,12 @@ class ExportBatchItem:
     """One planned output and the outcome the batch recorded for it."""
 
     key: str
-    label: str
     state: ExportBatchItemState
     path: Path | None = None
     error_code: str | None = None
     error_detail: str | None = None
     error_context: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    label: LabelRef = field(default_factory=LabelRef)
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,18 +267,18 @@ class LicenceFiles:
 class PitchSet:
     """One immutable Render set as version tabs and A/B see it.
 
-    ``label`` is the tab text (``+3`` or, when both scopes exist at one
-    semitone, ``+3 master`` / ``+3 stems``). ``based_on_earlier_separation``
-    records that the set's recorded input hashes no longer match the current
-    Stems; such a set stays listed and selectable.
+    ``label`` carries the tab text (``+3``, or ``+3 master`` / ``+3 stems`` when
+    both scopes exist at one semitone); the UI renders it at display time.
+    ``based_on_earlier_separation`` records that the set's recorded input hashes
+    no longer match the current Stems; such a set stays listed and selectable.
     """
 
     render_key: str
     semitones: int
     scope: RenderScope
-    label: str
     created_at: datetime
     based_on_earlier_separation: bool = False
+    label: LabelRef = field(default_factory=LabelRef)
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,6 +293,6 @@ class SeparationSet:
 
     set_key: str
     created_at: datetime
-    label: str
     stem_roles: tuple[str, ...]
     based_on_earlier_separation: bool = False
+    label: LabelRef = field(default_factory=LabelRef)

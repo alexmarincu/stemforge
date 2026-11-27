@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from stemforge.artifacts import ArtifactStore, RenderArtifact, SeparationArtifact
+from stemforge.domain.display import LabelRef, render_label_key
 from stemforge.domain.models import RenderScope
 from stemforge.domain.roles import STEM_ROLES
 from stemforge.engines.pitch import MAX_SEMITONES, MIN_SEMITONES
@@ -18,8 +19,8 @@ class RenderView:
     artifact: RenderArtifact
     semitones: int
     scope: RenderScope
-    label: str
     based_on_earlier_separation: bool
+    label: LabelRef = field(default_factory=LabelRef)
 
 
 def render_views(artifacts: ArtifactStore, source_id: str) -> tuple[RenderView, ...]:
@@ -37,10 +38,8 @@ def render_views(artifacts: ArtifactStore, source_id: str) -> tuple[RenderView, 
     separation = artifacts.find_separation(source_id) if parsed else None
     views: list[RenderView] = []
     for artifact, scope, semitones in parsed:
-        label = semitone_label(semitones)
         other = RenderScope.STEMS if scope is RenderScope.ORIGINAL else RenderScope.ORIGINAL
-        if (semitones, other) in collisions:
-            label += " master" if scope is RenderScope.ORIGINAL else " stems"
+        collision = (semitones, other) in collisions
         based_on_earlier = scope is RenderScope.STEMS and based_on_earlier_separation(
             artifact, separation
         )
@@ -49,16 +48,14 @@ def render_views(artifacts: ArtifactStore, source_id: str) -> tuple[RenderView, 
                 artifact=artifact,
                 semitones=semitones,
                 scope=scope,
-                label=label,
                 based_on_earlier_separation=based_on_earlier,
+                label=LabelRef(
+                    key=render_label_key(scope=scope.value, collision=collision),
+                    context={"semitones": semitones},
+                ),
             )
         )
     return tuple(views)
-
-
-def semitone_label(semitones: int) -> str:
-    """The tab text for one shift: ``+3``, or a minus-sign prefix when negative."""
-    return f"+{semitones}" if semitones > 0 else f"\u2212{abs(semitones)}"
 
 
 def render_scope(artifact: RenderArtifact) -> RenderScope | None:

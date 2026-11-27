@@ -29,6 +29,7 @@ def test_defaults_are_used_when_no_settings_file_exists(paths: AppPaths) -> None
     assert store.path == paths.config / "settings.json"
     assert store.settings.schema_version == 1
     assert store.first_run is True
+    assert store.language == "system"
     assert store.preferred_export_dir is None
     assert store.recent_files() == ()
     assert store.settings.cache_cap_bytes == 8 * 1024**3
@@ -141,6 +142,76 @@ def test_export_directory_and_first_run_persist(paths: AppPaths) -> None:
 
 
 @pytest.mark.unit
+def test_the_interface_language_persists(paths: AppPaths) -> None:
+    store = SettingsStore(paths)
+
+    store.set_language("ro")
+
+    assert store.language == "ro"
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    assert payload["language"] == "ro"
+    assert SettingsStore(paths).language == "ro"
+    assert SettingsStore(paths).settings.schema_version == 1
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["fr", 3, None, ["ro"]])
+def test_an_invalid_persisted_language_falls_back_to_system_without_corrupt_recovery(
+    paths: AppPaths, value: object
+) -> None:
+    paths.config.mkdir(parents=True, exist_ok=True)
+    (paths.config / "settings.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "recent": [
+                    {
+                        "source_id": "keep",
+                        "title": "Keep",
+                        "origin": "/keep.wav",
+                    }
+                ],
+                "export_dir": None,
+                "first_run": False,
+                "language": value,
+                "cache_cap_bytes": 1024,
+                "models": {
+                    "consent": {
+                        "version": 1,
+                        "acknowledged": True,
+                        "accepted_at": "2026-11-17T09:30:00+00:00",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = SettingsStore(paths)
+
+    assert store.language == "system"
+    assert store.first_run is False
+    assert store.settings.cache_cap_bytes == 1024
+    assert [entry.source_id for entry in store.recent_files()] == ["keep"]
+    assert store.model_consent() is not None
+    assert not list(paths.config.glob("settings.corrupt-*.json"))
+
+
+@pytest.mark.unit
+def test_a_missing_language_defaults_to_system(paths: AppPaths) -> None:
+    (paths.config / "settings.json").write_text(
+        json.dumps({"schema_version": 1, "first_run": False}),
+        encoding="utf-8",
+    )
+
+    store = SettingsStore(paths)
+
+    assert store.language == "system"
+    assert store.first_run is False
+    assert not list(paths.config.glob("settings.corrupt-*.json"))
+
+
+@pytest.mark.unit
 def test_save_writes_valid_json(paths: AppPaths) -> None:
     store = SettingsStore(paths)
 
@@ -152,6 +223,7 @@ def test_save_writes_valid_json(paths: AppPaths) -> None:
         "recent": [],
         "export_dir": None,
         "first_run": True,
+        "language": "system",
         "cache_cap_bytes": 8 * 1024**3,
         "models": {"consent": None},
         "youtube_enabled": True,

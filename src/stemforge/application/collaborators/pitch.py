@@ -43,9 +43,9 @@ class PitchService:
                 render_key=view.artifact.render_key,
                 semitones=view.semitones,
                 scope=view.scope,
-                label=view.label,
                 created_at=view.artifact.created_at,
                 based_on_earlier_separation=view.based_on_earlier_separation,
+                label=view.label,
             )
             for view in render_views(self._artifacts, track.source_id)
         )

@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
 
+from stemforge import i18n
 from stemforge.domain.models import ModelConsent, OriginKind
 from stemforge.platform.paths import AppPaths
 from stemforge.platform.storage import DEFAULT_CACHE_CAP_BYTES
@@ -50,6 +51,8 @@ class Settings:
     recent: tuple[RecentFile, ...] = ()
     export_dir: Path | None = None
     first_run: bool = True
+    # ``system`` resolves the OS locale at each launch; ``en``/``ro`` override it.
+    language: str = i18n.SYSTEM_PREFERENCE
     # The audio cache cap, counted over sources/ and renders/ only.
     cache_cap_bytes: int = DEFAULT_CACHE_CAP_BYTES
     # Explicit consent for the htdemucs download.
@@ -92,6 +95,21 @@ class SettingsStore:
     def preferred_export_dir(self) -> Path | None:
         with self._lock:
             return self._settings.export_dir
+
+    # -- Interface language ------------------------------------------------
+
+    @property
+    def language(self) -> str:
+        with self._lock:
+            return self._settings.language
+
+    def set_language(self, preference: str) -> None:
+        """Persist the Behaviour → Language preference (``system``/``en``/``ro``)."""
+        normalized = i18n.normalize_preference(preference)
+        with self._lock:
+            if normalized == self._settings.language:
+                return
+            self._write_locked(replace(self._settings, language=normalized))
 
     def model_consent(self) -> ModelConsent | None:
         """The persisted model-weights consent, if any."""
@@ -284,6 +302,7 @@ class SettingsStore:
             recent=recent,
             export_dir=export_dir,
             first_run=first_run,
+            language=i18n.normalize_preference(payload.get("language", i18n.SYSTEM_PREFERENCE)),
             cache_cap_bytes=cache_cap_bytes,
             model_consent=_parse_model_consent(payload),
             youtube_enabled=youtube_enabled,
@@ -341,6 +360,23 @@ class SettingsStore:
         self._settings = settings
 
 
+def read_language(paths: AppPaths) -> str | None:
+    """Read the persisted Interface language without creating or repairing settings.
+
+    The pre-window fatal path can run after environment setup failed, so this is
+    read-only and best-effort: an absent, unreadable, or damaged document yields
+    ``None`` and the caller falls back to System.
+    """
+    try:
+        raw = (paths.config / SETTINGS_FILENAME).read_text(encoding="utf-8")
+        payload: object = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    return i18n.normalize_preference(payload.get("language", i18n.SYSTEM_PREFERENCE))
+
+
 def _to_payload(settings: Settings) -> dict[str, object]:
     return {
         "schema_version": settings.schema_version,
@@ -357,6 +393,7 @@ def _to_payload(settings: Settings) -> dict[str, object]:
         ],
         "export_dir": str(settings.export_dir) if settings.export_dir is not None else None,
         "first_run": settings.first_run,
+        "language": settings.language,
         "cache_cap_bytes": settings.cache_cap_bytes,
         "models": {
             "consent": (

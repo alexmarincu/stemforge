@@ -489,6 +489,36 @@ def test_the_packaging_scripts_parse(script: str, shell: str) -> None:
     assert completed.returncode == 0, completed.stderr
 
 
+def test_the_linux_spec_ships_the_locale_catalogs() -> None:
+    spec = (PROJECT_ROOT / "packaging" / "pyinstaller" / "stemforge_linux.spec").read_text(
+        encoding="utf-8"
+    )
+
+    assert '(str(SRC / "i18n" / "catalogs"), "stemforge/i18n/catalogs")' in spec
+
+
+def test_the_desktop_entry_localises_its_menu_copy_and_keeps_technical_keys() -> None:
+    lines = (
+        (PROJECT_ROOT / "packaging" / "linux" / "stemforge.desktop")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    entries = dict(line.split("=", 1) for line in lines if line and not line.startswith("["))
+
+    assert entries["Name"] == "StemForge"
+    assert entries["Name[ro]"] == "StemForge"
+    assert entries["GenericName"] == "Stem Separator"
+    assert entries["GenericName[ro]"] == "Separator de stemuri"
+    assert entries["Comment"] == "Local stem separation, pitch shifting, and export"
+    assert entries["Comment[ro]"] == "Separare locală de stemuri, transpunere și export."
+    assert entries["Type"] == "Application"
+    assert entries["Exec"] == "stemforge"
+    assert entries["Icon"] == "stemforge"
+    assert entries["Terminal"] == "false"
+    assert entries["Categories"] == "AudioVideo;Audio;"
+    assert entries["StartupWMClass"] == "StemForge"
+
+
 def test_the_build_script_wires_the_release_gates() -> None:
     script = (PROJECT_ROOT / "packaging" / "linux" / "build.sh").read_text("utf-8")
 

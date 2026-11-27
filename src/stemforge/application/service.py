@@ -511,6 +511,14 @@ class WorkspaceService:
         """Request cancellation of one Job."""
         return self._ledger.cancel(job_id)
 
+    def language_preference(self) -> str:
+        """The persisted ``system``/``en``/``ro`` Interface language."""
+        return self._settings.language
+
+    def set_language_preference(self, preference: str) -> None:
+        """Persist the Behaviour → Language choice."""
+        self._settings.set_language(preference)
+
     def youtube_enabled(self) -> bool:
         """Whether the empty-state YouTube row is enabled."""
         return self._youtube.youtube_enabled()

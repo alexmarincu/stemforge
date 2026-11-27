@@ -2,16 +2,47 @@
 
 from __future__ import annotations
 
+import json
+import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from stemforge import errors
-from stemforge.domain.models import JobKind, OriginKind, Source, SourceMetadata, Track
+from stemforge import errors, i18n
+from stemforge.domain.display import LabelRef
+from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
+from stemforge.domain.progress import CodedText
 from stemforge.ui import formatting
 
 pytestmark = pytest.mark.unit
+
+ENGLISH_CATALOG = (
+    Path(__file__).resolve().parents[2] / "src" / "stemforge" / "i18n" / "catalogs" / "en.json"
+)
+
+
+def _english_catalog() -> dict[str, object]:
+    payload: object = json.loads(ENGLISH_CATALOG.read_text(encoding="utf-8"))
+    assert isinstance(payload, dict)
+    return payload
+
+
+def _catalog_translator(tmp_path: Path, overrides: Mapping[str, str]) -> i18n.Translator:
+    payload = _english_catalog()
+    payload.update(overrides)
+    (tmp_path / "en.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    language = i18n.Translator(catalog_dir=tmp_path)
+    assert language.set_language("en") == "en"
+    return language
+
+
+def _template(key: str) -> str:
+    value = _english_catalog()[key]
+    assert isinstance(value, str)
+    return value
 
 
 def test_duration_is_m_ss_and_handles_hours() -> None:
@@ -231,6 +262,107 @@ def test_dynamic_copy_never_exceeds_the_headline_cap() -> None:
     assert "…" in copy.headline
 
 
+@pytest.mark.parametrize(
+    ("key", "placeholder"),
+    [
+        ("error.import.too_long.duration.headline", "{duration}"),
+        ("error.import.youtube_too_long.duration.headline", "{duration}"),
+        ("error.export.write_failed.folder.headline", "{folder}"),
+        ("error.storage.disk_full.export.headline", "{folder}"),
+        ("error.storage.disk_full.export.headline", "{required}"),
+        ("error.storage.disk_full.import.headline", "{required}"),
+        ("error.storage.disk_full.import.headline", "{free}"),
+        ("error.storage.permission_denied.path.headline", "{path}"),
+        ("error.preflight.storage_unwritable.path.headline", "{path}"),
+    ],
+)
+def test_dynamic_error_templates_carry_named_placeholders(key: str, placeholder: str) -> None:
+    assert placeholder in _template(key)
+
+
+def test_dynamic_sentences_render_their_catalog_templates() -> None:
+    duration = formatting.copy_for(errors.IMPORT_TOO_LONG, context={"duration_s": 1_872.0})
+    video_duration = formatting.copy_for(
+        errors.IMPORT_YOUTUBE_TOO_LONG, context={"duration_s": 1_450.0}
+    )
+    folder = formatting.copy_for(
+        errors.EXPORT_WRITE_FAILED,
+        "permission",
+        context={"path": "/home/alex/exports"},
+    )
+    export_space = formatting.copy_for(
+        errors.STORAGE_DISK_FULL,
+        "export",
+        context={"path": "/home/alex/exports", "required": 120_000_000},
+    )
+    import_space = formatting.copy_for(
+        errors.STORAGE_DISK_FULL,
+        context={"path": "/home/alex/stemforge", "required": 120_000_000, "free": 10_485_760},
+    )
+    permission = formatting.copy_for(
+        errors.STORAGE_PERMISSION_DENIED,
+        context={"path": "/home/alex/stemforge"},
+    )
+    video_no_audio = formatting.copy_for(errors.IMPORT_NO_AUDIO_STREAM, origin=OriginKind.YOUTUBE)
+
+    assert duration.headline == _template("error.import.too_long.duration.headline").format(
+        duration="31:12"
+    )
+    assert video_duration.headline == _template(
+        "error.import.youtube_too_long.duration.headline"
+    ).format(duration="24:10")
+    assert folder.headline == _template("error.export.write_failed.folder.headline").format(
+        folder="exports"
+    )
+    assert export_space.headline == _template("error.storage.disk_full.export.headline").format(
+        folder="exports", required="114.4 MB"
+    )
+    assert import_space.headline == _template("error.storage.disk_full.import.headline").format(
+        required="114.4 MB", free="10.0 MB"
+    )
+    assert permission.headline == _template("error.storage.permission_denied.path.headline").format(
+        path="/home/alex/stemforge"
+    )
+    assert video_no_audio.headline == _template("error.import.no_audio_stream.video.headline")
+    assert video_no_audio.action == _template("error.import.no_audio_stream.video.action")
+
+
+def test_a_dynamic_sentence_reads_the_catalog_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    language = _catalog_translator(
+        tmp_path,
+        {"error.import.too_long.duration.headline": "Catalog says {duration}."},
+    )
+    monkeypatch.setattr(formatting, "i18n", language)
+
+    copy = formatting.copy_for(errors.IMPORT_TOO_LONG, context={"duration_s": 1_872.0})
+
+    assert copy.headline == "Catalog says 31:12."
+
+
+def test_a_dynamic_headline_at_the_cap_falls_back_to_the_catalog_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    language = _catalog_translator(
+        tmp_path,
+        {
+            "error.import.too_long.headline": "Catalog base headline.",
+            "error.import.too_long.action": "Catalog base action.",
+            "error.import.too_long.duration.headline": (
+                "This track is {duration} long, which is far beyond the thirty-minute "
+                "limit this build allows for a local import."
+            ),
+        },
+    )
+    monkeypatch.setattr(formatting, "i18n", language)
+
+    copy = formatting.copy_for(errors.IMPORT_TOO_LONG, context={"duration_s": 1_872.0})
+
+    assert len(copy.headline) <= formatting.MAX_HEADLINE_LENGTH
+    assert (copy.headline, copy.action) == ("Catalog base headline.", "Catalog base action.")
+
+
 def test_dynamic_copy_falls_back_when_context_is_missing() -> None:
     """A Job recorded by an older runner still gets the generic sentence."""
     assert (
@@ -259,28 +391,75 @@ def test_the_level_adjusted_badge_is_quiet_and_exact() -> None:
     assert formatting.level_adjusted_label(-6.0) == "level adjusted \u22126.0 dB"
 
 
-def test_every_job_kind_has_a_bar_label() -> None:
-    assert set(formatting.JOB_LABELS) == {kind.value for kind in JobKind}
-    assert formatting.JOB_LABELS["save_original"] == "Saving original"
-
-
 def test_save_original_copy_uses_the_glossary_terms() -> None:
     copy = " ".join(
-        {
-            formatting.IMPORTED_FILE_LABEL,
-            formatting.IMPORTED_FILE_UNCHANGED,
-            formatting.SAVE_ORIGINAL_ACTION,
-            formatting.SAVE_ORIGINAL_CANCELLED,
-            formatting.SAVE_ORIGINAL_SAVED_TO,
-            formatting.SAVE_ORIGINAL_EXTENSION_CHANGED,
-            formatting.SAVE_ORIGINAL_CHOOSE_LOCATION,
-        }
+        i18n.t(key)
+        for key in (
+            "export.imported_file",
+            "export.imported_file_unchanged",
+            "export.save_original_action",
+            "page.save_original_cancelled",
+            "page.save_original_saved_to",
+            "page.save_original_extension_changed",
+            "export.choose_location",
+        )
     ).lower()
 
     assert "save original" in copy
     assert "imported file" in copy
     for avoided in ("passthrough", "native export", "raw export"):
         assert avoided not in copy
+
+
+def test_a_job_stage_prefers_its_code_and_falls_back_to_the_english_text() -> None:
+    coded = SimpleNamespace(
+        stage=CodedText("Decoding", code="job.stage.import.decoding", context={"part": 1}),
+        detail=CodedText(
+            "song.wav",
+            code="job.detail.import.native_file",
+            context={"name": "song.wav"},
+        ),
+    )
+    unknown = SimpleNamespace(
+        stage=CodedText("Future stage", code="job.stage.future.unknown"),
+        detail=CodedText("future detail", code="job.detail.future.unknown"),
+    )
+
+    assert formatting.job_stage(coded) == "Decoding"
+    assert formatting.job_detail(coded) == "song.wav"
+    assert formatting.job_stage(unknown) == "Future stage"
+    assert formatting.job_detail(unknown) == "future detail"
+
+
+def test_display_labels_resolve_roles_shifts_and_batch_labels() -> None:
+    assert formatting.label_text(LabelRef(key="role.vocals")) == "Vocals"
+    assert formatting.display_label("role.vocals") == "Vocals"
+    assert formatting.display_label("common.original") == "Original"
+    assert (
+        formatting.display_label(
+            "pitch.render.master",
+            {"semitones": 3},
+        )
+        == "+3 master"
+    )
+    assert (
+        formatting.display_label(
+            "export.target.shifted",
+            {"role": "vocals", "semitones": -2},
+        )
+        == "Vocals \u22122 st"
+    )
+    assert formatting.display_label("role.no_such_role", fallback="Banjo") == "Banjo"
+
+
+def test_an_unknown_role_returns_its_stable_code_and_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="stemforge.ui.formatting"):
+        label = formatting.role_label("no_such_role")
+
+    assert label == "no_such_role"
+    assert any("no_such_role" in record.getMessage() for record in caplog.records)
 
 
 def test_batch_confirm_and_remaining_are_singular_at_one() -> None:

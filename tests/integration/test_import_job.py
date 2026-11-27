@@ -161,6 +161,7 @@ def test_local_import_commits_a_source_track_and_recent_file(
     assert snapshot.state is JobState.SUCCEEDED, snapshot
     assert snapshot.progress == 1.0
     assert snapshot.stage == "Saving"
+    assert snapshot.stage_code == "job.stage.import.saving"
     assert snapshot.error_code is None
     assert snapshot.log_path is not None
     assert snapshot.log_path.is_file()

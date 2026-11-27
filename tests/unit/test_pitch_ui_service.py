@@ -29,6 +29,7 @@ from stemforge.errors import StemForgeError
 from stemforge.jobs.runner import JobRunner
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
+from stemforge.ui import formatting
 
 SOURCE_ID = "source-pitch-ui"
 TRACK_ID = "track-pitch-ui"
@@ -217,13 +218,20 @@ def test_a_single_scope_label_stays_bare_and_a_collision_adds_master_and_stems(
     _commit_separation(store)
     _commit_render(store, SOURCE_ID, semitones=3, scope="original")
 
-    assert [item.label for item in service.pitch_sets(_track())] == ["+3"]
+    (single,) = service.pitch_sets(_track())
+    assert single.label.key == "pitch.render.shift"
+    assert dict(single.label.context) == {"semitones": 3}
+    assert formatting.label_text(single.label) == "+3"
 
     _commit_render(store, SOURCE_ID, semitones=3, scope="stems")
 
-    labels = [item.label for item in service.pitch_sets(_track())]
+    labels = [formatting.label_text(item.label) for item in service.pitch_sets(_track())]
     assert labels == ["+3 master", "+3 stems"]
     assert len(set(labels)) == 2
+    assert [item.label.key for item in service.pitch_sets(_track())] == [
+        "pitch.render.master",
+        "pitch.render.stems",
+    ]
 
 
 @pytest.mark.unit
@@ -235,7 +243,9 @@ def test_a_non_colliding_stems_set_is_not_relabelled(tmp_path: Path) -> None:
 
     (item,) = service.pitch_sets(_track())
 
-    assert item.label == "+4"
+    assert formatting.label_text(item.label) == "+4"
+    assert item.label.key == "pitch.render.shift"
+    assert dict(item.label.context) == {"semitones": 4}
     assert item.scope is RenderScope.STEMS
 
 
@@ -296,8 +306,12 @@ def test_a_master_set_previews_its_original_and_a_stems_set_its_instrumental(
 
     assert master_target is not None
     assert master_target.url == f"/media/renders/{master}/original_preview.mp3"
+    assert master_target.label.key == "pitch.render.master"
+    assert dict(master_target.label.context) == {"semitones": 3}
     assert stems_target is not None
     assert stems_target.url == f"/media/renders/{stems}/instrumental_preview.mp3"
+    assert stems_target.label.key == "pitch.render.stems"
+    assert dict(stems_target.label.context) == {"semitones": 3}
     assert master_target.key != stems_target.key
     assert service.pitch_preview_target(track, "missing-render") is None
 

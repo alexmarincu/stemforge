@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.application import ServiceEngines, WorkspaceService
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.models import (
@@ -161,6 +161,7 @@ def test_separation_sets_list_the_committed_set_with_ordered_stem_roles(tmp_path
     (item,) = service.separation_sets(track)
 
     assert item.set_key
+    assert item.label.key == "separation.title"
     assert item.created_at.tzinfo is not None
     assert item.stem_roles == ("vocals", "drums", "bass", "other")
     assert item.based_on_earlier_separation is False
@@ -189,10 +190,13 @@ def test_each_stem_and_the_instrumental_have_their_own_preview_target(tmp_path: 
 
     assert vocals is not None
     assert vocals.url == f"/media/sources/{SOURCE_ID}/stems/vocals_preview.mp3"
+    assert vocals.label.key == "role.vocals"
     assert vocals.key != instrumental.key
     assert instrumental is not None
     assert instrumental.url.endswith("/instrumental_preview.mp3")
+    assert instrumental.label.key == "role.instrumental"
     assert drums is not None
+    assert drums.label.key == "role.drums"
     assert service.separation_preview_target(track, item.set_key, "banjo") is None
 
 
@@ -237,12 +241,19 @@ def test_export_targets_cover_vocals_instrumental_and_the_three_secondary_stems(
         "bass",
         "other",
     }
-    assert {target.role: target.label for target in targets} == {
+    assert {target.role: i18n.t(target.label.key) for target in targets} == {
         "vocals": "Vocals",
         "instrumental": "Instrumental",
         "drums": "Drums",
         "bass": "Bass",
         "other": "Other",
+    }
+    assert {target.role: target.label.key for target in targets} == {
+        "vocals": "role.vocals",
+        "instrumental": "role.instrumental",
+        "drums": "role.drums",
+        "bass": "role.bass",
+        "other": "role.other",
     }
     assert all(target.source_id == SOURCE_ID for target in targets)
     assert len({target.key for target in targets}) == 5

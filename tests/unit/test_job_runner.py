@@ -258,17 +258,27 @@ def test_snapshots_poll_queued_running_and_succeeded_states(runner: JobRunner) -
     release = threading.Event()
 
     def run(ctx: JobContext) -> Mapping[str, str] | None:
-        ctx.progress(0.25, stage="Decoding", detail="half")
+        ctx.progress(
+            0.25,
+            stage="Decoding",
+            stage_code="job.stage.import.decoding",
+            stage_context={"part": 1},
+            detail="half",
+            detail_code="job.detail.import.native_file",
+            detail_context={"name": "song.wav"},
+        )
         started.set()
         assert release.wait(5)
-        ctx.progress(0.1, stage="Decoding")
-        ctx.progress(1.0, stage="Saving")
+        ctx.progress(0.1, stage="Decoding", stage_code="job.stage.import.decoding")
+        ctx.progress(1.0, stage="Saving", stage_code="job.stage.import.saving")
         return {"source_id": "src-1", "track_id": "trk-1"}
 
     job_id = runner.submit(_job(("snapshot",), run))
     queued = runner.snapshot(job_id)
     assert queued.state is JobState.QUEUED
     assert queued.progress == 0.0
+    assert queued.stage_code is None
+    assert queued.detail_code is None
     assert queued.started_at is None
 
     runner.start()
@@ -277,7 +287,11 @@ def test_snapshots_poll_queued_running_and_succeeded_states(runner: JobRunner) -
     assert running.state is JobState.RUNNING
     assert running.progress == 0.25
     assert running.stage == "Decoding"
+    assert running.stage_code == "job.stage.import.decoding"
+    assert dict(running.stage_context) == {"part": 1}
     assert running.detail == "half"
+    assert running.detail_code == "job.detail.import.native_file"
+    assert dict(running.detail_context) == {"name": "song.wav"}
     assert running.started_at is not None
     assert running.finished_at is None
 
@@ -287,6 +301,9 @@ def test_snapshots_poll_queued_running_and_succeeded_states(runner: JobRunner) -
     assert finished.state is JobState.SUCCEEDED
     assert finished.progress == 1.0
     assert finished.stage == "Saving"
+    assert finished.stage_code == "job.stage.import.saving"
+    assert finished.detail is None
+    assert finished.detail_code is None
     assert finished.finished_at is not None
     assert dict(finished.result_keys) == {"source_id": "src-1", "track_id": "trk-1"}
 
@@ -454,8 +471,16 @@ def test_cancel_token_is_still_reexported_from_the_job_module() -> None:
 
 
 def test_snapshot_is_an_immutable_value() -> None:
-    snapshot = JobSnapshot(job_id="j", kind=JobKind.IMPORT_LOCAL, state=JobState.QUEUED)
+    snapshot = JobSnapshot(
+        job_id="j",
+        kind=JobKind.IMPORT_LOCAL,
+        state=JobState.QUEUED,
+        stage="Waiting",
+    )
 
     with pytest.raises(AttributeError):
         snapshot.state = JobState.FAILED  # type: ignore[misc]
     assert snapshot.progress == 0.0
+    assert snapshot.stage == "Waiting"
+    assert snapshot.stage.text == "Waiting"
+    assert snapshot.stage_code is None

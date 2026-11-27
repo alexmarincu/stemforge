@@ -11,7 +11,12 @@ import pytest
 
 from stemforge import errors
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.display import LabelRef
 from stemforge.domain.models import ExportBatchItemState, JobKind
+from stemforge.domain.progress import (
+    STAGE_EXPORT_BATCH_ITEM,
+    Progress,
+)
 from stemforge.engines.media import ExportFormat, MediaInfo
 from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.jobs.job import JobContext
@@ -40,7 +45,6 @@ def _target(
     return ExportTarget(
         source_id=SOURCE_ID,
         key=key,
-        label=role.title(),
         role=role,
         path=Path("/cache") / f"{key.replace(':', '-')}.wav",
         gain_db=0.0,
@@ -48,6 +52,7 @@ def _target(
         scope=scope,
         render_key=render_key,
         title="Song",
+        label=LabelRef(key=f"role.{role}"),
     )
 
 
@@ -136,10 +141,13 @@ def _context(
     events: list[tuple[float, str | None, str | None]] | None = None,
     *,
     cancel: CancelToken | None = None,
+    updates: list[Progress] | None = None,
 ) -> JobContext:
-    def update(fraction: float, stage: str | None, detail: str | None) -> None:
+    def update(progress) -> None:
         if events is not None:
-            events.append((fraction, stage, detail))
+            events.append((progress.fraction, progress.stage, progress.detail))
+        if updates is not None:
+            updates.append(progress)
 
     return JobContext(
         job_id="job-batch",
@@ -159,6 +167,7 @@ def _run(
     resolve=None,
     events: list[tuple[float, str | None, str | None]] | None = None,
     cancel: CancelToken | None = None,
+    updates: list[Progress] | None = None,
 ) -> tuple[dict[str, str] | None, list[ExportBatchItemOutcome], BaseException | None]:
     recorded: list[ExportBatchItemOutcome] = []
 
@@ -179,7 +188,7 @@ def _run(
     error: BaseException | None = None
     try:
         result = run_export_batch_job(
-            _context(events, cancel=cancel),
+            _context(events, cancel=cancel, updates=updates),
             artifacts=object(),  # type: ignore[arg-type]
             media=(media if media is not None else ProbeMedia()),  # type: ignore[arg-type]
             source_id=SOURCE_ID,
@@ -225,6 +234,32 @@ def test_a_full_batch_records_every_written_item_in_plan_order(
         "Bass",
         "Other",
     }
+    assert [item.label.key for item in recorded] == [
+        "role.vocals",
+        "role.instrumental",
+        "role.drums",
+        "role.bass",
+        "role.other",
+    ]
+
+
+def test_batch_progress_carries_the_stage_code_and_target_label_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    targets = batch_targets(_full_targets(), version_key="original")
+    updates: list[Progress] = []
+
+    _result, _recorded, error = _run(monkeypatch, targets, updates=updates)
+
+    assert error is None
+    item_updates = [update for update in updates if update.stage_code == STAGE_EXPORT_BATCH_ITEM]
+    assert item_updates
+    first = next(update for update in item_updates if update.stage_context["index"] == 1)
+    assert first.stage == "1 of 5"
+    assert dict(first.stage_context) == {"index": 1, "total": 5}
+    assert first.detail == "Vocals"
+    assert first.detail_code == "role.vocals"
+    assert dict(first.detail_context) == {}
 
 
 def test_an_item_level_failure_continues_and_the_batch_then_fails(

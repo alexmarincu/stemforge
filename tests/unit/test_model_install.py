@@ -161,8 +161,8 @@ def _context(
 ) -> tuple[JobContext, list[tuple[float, str | None, str | None]]]:
     updates: list[tuple[float, str | None, str | None]] = []
 
-    def update(fraction: float, stage: str | None, detail: str | None) -> None:
-        updates.append((fraction, stage, detail))
+    def update(progress) -> None:
+        updates.append((progress.fraction, progress.stage, progress.detail))
 
     ctx = JobContext(
         job_id="model-test",

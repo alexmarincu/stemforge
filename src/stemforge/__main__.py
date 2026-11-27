@@ -26,6 +26,7 @@ from stemforge.platform import preflight
 if TYPE_CHECKING:
     from stemforge.application import WorkspaceService
     from stemforge.platform.paths import AppPaths
+    from stemforge.settings import SettingsStore
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -110,9 +111,53 @@ def _paths_without_creating() -> AppPaths:
     return AppPaths.from_environment()
 
 
+def _headless_mode(args: argparse.Namespace) -> bool:
+    """Whether this invocation must keep all CLI output in English."""
+    return bool(
+        args.import_path is not None
+        or args.install_model
+        or args.diagnostics
+        or args.self_test
+        or args.smoke_test
+        or args.smoke_separation
+        or (args.report is not None and not args.preflight)
+    )
+
+
+def _initialize_language(
+    args: argparse.Namespace | None = None,
+    *,
+    settings: SettingsStore | None = None,
+    saved_preference: str | None = None,
+) -> None:
+    """Apply the one Interface-language policy before any dialog or window chrome.
+
+    Headless CLI modes stay English. A normal launch follows the persisted
+    preference and the OS locale. When environment setup failed, the caller
+    supplies the best-effort persisted value so the fatal box still matches the
+    user's choice; an unreadable document falls back to System.
+    """
+    from stemforge import i18n
+
+    if args is not None and _headless_mode(args):
+        i18n.set_language(i18n.SOURCE_LOCALE)
+        return
+    if settings is not None:
+        preference = settings.language
+    elif saved_preference is not None:
+        preference = saved_preference
+    else:
+        preference = i18n.SYSTEM_PREFERENCE
+    i18n.set_language(preference, system_locale=i18n.system_locale())
+
+
 def _configuration_failure(args: argparse.Namespace, error: OSError) -> int:
     """Turn a failed ``environment.configure()`` into the storage fatal result."""
+    from stemforge import i18n
+    from stemforge.settings import read_language
+
     paths = _paths_without_creating()
+    _initialize_language(args, saved_preference=read_language(paths))
     target = _storage_error_path(paths, error)
     report = preflight.PreflightReport(
         checks=(
@@ -145,7 +190,8 @@ def _configuration_failure(args: argparse.Namespace, error: OSError) -> int:
             print(report.to_json())
         elif not args.quiet:
             print(preflight.format_human(report))
-            headline, action = _fatal_copy(report, _fatal_code(report))
+            with i18n.use_source_locale():
+                headline, action = _fatal_copy(report, _fatal_code(report))
             print()
             print(headline)
             print(action)
@@ -178,7 +224,10 @@ def _run_preflight(paths: AppPaths, args: argparse.Namespace) -> int:
     elif not args.quiet:
         print(preflight.format_human(report))
         if report.fatal or report.degraded:
-            headline, action = _fatal_copy(report, _fatal_code(report))
+            from stemforge import i18n
+
+            with i18n.use_source_locale():
+                headline, action = _fatal_copy(report, _fatal_code(report))
             print()
             print(headline)
             print(action)
@@ -242,10 +291,15 @@ def _browser_preflight(report: preflight.PreflightReport) -> preflight.Preflight
     )
 
 
-def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
+def _run_ui(
+    paths: AppPaths,
+    report: preflight.PreflightReport,
+    settings: SettingsStore | None = None,
+) -> int:
     """Open the native workspace window and run the app until it closes."""
     from nicegui import app, ui
 
+    from stemforge import i18n
     from stemforge.application import ServiceEngines, WorkspaceService
     from stemforge.engines.media import FfmpegTool
     from stemforge.engines.pitch import RubberBandEngine
@@ -261,7 +315,11 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
     from stemforge.ui import page
     from stemforge.ui.components.diagnostics import BrowserClipboard
 
-    settings = SettingsStore(paths)
+    if settings is None:
+        settings = SettingsStore(paths)
+    _initialize_language(settings=settings)
+    framework_language = i18n.framework_language(i18n.language())
+    app.config.language = framework_language
     configure_logging(paths)
     media = FfmpegTool()
     service = WorkspaceService(
@@ -336,7 +394,8 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
                 reload=False,
                 show=True,
                 host="127.0.0.1",
-                title=page.TITLE,
+                title=i18n.t("app.name"),
+                language=framework_language,
                 favicon=favicon if favicon.is_file() else None,
                 fastapi_docs=False,
                 endpoint_documentation="none",
@@ -353,7 +412,8 @@ def _run_ui(paths: AppPaths, report: preflight.PreflightReport) -> int:
             reload=False,
             show=False,
             window_size=DEFAULT_WINDOW_SIZE,
-            title=page.TITLE,
+            title=i18n.t("app.name"),
+            language=framework_language,
             favicon=favicon if favicon.is_file() else None,
             fastapi_docs=False,
             endpoint_documentation="none",
@@ -539,6 +599,21 @@ def _storage_path_from_message(message: str) -> str | None:
     return None
 
 
+def _native_chrome() -> preflight.NativeChrome:
+    """Resolve the pre-window dialog chrome through the active catalogue."""
+    from stemforge import i18n
+
+    return preflight.NativeChrome(
+        fatal_title=i18n.t("preflight.fatal_title"),
+        details_label=i18n.t("preflight.details_label"),
+        logs_unavailable=i18n.t("preflight.logs_unavailable"),
+        copy_details_label=i18n.t("preflight.copy_details"),
+        ok_label=i18n.t("preflight.ok"),
+        already_running_title=i18n.t("preflight.already_running_title"),
+        already_running_body=i18n.t("preflight.already_running_body"),
+    )
+
+
 def _show_fatal(
     report: preflight.PreflightReport,
     paths: AppPaths,
@@ -554,6 +629,7 @@ def _show_fatal(
         fix_line=fix_line,
         log_path=log_path if log_path.is_file() else None,
         copy_text=diagnostics,
+        chrome=_native_chrome(),
     )
     preflight.show_fatal_message(message)
 
@@ -583,10 +659,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _dispatch_worker(raw)
 
     args = _build_parser().parse_args(raw)
+    _initialize_language(args)
     try:
         paths = _configure()
     except OSError as error:
         return _configuration_failure(args, error)
+
+    settings = None
+    if not _headless_mode(args):
+        from stemforge.settings import SettingsStore
+
+        settings = SettingsStore(paths)
+        _initialize_language(args, settings=settings)
 
     if args.import_path is not None:
         return _run_import(args.import_path, paths)
@@ -614,7 +698,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     lock = InstanceLock(paths.config / "instance.lock")
     if not lock.acquire():
-        preflight.show_already_running()
+        preflight.show_already_running(chrome=_native_chrome())
         return 0
     try:
         report = _browser_preflight(preflight.run_preflight(paths, fail_on_degraded=False))
@@ -627,7 +711,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 diagnostics=_diagnostics_text(report, paths),
             )
             return report.exit_code
-        return _run_ui(paths, report)
+        return _run_ui(paths, report, settings=settings)
     finally:
         lock.release()
 

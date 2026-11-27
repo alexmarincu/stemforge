@@ -27,6 +27,7 @@ from uuid import uuid4
 from stemforge import errors
 from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.models import JobState
+from stemforge.domain.progress import CodedText, Progress
 from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.jobs.job import Job, JobContext, ProgressUpdate
 from stemforge.jobs.models import JobSnapshot
@@ -53,8 +54,8 @@ class _Entry:
     created_at: datetime
     state: JobState = JobState.QUEUED
     progress: float = 0.0
-    stage: str = ""
-    detail: str | None = None
+    stage: CodedText = field(default_factory=lambda: CodedText(""))
+    detail: CodedText | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error_code: str | None = None
@@ -392,18 +393,18 @@ class JobRunner:
         )
 
     def _progress_update(self, job_id: str) -> ProgressUpdate:
-        def update(fraction: float, stage: str | None, detail: str | None) -> None:
+        def update(progress: Progress) -> None:
             with self._cond:
                 entry = self._entries.get(job_id)
                 if entry is None or entry.state is not JobState.RUNNING:
                     return
-                clamped = min(1.0, max(0.0, fraction))
+                clamped = min(1.0, max(0.0, progress.fraction))
                 if clamped > entry.progress:
                     entry.progress = clamped
-                if stage is not None:
-                    entry.stage = stage
-                if detail is not None:
-                    entry.detail = detail
+                if progress.stage is not None:
+                    entry.stage = progress.stage
+                if progress.detail is not None:
+                    entry.detail = progress.detail
                 self._cond.notify_all()
 
         return update

@@ -8,12 +8,9 @@ from urllib.parse import quote
 from stemforge.application.identity import separation_key
 from stemforge.application.renders import RenderView, render_views
 from stemforge.application.state import WorkspaceState
-from stemforge.application.views import (
-    SEPARATION_OUTPUT_ROLES,
-    SEPARATION_ROLE_LABELS,
-    PreviewTarget,
-)
+from stemforge.application.views import SEPARATION_OUTPUT_ROLES, PreviewTarget
 from stemforge.artifacts import ArtifactStore
+from stemforge.domain.display import ORIGINAL_LABEL_KEY, LabelRef, role_label_key
 from stemforge.domain.models import RenderScope, Track
 from stemforge.domain.roles import INSTRUMENTAL_ROLE, STEM_ROLES
 
@@ -78,9 +75,9 @@ class PreviewService:
             return None
         return PreviewTarget(
             key=f"render:{view.artifact.render_key}:{role}",
-            label=SEPARATION_ROLE_LABELS.get(role, role.title()),
             url=url,
             gain_db=view.artifact.gain_db,
+            label=LabelRef(key=ORIGINAL_LABEL_KEY if role == "original" else role_label_key(role)),
         )
 
     def pitch_preview_target(self, track: Track, render_key: str) -> PreviewTarget | None:
@@ -112,9 +109,9 @@ class PreviewService:
             return None
         return PreviewTarget(
             key=f"{set_key}:{stem}",
-            label=SEPARATION_ROLE_LABELS[stem],
             url=url,
             gain_db=artifact.gain_db,
+            label=LabelRef(key=role_label_key(stem)),
         )
 
     def _preview_targets(self, track: Track) -> tuple[PreviewTarget, ...]:
@@ -124,9 +121,9 @@ class PreviewService:
             targets.append(
                 PreviewTarget(
                     key="original",
-                    label="Original",
                     url=source_url,
                     gain_db=track.gain_db,
+                    label=LabelRef(key=ORIGINAL_LABEL_KEY),
                 )
             )
         for view in render_views(self._artifacts, track.source_id):
@@ -136,9 +133,9 @@ class PreviewService:
             targets.append(
                 PreviewTarget(
                     key=view.artifact.render_key,
-                    label=view.label,
                     url=url,
                     gain_db=view.artifact.gain_db,
+                    label=view.label,
                 )
             )
         return tuple(targets)

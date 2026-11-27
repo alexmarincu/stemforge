@@ -5,7 +5,7 @@ is called, so a playlist, channel, search, or foreign host is only a field error
 A valid submit reports in
 the one Job bar, and the page refreshes the row when the Job ends.
 
-All prose lives in ``ui/formatting.py``. The only state this component owns is
+All prose resolves through the English catalogue. The only state this component owns is
 view state (the error line, the pending paste, and the declined flag); the
 acknowledgment and the enable/disable setting are persisted by ``SettingsStore``.
 """
@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from nicegui import ui
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.errors import StemForgeError
 from stemforge.integration.shell import PathOpener
 from stemforge.ui import formatting
@@ -68,14 +68,14 @@ class YouTubeRow:
         with ui.element("div").classes("sf-yt").mark("youtube-row"):
             with ui.element("div").classes("sf-yt-row"):
                 self._input = (
-                    ui.input(placeholder=formatting.YOUTUBE_URL_PLACEHOLDER)
+                    ui.input(placeholder=i18n.t("youtube.url_placeholder"))
                     .props("dense outlined")
                     .classes("sf-yt-input")
                     .mark("youtube-url")
                 )
                 self._input.on("keydown.enter", lambda _=None: self.handle_submit())
                 self._button = (
-                    ui.button(formatting.YOUTUBE_IMPORT_LABEL, on_click=self.handle_submit)
+                    ui.button(i18n.t("youtube.import"), on_click=self.handle_submit)
                     .props("unelevated no-caps")
                     .classes("sf-yt-button")
                     .mark("youtube-import")
@@ -86,7 +86,7 @@ class YouTubeRow:
             self._error_details.set_visibility(False)
             self._status = ui.label("").classes("sf-yt-status").mark("youtube-status")
             self._status.set_visibility(False)
-            ui.label(formatting.YOUTUBE_DISCLAIMER).classes("sf-yt-disclaimer").mark(
+            ui.label(i18n.t("youtube.disclaimer")).classes("sf-yt-disclaimer").mark(
                 "youtube-disclaimer"
             )
         if self._declined:
@@ -115,7 +115,7 @@ class YouTubeRow:
         if self._button is not None:
             self._button.set_enabled(False)
         if self._status is not None:
-            self._status.set_text(formatting.YOUTUBE_DECLINED)
+            self._status.set_text(i18n.t("youtube.declined"))
             self._status.set_visibility(True)
 
     def handle_submit(self) -> None:
@@ -162,16 +162,16 @@ class YouTubeRow:
         dialog = ui.dialog()
         self._dialog = dialog
         with dialog, ui.card().classes("sf-card sf-consent").mark("youtube-consent"):
-            ui.label(formatting.YOUTUBE_CONSENT_TITLE).classes("sf-title")
-            ui.label(formatting.YOUTUBE_CONSENT_BODY).classes("sf-lede")
+            ui.label(i18n.t("page.youtube_modal_title")).classes("sf-title")
+            ui.label(i18n.t("youtube.consent_body")).classes("sf-lede")
             with ui.row().classes("w-full justify-end gap-2"):
                 (
-                    ui.button(formatting.YOUTUBE_CONSENT_CANCEL, on_click=self._decline, color=None)
+                    ui.button(i18n.t("common.cancel"), on_click=self._decline, color=None)
                     .props("flat no-caps")
                     .mark("youtube-consent-cancel")
                 )
                 (
-                    ui.button(formatting.YOUTUBE_CONSENT_ACCEPT, on_click=self._accept)
+                    ui.button(i18n.t("youtube.accept"), on_click=self._accept)
                     .props("unelevated no-caps")
                     .mark("youtube-consent-accept")
                 )

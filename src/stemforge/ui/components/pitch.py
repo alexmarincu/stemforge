@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from nicegui import ui
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.domain.models import RenderScope, Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.shell import PathOpener
@@ -81,13 +81,13 @@ class PitchCard:
         scope = self._current_scope(track)
         existing = self._service.pitch_set(track, semitones, scope) if semitones != 0 else None
         with ui.element("section").classes("sf-card").mark("pitch-card"):
-            ui.label(formatting.PITCH_TITLE).classes("sf-card-title")
+            ui.label(i18n.t("pitch.title")).classes("sf-card-title")
             self._stepper(track, semitones)
             self._status(track, semitones, active_key, existing)
             with ui.element("div").classes("sf-actions"):
                 self._primary(track, semitones, active_key, existing, busy)
             self._error(track, busy)
-            ui.label(formatting.PITCH_TEMPO_NOTE).classes("sf-fineprint")
+            ui.label(i18n.t("pitch.tempo_note")).classes("sf-fineprint")
 
     # -- pieces -------------------------------------------------------------
 
@@ -108,7 +108,7 @@ class PitchCard:
                 ui.label(formatting.format_semitones(semitones)).classes("sf-semi-value").mark(
                     "pitch-semitones"
                 )
-                ui.label(formatting.PITCH_SEMITONES_UNIT).classes("sf-semi-unit")
+                ui.label(i18n.t("pitch.semitones")).classes("sf-semi-unit")
             (
                 ui.button(icon="add", on_click=lambda _=None: self._step(track, 1), color=None)
                 .props("flat dense round")
@@ -124,15 +124,17 @@ class PitchCard:
         active_key: str,
         existing: PitchSet | None,
     ) -> None:
+        label = formatting.label_text(existing.label) if existing is not None else ""
         if semitones == 0:
-            text = formatting.PITCH_NEUTRAL_HINT
+            text = i18n.t("pitch.neutral_hint")
         elif existing is not None and existing.render_key == active_key:
-            text = formatting.PITCH_VIEWING_STATUS.format(label=existing.label)
+            text = i18n.t("pitch.viewing_status", label=label)
         elif existing is not None:
-            text = formatting.PITCH_CACHED_HINT.format(label=existing.label)
+            text = i18n.t("pitch.cached_hint", label=label)
         else:
-            text = formatting.PITCH_NOT_RENDERED.format(
-                label=formatting.format_semitones(semitones)
+            text = i18n.t(
+                "pitch.not_rendered",
+                label=formatting.format_semitones(semitones),
             )
         ui.label(text).classes("sf-pitch-status").mark("pitch-status")
 
@@ -147,7 +149,7 @@ class PitchCard:
         """The action slot: Render is primary-sized; Open is compact navigation."""
         if semitones == 0:
             (
-                ui.button(formatting.PITCH_RENDER)
+                ui.button(i18n.t("pitch.render"))
                 .props("unelevated no-caps")
                 .classes("sf-control sf-control--primary")
                 .mark("pitch-primary", "pitch-render")
@@ -155,12 +157,13 @@ class PitchCard:
             )
             return
         if existing is not None and existing.render_key == active_key:
-            ui.label(formatting.PITCH_VIEWING).classes("sf-fineprint").mark("pitch-passive")
+            ui.label(i18n.t("pitch.viewing")).classes("sf-fineprint").mark("pitch-passive")
             return
         if existing is not None:
+            label = formatting.label_text(existing.label)
             (
                 ui.button(
-                    formatting.PITCH_OPEN_VERSION.format(label=existing.label),
+                    i18n.t("pitch.open_version", label=label),
                     on_click=lambda _=None: self._select(track, existing.render_key),
                     color=None,
                 )
@@ -172,7 +175,7 @@ class PitchCard:
         rendered = formatting.format_semitones(semitones)
         button = (
             ui.button(
-                formatting.PITCH_RENDER_ACTION.format(label=rendered),
+                i18n.t("pitch.render_action", label=rendered),
                 on_click=lambda _=None: self._submit(track, semitones, self._current_scope(track)),
             )
             .props("unelevated no-caps")
@@ -206,7 +209,7 @@ class PitchCard:
             if failure.retryable:
                 retry = (
                     ui.button(
-                        formatting.RETRY,
+                        i18n.t("common.retry"),
                         on_click=lambda _=None: self._retry(track),
                     )
                     .props("unelevated no-caps size=sm")
@@ -219,7 +222,7 @@ class PitchCard:
             }:
                 clear = (
                     ui.button(
-                        formatting.SETTINGS_CACHE_CLEAR,
+                        i18n.t("settings.cache.clear"),
                         on_click=lambda _=None: self._on_clear_cache(),
                         color=None,
                     )

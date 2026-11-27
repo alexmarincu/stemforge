@@ -62,8 +62,8 @@ class _BatchOutcomeRecord:
         self._items = [
             ExportBatchItem(
                 key=target.key,
-                label=target.label,
                 state=ExportBatchItemState.NOT_EXPORTED,
+                label=target.label,
             )
             for target in targets
         ]
@@ -71,9 +71,9 @@ class _BatchOutcomeRecord:
     def record(self, outcome: ExportBatchItemOutcome) -> None:
         item = ExportBatchItem(
             key=outcome.key,
-            label=outcome.label,
             state=outcome.state,
             path=outcome.path,
+            label=outcome.label,
             error_code=outcome.error.code if outcome.error is not None else None,
             error_detail=outcome.error.detail if outcome.error is not None else None,
             error_context=(

@@ -19,6 +19,7 @@ _SESSION_TMP = tempfile.TemporaryDirectory(prefix="stemforge-tests-")
 SESSION_HOME = Path(_SESSION_TMP.name)
 os.environ["STEMFORGE_HOME"] = str(SESSION_HOME)
 
+from stemforge import i18n  # noqa: E402
 from stemforge.platform.paths import AppPaths  # noqa: E402
 
 LAYER_MARKERS = frozenset({"unit", "integration", "ui", "licensing"})
@@ -52,6 +53,18 @@ def _install_network_guard(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(socket.socket, "connect", guard(socket.socket.connect))
     monkeypatch.setattr(socket.socket, "connect_ex", guard(socket.socket.connect_ex))
+
+
+@pytest.fixture(autouse=True)
+def english_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the process translator and the system-locale seam to English.
+
+    A developer whose shell runs in Romanian must see the same suite. Tests that
+    exercise Romanian set their own explicit locale.
+    """
+    for variable in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        monkeypatch.setenv(variable, "en_US.UTF-8")
+    i18n.set_language("en")
 
 
 @pytest.fixture

@@ -15,11 +15,12 @@ from dataclasses import dataclass
 
 from stemforge.domain.cancellation import CancelToken
 from stemforge.domain.models import JobKind
+from stemforge.domain.progress import CodedText, Progress
 
 __all__ = ["CancelToken", "Job", "JobContext", "JobRun", "ProgressUpdate"]
 
 JobRun = Callable[["JobContext"], Mapping[str, str] | None]
-ProgressUpdate = Callable[[float, str | None, str | None], None]
+ProgressUpdate = Callable[[Progress], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,10 +92,23 @@ class JobContext:
         fraction: float,
         *,
         stage: str | None = None,
+        stage_code: str | None = None,
+        stage_context: Mapping[str, object] | None = None,
         detail: str | None = None,
+        detail_code: str | None = None,
+        detail_context: Mapping[str, object] | None = None,
     ) -> None:
-        """Publish a fraction (clamped and kept monotonic by the runner)."""
+        """Publish a fraction with English log text and their stable codes."""
         value = float(fraction)
         if not math.isfinite(value):
             raise ValueError("progress must be finite")
-        self._update(value, stage, detail)
+        stage_text = (
+            None if stage is None else CodedText(stage, code=stage_code, context=stage_context)
+        )
+        if detail is None:
+            detail_text = None
+        elif isinstance(detail, CodedText):
+            detail_text = detail
+        else:
+            detail_text = CodedText(detail, code=detail_code, context=detail_context)
+        self._update(Progress(fraction=value, stage=stage_text, detail=detail_text))

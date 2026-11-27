@@ -10,10 +10,11 @@ from pathlib import Path
 import pytest
 import webview
 
-from stemforge import __main__
+from stemforge import __main__, i18n
 from stemforge.integration.window import MIN_WINDOW_SIZE, WEBKIT_DMABUF_ENV, configure_window
 from stemforge.platform.paths import AppPaths
 from stemforge.platform.preflight import PreflightReport
+from stemforge.settings import SettingsStore
 
 pytestmark = pytest.mark.unit
 
@@ -131,7 +132,9 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     assert captured["reload"] is False
     assert captured["show"] is False
     assert captured["window_size"] == (1280, 820)
-    assert captured["title"] == page.TITLE
+    assert captured["title"] == "StemForge"
+    assert captured["language"] == "en-GB"
+    assert app.config.language == "en-GB"
     assert captured["storage_secret"] == paths.storage_secret()
     assert len(str(captured["storage_secret"])) == 64
     context = captured["context"]
@@ -142,6 +145,66 @@ def test_run_ui_opens_a_native_window_without_reload_or_close_prompt(
     assert context.clipboard is not None
     assert len(startup) == 1
     assert len(shutdown) == 1
+
+
+@pytest.mark.parametrize(
+    ("environment", "expected"),
+    [
+        ({"LC_ALL": "ro_RO.UTF-8"}, "ro"),
+        ({"LC_ALL": "en_US.UTF-8"}, "en"),
+    ],
+)
+def test_startup_resolves_the_system_preference_from_the_host_locale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    environment: dict[str, str],
+    expected: str,
+) -> None:
+    for name in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        monkeypatch.setenv(name, environment.get(name, ""))
+    settings = SettingsStore(AppPaths.for_home(tmp_path / "home").ensure())
+
+    __main__._initialize_language(settings=settings)
+
+    assert i18n.preference() == "system"
+    assert i18n.language() == expected
+
+
+def test_run_ui_uses_the_persisted_language_and_passes_it_to_nicegui(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nicegui import app, ui
+
+    from stemforge.ui import page
+
+    paths = AppPaths.for_home(tmp_path / "home").ensure()
+    settings = SettingsStore(paths)
+    settings.set_language("ro")
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(ui, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(app, "on_startup", lambda callback: None)
+    monkeypatch.setattr(app, "on_shutdown", lambda callback: None)
+    monkeypatch.setattr(page, "configure", lambda context: None)
+
+    assert __main__._run_ui(paths, PreflightReport(checks=()), settings=settings) == 0
+
+    assert i18n.language() == "ro"
+    assert app.config.language == "ro"
+    assert captured["language"] == "ro"
+
+
+def test_the_page_language_attribute_follows_the_framework_language() -> None:
+    from nicegui import Client, app, ui
+
+    from stemforge.ui import page
+
+    # NiceGUI's user simulation clears the global page registry; register this
+    # module's builder again so the assertion does not depend on test order.
+    ui.page("/")(page.index)
+    i18n.set_language("ro", system_locale="ro_RO.UTF-8")
+    app.config.language = i18n.framework_language(i18n.language())
+
+    assert Client.page_routes.pages[page.index].resolve_language() == "ro"
 
 
 def test_native_window_uses_the_ico_icon_on_windows(

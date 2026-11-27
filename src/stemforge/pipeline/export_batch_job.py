@@ -21,12 +21,15 @@ from typing import Final
 
 from stemforge import errors
 from stemforge.artifacts import ArtifactStore, require_free_space
+from stemforge.domain.display import LabelRef
 from stemforge.domain.models import ExportBatchItemState
+from stemforge.domain.progress import STAGE_EXPORT_BATCH_ITEM, Progress
 from stemforge.engines.media import ExportFormat, MediaTool
 from stemforge.errors import JobCancelled, StemForgeError
 from stemforge.jobs.job import JobContext
 from stemforge.pipeline.export_job import (
     ExportTarget,
+    english_target_label,
     resolve_export_target,
     run_export_job,
 )
@@ -49,10 +52,10 @@ class ExportBatchItemOutcome:
     """One item's last known outcome, handed to the outcome recorder."""
 
     key: str
-    label: str
     state: ExportBatchItemState
     path: Path | None = None
     error: StemForgeError | None = None
+    label: LabelRef = field(default_factory=LabelRef)
 
 
 RecordOutcome = Callable[[ExportBatchItemOutcome], None]
@@ -142,13 +145,23 @@ def run_export_batch_job(
         if target.key not in state.durations:
             continue
         cancel.check()
+        detail = english_target_label(target.role, target.semitones)
         item_context = _item_context(
             ctx,
             index=index,
             total=total,
+            detail=detail,
             label=target.label,
         )
-        item_context.progress(0.0, stage=_stage(index, total), detail=target.label)
+        item_context.progress(
+            0.0,
+            stage=_stage(index, total),
+            stage_code=STAGE_EXPORT_BATCH_ITEM,
+            stage_context={"index": index + 1, "total": total},
+            detail=detail,
+            detail_code=target.label.key,
+            detail_context=target.label.context,
+        )
         try:
             result = run_export_job(
                 item_context,
@@ -196,7 +209,11 @@ def run_export_batch_job(
         ctx.progress(
             (index + 1) / total,
             stage=_stage(index, total),
-            detail=target.label,
+            stage_code=STAGE_EXPORT_BATCH_ITEM,
+            stage_context={"index": index + 1, "total": total},
+            detail=english_target_label(target.role, target.semitones),
+            detail_code=target.label.key,
+            detail_context=target.label.context,
         )
 
     if state.failures:
@@ -301,14 +318,22 @@ def _item_context(
     *,
     index: int,
     total: int,
-    label: str,
+    detail: str,
+    label: LabelRef,
 ) -> JobContext:
     """A per-item context that maps the item's progress into the batch's slice."""
 
-    def update(fraction: float, stage: str | None, detail: str | None) -> None:
-        del detail
-        overall = (index + min(1.0, max(0.0, fraction))) / total
-        ctx.progress(overall, stage=_stage(index, total), detail=label)
+    def update(progress: Progress) -> None:
+        overall = (index + min(1.0, max(0.0, progress.fraction))) / total
+        ctx.progress(
+            overall,
+            stage=_stage(index, total),
+            stage_code=STAGE_EXPORT_BATCH_ITEM,
+            stage_context={"index": index + 1, "total": total},
+            detail=detail,
+            detail_code=label.key,
+            detail_context=label.context,
+        )
 
     return JobContext(
         job_id=ctx.job_id,

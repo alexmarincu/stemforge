@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Final
 
 from nicegui import ui
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.application import (
     ExportBatchItem,
     ExportBatchItemState,
@@ -55,10 +55,10 @@ if TYPE_CHECKING:
     from stemforge.application import WorkspaceService
 
 FORMAT_ORDER: Final = (ExportFormat.WAV24, ExportFormat.FLAC24, ExportFormat.MP3_320)
-FORMAT_LABELS: Final[Mapping[ExportFormat, str]] = {
-    ExportFormat.WAV24: formatting.EXPORT_FORMAT_WAV24,
-    ExportFormat.FLAC24: formatting.EXPORT_FORMAT_FLAC24,
-    ExportFormat.MP3_320: formatting.EXPORT_FORMAT_MP3_320,
+FORMAT_KEYS: Final[Mapping[ExportFormat, str]] = {
+    ExportFormat.WAV24: "export.format.wav24",
+    ExportFormat.FLAC24: "export.format.flac24",
+    ExportFormat.MP3_320: "export.format.mp3_320",
 }
 # A computed, deliberately rough
 # per-minute size. The Job's own free-space check is the authoritative estimate.
@@ -69,6 +69,12 @@ _MB_PER_MINUTE: Final[Mapping[ExportFormat, float]] = {
 }
 DEFAULT_FORMAT: Final = ExportFormat.WAV24
 ORIGINAL_TARGET_KEY: Final = "master"
+
+
+def _format_label(fmt: ExportFormat) -> str:
+    """The sheet's display name for one export format."""
+    return i18n.t(FORMAT_KEYS[fmt])
+
 
 JobStarted = Callable[[str, "ExportSpec"], None]
 BatchStarted = Callable[[str, "ExportBatchSpec"], None]
@@ -81,7 +87,6 @@ class ExportSpec:
 
     track_id: str
     target_key: str
-    target_label: str
     fmt: ExportFormat
     destination_dir: Path
     destination_name: str
@@ -284,12 +289,12 @@ class ExportSheet:
         targets = self._service.export_targets(track)
         selected_target = self._selected_target(track, targets)
         with body:
-            ui.label(formatting.EXPORT_TITLE).classes("sf-export-title")
+            ui.label(i18n.t("export.title")).classes("sf-export-title")
             if selected_target is None:
-                ui.label(formatting.EXPORT_NO_TARGETS).classes("sf-lede")
+                ui.label(i18n.t("export.no_targets")).classes("sf-lede")
                 self._footer(busy=busy, can_submit=False)
                 return
-            ui.label(formatting.EXPORT_FORMAT_LABEL).classes("sf-versions-label")
+            ui.label(i18n.t("export.format")).classes("sf-versions-label")
             self._format_rows(track)
             self._summary(track, selected_target)
             self._imported_file_block(track, selected_target, busy=busy)
@@ -302,12 +307,12 @@ class ExportSheet:
             return
         targets = self._batch_targets(track)
         with body:
-            ui.label(formatting.EXPORT_BATCH_TITLE).classes("sf-export-title")
+            ui.label(i18n.t("page.outputs_export_all")).classes("sf-export-title")
             if not targets:
-                ui.label(formatting.EXPORT_NO_TARGETS).classes("sf-lede")
+                ui.label(i18n.t("export.no_targets")).classes("sf-lede")
                 self._footer(busy=busy, can_submit=False)
                 return
-            ui.label(formatting.EXPORT_FORMAT_LABEL).classes("sf-versions-label")
+            ui.label(i18n.t("export.format")).classes("sf-versions-label")
             self._format_rows(track, count=len(targets))
             self._batch_summary(targets, busy=busy)
             self._submit_error_block()
@@ -331,26 +336,26 @@ class ExportSheet:
                 with row:
                     ui.element("span").classes("sf-format-radio")
                     with ui.element("div").classes("sf-format-main"):
-                        ui.label(FORMAT_LABELS[fmt]).classes("sf-format-name")
+                        ui.label(_format_label(fmt)).classes("sf-format-name")
                         ui.label(self._estimate(track, fmt, count=count)).classes("sf-format-size")
                 row.on("click", lambda _=None, item=fmt: self._choose_format(track, item))
 
     def _batch_summary(self, targets: tuple[ExportTarget, ...], *, busy: bool) -> None:
         with ui.element("div").classes("sf-export-summary"):
             with ui.element("div").classes("sf-fact"):
-                ui.label(formatting.EXPORT_SOURCE_LABEL).classes("sf-fact-key")
-                ui.label(", ".join(target.label for target in targets)).classes(
-                    "sf-fact-value"
-                ).mark("export-batch-source")
+                ui.label(i18n.t("export.source")).classes("sf-fact-key")
+                ui.label(
+                    ", ".join(formatting.label_text(target.label) for target in targets)
+                ).classes("sf-fact-value").mark("export-batch-source")
             with ui.element("div").classes("sf-fact"):
-                ui.label(formatting.EXPORT_DESTINATION_LABEL).classes("sf-fact-key")
+                ui.label(i18n.t("export.destination")).classes("sf-fact-key")
                 with ui.element("div").classes("sf-fact-value sf-export-folder"):
                     ui.label(self._batch_destination_label()).classes("sf-export-folder-path").mark(
                         "export-batch-destination"
                     )
                     choose = (
                         ui.button(
-                            formatting.EXPORT_CHOOSE_FOLDER_ACTION,
+                            i18n.t("export.choose_folder_action"),
                             on_click=self._choose_batch_folder,
                             color=None,
                         )
@@ -359,28 +364,30 @@ class ExportSheet:
                     )
                     choose.set_enabled(not busy and not self._saving)
             if self._batch_folder is None:
-                ui.label(formatting.EXPORT_BATCH_FOLDER_REQUIRED).classes("sf-lede").mark(
+                ui.label(i18n.t("export.batch.folder_required")).classes("sf-lede").mark(
                     "export-batch-folder-required"
                 )
 
     def _batch_destination_label(self) -> str:
         if self._batch_folder is None:
-            return formatting.EXPORT_DESTINATION_DEFAULT
+            return i18n.t("export.destination_default")
         return str(self._batch_folder)
 
     def _summary(self, track: Track, target: ExportTarget) -> None:
         fmt = self._formats.get(track.track_id, DEFAULT_FORMAT)
         with ui.element("div").classes("sf-export-summary"):
             with ui.element("div").classes("sf-fact"):
-                ui.label(formatting.EXPORT_SOURCE_LABEL).classes("sf-fact-key")
-                ui.label(target.label).classes("sf-fact-value").mark("export-source-label")
+                ui.label(i18n.t("export.source")).classes("sf-fact-key")
+                ui.label(formatting.label_text(target.label)).classes("sf-fact-value").mark(
+                    "export-source-label"
+                )
             with ui.element("div").classes("sf-fact"):
-                ui.label(formatting.EXPORT_DEFAULT_NAME_LABEL).classes("sf-fact-key")
+                ui.label(i18n.t("export.default_name")).classes("sf-fact-key")
                 ui.label(f"{target.base_name}{fmt.suffix}").classes("sf-fact-value").mark(
                     "export-default-name"
                 )
             with ui.element("div").classes("sf-fact"):
-                ui.label(formatting.EXPORT_DESTINATION_LABEL).classes("sf-fact-key")
+                ui.label(i18n.t("export.destination")).classes("sf-fact-key")
                 ui.label(self._destination_label()).classes("sf-fact-value").mark(
                     "export-destination-hint"
                 )
@@ -399,14 +406,14 @@ class ExportSheet:
         if imported is None:
             return
         with ui.element("div").classes("sf-export-summary").mark("imported-file"):
-            ui.label(formatting.IMPORTED_FILE_LABEL).classes("sf-versions-label")
+            ui.label(i18n.t("export.imported_file")).classes("sf-versions-label")
             ui.label(formatting.imported_file_meta(imported.suffix, imported.size_bytes)).classes(
                 "sf-fact"
             ).mark("imported-file-meta")
-            ui.label(formatting.IMPORTED_FILE_UNCHANGED).classes("sf-fact")
+            ui.label(i18n.t("export.imported_file_unchanged")).classes("sf-fact")
             save = (
                 ui.button(
-                    formatting.SAVE_ORIGINAL_ACTION,
+                    i18n.t("export.save_original_action"),
                     on_click=self._confirm_save_original,
                     color=None,
                 )
@@ -441,18 +448,21 @@ class ExportSheet:
         *,
         busy: bool,
         can_submit: bool,
-        confirm: str = formatting.EXPORT_CONFIRM,
+        confirm: str | None = None,
         on_confirm: Callable[[], object] | None = None,
     ) -> None:
         with ui.element("div").classes("sf-export-footer"):
             cancel = (
-                ui.button(formatting.CANCEL, on_click=lambda _=None: self.close(), color=None)
+                ui.button(i18n.t("common.cancel"), on_click=lambda _=None: self.close(), color=None)
                 .props("flat no-caps size=sm")
                 .mark("export-cancel")
             )
             cancel.set_enabled(not busy)
             confirm_button = (
-                ui.button(confirm, on_click=on_confirm or self._confirm)
+                ui.button(
+                    confirm if confirm is not None else i18n.t("common.export"),
+                    on_click=on_confirm or self._confirm,
+                )
                 .props("unelevated no-caps size=sm")
                 .classes("sf-export-confirm")
                 .mark("export-confirm")
@@ -474,7 +484,7 @@ class ExportSheet:
     def _estimate(track: Track, fmt: ExportFormat, *, count: int = 1) -> str:
         minutes = max(0.0, track.duration_s or 0.0) / 60
         size = minutes * _MB_PER_MINUTE[fmt] * max(1, count)
-        return formatting.EXPORT_ESTIMATE.format(size=f"{size:.1f}")
+        return i18n.t("export.estimate", size=f"{size:.1f}")
 
     def _batch_targets(self, track: Track) -> tuple[ExportTarget, ...]:
         return self._service.export_batch_targets(
@@ -512,9 +522,10 @@ class ExportSheet:
             # persistent sheet body instead of the deleted click context.
             with body:
                 toast(
-                    formatting.EXPORT_EXTENSION_CHANGED.format(
+                    i18n.t(
+                        "export.extension_changed",
                         suffix=fmt.suffix,
-                        label=FORMAT_LABELS[fmt],
+                        label=_format_label(fmt),
                     ),
                     type="info",
                 )
@@ -558,7 +569,8 @@ class ExportSheet:
         if selection.corrected and body is not None:
             with body:
                 toast(
-                    formatting.SAVE_ORIGINAL_EXTENSION_CHANGED.format(
+                    i18n.t(
+                        "page.save_original_extension_changed",
                         suffix=imported.suffix,
                     ),
                     type="info",
@@ -649,7 +661,6 @@ class ExportSheet:
         return ExportSpec(
             track_id=track.track_id,
             target_key=target.key,
-            target_label=target.label,
             fmt=fmt,
             destination_dir=selection.path.parent,
             destination_name=selection.path.name,
@@ -663,7 +674,7 @@ class ExportSheet:
 
     def _destination_label(self) -> str:
         preferred = self._default_directory()
-        return str(preferred) if preferred is not None else formatting.EXPORT_DESTINATION_DEFAULT
+        return str(preferred) if preferred is not None else i18n.t("export.destination_default")
 
 
 class ExportStatusBar:
@@ -699,19 +710,20 @@ class ExportStatusBar:
         with ui.element("div").classes("sf-exportbar is-success").mark("export-success"):
             ui.icon("check", size="sm").classes("sf-exportbar-icon")
             with ui.element("div").classes("sf-exportbar-main"):
-                ui.label(formatting.EXPORTED_TO.format(path=notice.path)).classes(
+                ui.label(i18n.t("page.exported_to", path=notice.path)).classes(
                     "sf-exportbar-title"
                 ).mark("export-destination")
                 if notice.spec.corrected:
                     ui.label(
-                        formatting.EXPORT_EXTENSION_CHANGED.format(
+                        i18n.t(
+                            "export.extension_changed",
                             suffix=notice.spec.fmt.suffix,
-                            label=FORMAT_LABELS[notice.spec.fmt],
+                            label=_format_label(notice.spec.fmt),
                         )
                     ).classes("sf-exportbar-detail").mark("export-correction")
             (
                 ui.button(
-                    formatting.EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None
+                    i18n.t("common.dismiss"), on_click=lambda _=None: on_dismiss(), color=None
                 )
                 .props("flat dense no-caps size=sm")
                 .mark("export-dismiss")
@@ -753,7 +765,7 @@ class ExportStatusBar:
                 )
             if failure.retryable:
                 retry = (
-                    ui.button(formatting.RETRY, on_click=lambda _=None: on_retry())
+                    ui.button(i18n.t("common.retry"), on_click=lambda _=None: on_retry())
                     .props("unelevated dense no-caps size=sm")
                     .mark("export-retry")
                 )
@@ -764,7 +776,7 @@ class ExportStatusBar:
             }:
                 choose = (
                     ui.button(
-                        formatting.EXPORT_CHOOSE_FOLDER,
+                        i18n.t("export.choose_folder"),
                         on_click=lambda _=None: on_choose_folder(),
                         color=None,
                     )
@@ -774,7 +786,7 @@ class ExportStatusBar:
                 choose.set_enabled(not busy)
             (
                 ui.button(
-                    formatting.EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None
+                    i18n.t("common.dismiss"), on_click=lambda _=None: on_dismiss(), color=None
                 )
                 .props("flat dense no-caps size=sm")
                 .mark("export-dismiss")
@@ -819,18 +831,19 @@ class SaveOriginalStatusBar:
         with ui.element("div").classes("sf-exportbar is-success").mark("save-original-success"):
             ui.icon("check", size="sm").classes("sf-exportbar-icon")
             with ui.element("div").classes("sf-exportbar-main"):
-                ui.label(formatting.SAVE_ORIGINAL_SAVED_TO.format(path=notice.path)).classes(
+                ui.label(i18n.t("page.save_original_saved_to", path=notice.path)).classes(
                     "sf-exportbar-title"
                 ).mark("save-original-destination")
                 if notice.spec.corrected:
                     ui.label(
-                        formatting.SAVE_ORIGINAL_EXTENSION_CHANGED.format(
+                        i18n.t(
+                            "page.save_original_extension_changed",
                             suffix=notice.spec.suffix,
                         )
                     ).classes("sf-exportbar-detail").mark("save-original-correction")
             (
                 ui.button(
-                    formatting.EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None
+                    i18n.t("common.dismiss"), on_click=lambda _=None: on_dismiss(), color=None
                 )
                 .props("flat dense no-caps size=sm")
                 .mark("save-original-dismiss")
@@ -872,7 +885,7 @@ class SaveOriginalStatusBar:
                 )
             if failure.retryable:
                 retry = (
-                    ui.button(formatting.RETRY, on_click=lambda _=None: on_retry())
+                    ui.button(i18n.t("common.retry"), on_click=lambda _=None: on_retry())
                     .props("unelevated dense no-caps size=sm")
                     .mark("save-original-retry")
                 )
@@ -880,7 +893,7 @@ class SaveOriginalStatusBar:
             if code in {errors.EXPORT_WRITE_FAILED, errors.STORAGE_DISK_FULL}:
                 choose = (
                     ui.button(
-                        formatting.SAVE_ORIGINAL_CHOOSE_LOCATION,
+                        i18n.t("export.choose_location"),
                         on_click=lambda _=None: on_choose_location(),
                         color=None,
                     )
@@ -890,7 +903,7 @@ class SaveOriginalStatusBar:
                 choose.set_enabled(not busy)
             (
                 ui.button(
-                    formatting.EXPORT_DISMISS, on_click=lambda _=None: on_dismiss(), color=None
+                    i18n.t("common.dismiss"), on_click=lambda _=None: on_dismiss(), color=None
                 )
                 .props("flat dense no-caps size=sm")
                 .mark("save-original-dismiss")
@@ -946,7 +959,7 @@ class ExportBatchStatusBar:
                 if notice.aborted:
                     choose = (
                         ui.button(
-                            formatting.EXPORT_CHOOSE_FOLDER,
+                            i18n.t("export.choose_folder"),
                             on_click=on_choose_folder,
                             color=None,
                         )
@@ -967,13 +980,13 @@ class ExportBatchStatusBar:
                     remaining.set_enabled(not busy)
                 elif result.retry_keys:
                     retry = (
-                        ui.button(formatting.RETRY, on_click=on_retry)
+                        ui.button(i18n.t("common.retry"), on_click=on_retry)
                         .props("unelevated dense no-caps size=sm")
                         .mark("export-batch-retry")
                     )
                     retry.set_enabled(not busy)
                 (
-                    ui.button(formatting.EXPORT_DISMISS, on_click=on_dismiss, color=None)
+                    ui.button(i18n.t("common.dismiss"), on_click=on_dismiss, color=None)
                     .props("flat dense no-caps size=sm")
                     .mark("export-batch-dismiss")
                 )
@@ -1013,9 +1026,9 @@ class ExportBatchStatusBar:
                 detail = f"{copy.headline} {copy.action}"
             else:
                 ui.icon("remove", size="xs").classes("sf-exportbar-item-icon")
-                detail = formatting.EXPORT_NOT_EXPORTED
+                detail = i18n.t("export.not_exported")
             with ui.element("div").classes("sf-exportbar-item-main"):
-                ui.label(item.label).classes("sf-exportbar-item-label")
+                ui.label(formatting.label_text(item.label)).classes("sf-exportbar-item-label")
                 ui.label(detail).classes("sf-exportbar-item-detail")
                 if item.state is ExportBatchItemState.FAILED:
                     ui.label(item.error_code or errors.INTERNAL_UNEXPECTED).classes(

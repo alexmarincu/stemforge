@@ -23,9 +23,16 @@ import pytest
 from nicegui.testing.user_simulation import user_simulation
 
 from stemforge import errors
-from stemforge.application import ServiceEngines, WorkspaceService
+from stemforge.application import (
+    ExportBatchItem,
+    ExportBatchItemState,
+    ExportBatchResult,
+    ServiceEngines,
+    WorkspaceService,
+)
 from stemforge.artifacts import ArtifactStore
 from stemforge.domain.cancellation import CancelToken
+from stemforge.domain.display import LabelRef
 from stemforge.engines.media import (
     CanonicalMetadata,
     DecodeResult,
@@ -44,6 +51,11 @@ from stemforge.pipeline import save_original_job
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
 from stemforge.ui import page
+from stemforge.ui.components.export import (
+    ExportBatchNotice,
+    ExportBatchSpec,
+    ExportBatchStatusBar,
+)
 
 pytestmark = pytest.mark.ui
 
@@ -1456,3 +1468,53 @@ async def test_a_full_destination_refuses_the_batch_before_any_file(
         assert _only(user, "export-batch-headline").text == ("0 of 5 files exported; 5 remaining")
         assert _enabled(user, "export-batch-choose-folder") is True
         assert _enabled(user, "export-batch-remaining") is True
+
+
+async def test_batch_items_render_their_label_key(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "exports"
+    item = ExportBatchItem(
+        key="stem:vocals",
+        state=ExportBatchItemState.WRITTEN,
+        path=destination / "Song - Vocals.wav",
+        label=LabelRef(key="role.vocals"),
+    )
+    result = ExportBatchResult(
+        track_id="track",
+        source_id="source",
+        version_key="original",
+        format=ExportFormat.WAV24,
+        destination_dir=destination,
+        items=(item,),
+    )
+    notice = ExportBatchNotice(
+        ExportBatchSpec(
+            track_id="track",
+            source_id="source",
+            version_key="original",
+            fmt=ExportFormat.WAV24,
+            destination_dir=destination,
+            target_keys=("stem:vocals",),
+        ),
+        result,
+    )
+
+    def root() -> None:
+        ExportBatchStatusBar().build(
+            notice,
+            busy=False,
+            on_retry=lambda: None,
+            on_remaining=lambda: None,
+            on_choose_folder=lambda: None,
+            on_dismiss=lambda: None,
+        )
+
+    simulation = user_simulation(root=root)
+    user = await simulation.__aenter__()
+    try:
+        await user.open("/")
+        await user.should_see("Vocals")
+        await user.should_not_see("Frozen at submission")
+    finally:
+        await simulation.__aexit__(None, None, None)

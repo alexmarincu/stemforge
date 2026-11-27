@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from stemforge import i18n
 from stemforge.artifacts import ArtifactStore
 from stemforge.models import ModelStore
 from stemforge.platform import preflight
@@ -93,6 +94,8 @@ class DiagnosticsFacts:
     cache_cap_setting: str
     export_dir: str
     first_run: bool
+    interface_language: str
+    language_source: str
     model: ModelFact
     jobs: tuple[JobFact, ...]
     app_log_lines: tuple[str, ...]
@@ -118,6 +121,7 @@ def render_diagnostics(facts: DiagnosticsFacts) -> str:
         f"Settings: youtube_enabled={facts.youtube_enabled} · "
         f"cache_cap={facts.cache_cap_setting} · export_dir={facts.export_dir} · "
         f"first_run={facts.first_run}",
+        f"Language: {facts.interface_language} ({facts.language_source})",
         f"Model: {'installed' if facts.model.installed else 'absent'} · "
         f"revision {facts.model.revision} · "
         f"sha256 {'verified' if facts.model.sha256_verified else 'not verified'} · "
@@ -149,9 +153,12 @@ def collect_diagnostics(
     job_id: str | None = None,
     app_log_path: Path | None = None,
     now: datetime | None = None,
+    translator: i18n.Translator | None = None,
 ) -> str:
     """Read the normal app seams and render the report.
 
+    ``translator`` defaults to a fresh one so the reported Interface language is
+    the one the catalogue actually resolves, including a damaged-catalogue fallback.
     Every optional read is best-effort: a fatal storage failure still has to
     produce a copyable report, so an unreadable cache or model store degrades to
     zero/absent rather than raising.
@@ -175,6 +182,10 @@ def collect_diagnostics(
     job_log_path = _job_log_path(job_facts, jobs, job_id)
     ram = _total_ram_bytes()
     disk_free = _disk_free(paths)
+    active_language = i18n.Translator() if translator is None else translator
+    effective_language = active_language.set_language(
+        values.language, system_locale=i18n.system_locale()
+    )
 
     facts = DiagnosticsFacts(
         version=_version(),
@@ -206,6 +217,8 @@ def collect_diagnostics(
         cache_cap_setting=_format_bytes(values.cache_cap_bytes),
         export_dir=str(values.export_dir) if values.export_dir is not None else "-",
         first_run=values.first_run,
+        interface_language=effective_language,
+        language_source="system" if values.language == i18n.SYSTEM_PREFERENCE else "override",
         model=model_fact,
         jobs=job_facts,
         app_log_lines=read_last_lines(

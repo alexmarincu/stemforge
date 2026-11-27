@@ -3,8 +3,8 @@
 ``StemForgeError`` is the single error type the UI sees, and a finished Job's
 snapshot carries the same failure fields. ``JobFailure`` is the view both
 become: the shared six fields plus the request-specific data each feature keeps
-beside it. The copy table stays in ``ui/formatting.py``; this module only
-carries data.
+beside it. Error copy resolves through the locale catalogue via
+``ui/formatting.py``; this module only carries data.
 """
 
 from __future__ import annotations

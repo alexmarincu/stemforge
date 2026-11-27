@@ -24,6 +24,9 @@ SRC = ROOT / "src" / "stemforge"
 datas = [
     (str(SRC / "assets"), "assets"),
     (str(SRC / "models" / "models.lock.json"), "models"),
+    # Catalogs load relative to stemforge/i18n/__init__.py, which PyInstaller
+    # keeps at that path under _internal/.
+    (str(SRC / "i18n" / "catalogs"), "stemforge/i18n/catalogs"),
     # The frozen preflight verifies vendor/ against this lock.
     (str(ROOT / "packaging" / "vendor.lock.json"), "."),
     *collect_data_files("nicegui"),

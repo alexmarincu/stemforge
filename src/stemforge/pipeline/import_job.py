@@ -27,6 +27,13 @@ from stemforge.artifacts import (
     require_free_space,
 )
 from stemforge.domain.models import OriginKind, Source, SourceMetadata, Track
+from stemforge.domain.progress import (
+    DETAIL_IMPORT_NATIVE_FILE,
+    STAGE_IMPORT_DECODING,
+    STAGE_IMPORT_PROBING,
+    STAGE_IMPORT_READING_METADATA,
+    STAGE_IMPORT_SAVING,
+)
 from stemforge.engines.media import MAX_DURATION_S, CanonicalMetadata, MediaTool
 from stemforge.errors import StemForgeError
 from stemforge.jobs.job import JobContext
@@ -77,7 +84,7 @@ def run_local_import(
     source_path = Path(path).expanduser().absolute()
     staging: Path | None = None
     try:
-        ctx.progress(0.0, stage=STAGE_PROBING)
+        ctx.progress(0.0, stage=STAGE_PROBING, stage_code=STAGE_IMPORT_PROBING)
         ctx.cancel.check()
         native_bytes = _require_readable(source_path)
         source_id = _blake2b_file(source_path)
@@ -92,15 +99,22 @@ def run_local_import(
             )
         estimate = _check_free_space(artifacts, info.duration_s, native_bytes)
         ctx.cancel.check()
-        ctx.progress(0.05, stage=STAGE_PROBING, detail=source_path.name)
+        ctx.progress(
+            0.05,
+            stage=STAGE_PROBING,
+            stage_code=STAGE_IMPORT_PROBING,
+            detail=source_path.name,
+            detail_code=DETAIL_IMPORT_NATIVE_FILE,
+            detail_context={"name": source_path.name},
+        )
 
         cached = artifacts.find_source(source_id)
         if cached is not None:
             artifacts.touch_source(source_id)
             source = _source_from_artifact(cached, source_path, source_id)
-            ctx.progress(0.9, stage=STAGE_SAVING)
+            ctx.progress(0.9, stage=STAGE_SAVING, stage_code=STAGE_IMPORT_SAVING)
             track = finalize(source)
-            ctx.progress(1.0, stage=STAGE_SAVING)
+            ctx.progress(1.0, stage=STAGE_SAVING, stage_code=STAGE_IMPORT_SAVING)
             return ImportResult(source=source, track=track, artifact=cached, cached=True)
 
         # The Job reserves its output estimate before it writes.
@@ -108,7 +122,7 @@ def run_local_import(
         staging = artifacts.stage(ctx.job_id)
         native_path = staging / _native_name(source_path)
         _copy_native(source_path, native_path)
-        ctx.progress(0.1, stage=STAGE_DECODING)
+        ctx.progress(0.1, stage=STAGE_DECODING, stage_code=STAGE_IMPORT_DECODING)
         ctx.cancel.check()
 
         decoded = media.decode_canonical(
@@ -118,15 +132,19 @@ def run_local_import(
             log=ctx.log,
         )
         ctx.cancel.check()
-        ctx.progress(0.65, stage=STAGE_DECODING)
-        ctx.progress(0.7, stage=STAGE_READING_METADATA)
+        ctx.progress(0.65, stage=STAGE_DECODING, stage_code=STAGE_IMPORT_DECODING)
+        ctx.progress(
+            0.7,
+            stage=STAGE_READING_METADATA,
+            stage_code=STAGE_IMPORT_READING_METADATA,
+        )
 
         metadata = media.extract_metadata(source_path)
         cover = media.extract_cover(source_path, staging)
         peak_dbfs = media.peak_dbfs(decoded.path, cancel=ctx.cancel, log=ctx.log)
         gain_db = 0.0 if peak_dbfs <= 0.0 else -1.0 - peak_dbfs
         ctx.cancel.check()
-        ctx.progress(0.85, stage=STAGE_SAVING)
+        ctx.progress(0.85, stage=STAGE_SAVING, stage_code=STAGE_IMPORT_SAVING)
 
         title = metadata.title or source_path.stem
         preview_path = staging / PREVIEW_NAME
@@ -140,7 +158,7 @@ def run_local_import(
             log=ctx.log,
         )
         ctx.cancel.check()
-        ctx.progress(0.9, stage=STAGE_SAVING)
+        ctx.progress(0.9, stage=STAGE_SAVING, stage_code=STAGE_IMPORT_SAVING)
 
         manifest = _source_manifest(
             source_id=source_id,
@@ -162,9 +180,9 @@ def run_local_import(
         staging = None
 
         source = _source_from_artifact(artifact, source_path, source_id, fallback_title=title)
-        ctx.progress(0.95, stage=STAGE_SAVING)
+        ctx.progress(0.95, stage=STAGE_SAVING, stage_code=STAGE_IMPORT_SAVING)
         track = finalize(source)
-        ctx.progress(1.0, stage=STAGE_SAVING)
+        ctx.progress(1.0, stage=STAGE_SAVING, stage_code=STAGE_IMPORT_SAVING)
         return ImportResult(source=source, track=track, artifact=artifact)
     except BaseException:
         if staging is not None:

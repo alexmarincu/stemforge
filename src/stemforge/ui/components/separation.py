@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from nicegui import ui
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.domain.models import Track
 from stemforge.errors import StemForgeError
 from stemforge.integration.shell import PathOpener
@@ -71,10 +71,10 @@ class SeparationCard:
         self._failures: dict[str, JobFailure] = {}
         self._current_track_id: str | None = None
         self._job: JobView | None = None
-        self._job_signature: tuple[str, int, str] | None = None
+        self._job_signature: tuple[str, int, str, str | None] | None = None
         self._last_change_at: float | None = None
         self._stalled = False
-        self._stall_ack: tuple[str, int, str] | None = None
+        self._stall_ack: tuple[str, int, str, str | None] | None = None
         self._download_failure: JobFailure | None = None
 
     # -- composition --------------------------------------------------------
@@ -96,35 +96,35 @@ class SeparationCard:
                 checksum_failure = candidate
                 break
         with ui.element("section").classes("sf-card").mark("separation-card"):
-            ui.label(formatting.SEPARATION_TITLE).classes("sf-card-title")
+            ui.label(i18n.t("separation.title")).classes("sf-card-title")
             gate_visible = not status.installed or model_missing
             if gate_visible:
                 self._gate(busy=busy, checksum_failure=checksum_failure)
             if self._running():
                 self._running_block()
                 if has_stems:
-                    ui.label(formatting.SEPARATION_LAST_SUCCESS).classes("sf-fineprint").mark(
+                    ui.label(i18n.t("separation.last_success")).classes("sf-fineprint").mark(
                         "separation-last-success"
                     )
             elif has_stems:
-                ui.label(formatting.SEPARATION_DONE).classes("sf-separation-status").mark(
+                ui.label(i18n.t("separation.done")).classes("sf-separation-status").mark(
                     "separation-status"
                 )
                 if gate_visible or failure is not None:
-                    ui.label(formatting.SEPARATION_LAST_SUCCESS).classes("sf-fineprint").mark(
+                    ui.label(i18n.t("separation.last_success")).classes("sf-fineprint").mark(
                         "separation-last-success"
                     )
                 if not gate_visible:
                     self._primary(track, busy, again=True)
             elif not gate_visible:
-                ui.label(formatting.SEPARATION_NOT_SEPARATED).classes("sf-separation-status").mark(
+                ui.label(i18n.t("separation.not_separated")).classes("sf-separation-status").mark(
                     "separation-status"
                 )
-                ui.label(formatting.SEPARATION_NOT_SEPARATED_HINT).classes("sf-fineprint")
+                ui.label(i18n.t("separation.not_separated_hint")).classes("sf-fineprint")
                 self._primary(track, busy, again=False)
             self._error(track, busy)
             if not gate_visible and has_stems:
-                ui.label(formatting.SEPARATION_PRIMARY_NOTE).classes("sf-fineprint")
+                ui.label(i18n.t("separation.primary_note")).classes("sf-fineprint")
 
     # -- model gate ---------------------------------------------------------
 
@@ -148,9 +148,9 @@ class SeparationCard:
                 ui.label(copy.title).classes("sf-gate-title")
                 ui.label(copy.summary).classes("sf-gate-summary")
             ui.label(copy.identity).classes("sf-gate-meta").mark("model-identity")
-            ui.label(formatting.MODEL_LICENCE_DETAILS_LABEL).classes("sf-card-title")
+            ui.label(copy.details_label).classes("sf-card-title")
             ui.label(copy.notice).classes("sf-gate-notice").mark("model-licence-notice")
-            ui.label(formatting.SEPARATION_MODEL_CONSENT).classes("sf-fineprint")
+            ui.label(i18n.t("separation.model.consent")).classes("sf-fineprint")
             error_details(
                 code=errors.SEPARATION_MODEL_MISSING,
                 marker="separation-gate-error",
@@ -166,13 +166,20 @@ class SeparationCard:
             elif download:
                 assert self._job is not None
                 percent = round(max(0.0, min(1.0, self._job.progress)) * 100)
-                detail = f" · {self._job.detail}" if self._job.detail else ""
-                ui.label(f"{formatting.SEPARATION_MODEL_DOWNLOADING}{detail} · {percent}%").classes(
-                    "sf-separation-status"
-                ).mark("model-download-progress")
+                detail = formatting.job_detail(self._job)
+                progress = (
+                    i18n.t(
+                        "separation.model.downloading_detail",
+                        detail=detail,
+                        percent=percent,
+                    )
+                    if detail
+                    else i18n.t("separation.model.downloading_progress", percent=percent)
+                )
+                ui.label(progress).classes("sf-separation-status").mark("model-download-progress")
                 (
                     ui.button(
-                        formatting.SEPARATION_CANCEL,
+                        i18n.t("common.cancel"),
                         on_click=lambda _=None: self._on_cancel(),
                         color=None,
                     )
@@ -223,7 +230,7 @@ class SeparationCard:
         )
         retry = (
             ui.button(
-                formatting.SEPARATION_MODEL_RETRY,
+                i18n.t("separation.model.retry"),
                 on_click=lambda _=None: self._download(),
             )
             .props("unelevated no-caps size=sm")
@@ -236,7 +243,7 @@ class SeparationCard:
         }:
             clear = (
                 ui.button(
-                    formatting.SETTINGS_CACHE_CLEAR,
+                    i18n.t("settings.cache.clear"),
                     on_click=lambda _=None: self._on_clear_cache(),
                     color=None,
                 )
@@ -254,18 +261,19 @@ class SeparationCard:
         if self._job is None:  # pragma: no cover - guarded by _running
             return
         percent = round(max(0.0, min(1.0, self._job.progress)) * 100)
-        ui.label(formatting.SEPARATION_RUNNING.format(percent=percent)).classes(
+        ui.label(i18n.t("separation.running", percent=percent)).classes(
             "sf-separation-status"
         ).mark("separation-status")
         ui.linear_progress(value=float(self._job.progress), show_value=False).classes(
             "sf-job-progress"
         ).mark("separation-progress")
-        if self._job.stage:
-            ui.label(self._job.stage).classes("sf-fineprint").mark("separation-stage")
-        ui.label(formatting.SEPARATION_WORKER_NOTE).classes("sf-fineprint")
+        stage = formatting.job_stage(self._job)
+        if stage:
+            ui.label(stage).classes("sf-fineprint").mark("separation-stage")
+        ui.label(i18n.t("separation.worker_note")).classes("sf-fineprint")
         (
             ui.button(
-                formatting.SEPARATION_CANCEL, on_click=lambda _=None: self._on_cancel(), color=None
+                i18n.t("common.cancel"), on_click=lambda _=None: self._on_cancel(), color=None
             )
             .props("flat no-caps size=sm")
             .mark("separation-cancel")
@@ -276,11 +284,11 @@ class SeparationCard:
     def _stall_block(self) -> None:
         seconds = max(1, round(self.stall_seconds))
         with ui.element("div").classes("sf-stall").mark("separation-stall"):
-            ui.label(formatting.SEPARATION_STALL.format(seconds=seconds)).classes("sf-stall-text")
+            ui.label(i18n.t("separation.stall", seconds=seconds)).classes("sf-stall-text")
             with ui.element("div").classes("sf-actions"):
                 (
                     ui.button(
-                        formatting.SEPARATION_KEEP_WAITING,
+                        i18n.t("separation.keep_waiting"),
                         on_click=lambda _=None: self._keep_waiting(),
                         color=None,
                     )
@@ -289,7 +297,7 @@ class SeparationCard:
                 )
                 (
                     ui.button(
-                        formatting.SEPARATION_CANCEL,
+                        i18n.t("common.cancel"),
                         on_click=lambda _=None: self._on_cancel(),
                         color=None,
                     )
@@ -323,7 +331,7 @@ class SeparationCard:
             if failure.retryable:
                 retry = (
                     ui.button(
-                        formatting.RETRY,
+                        i18n.t("common.retry"),
                         on_click=lambda _=None: self._retry(track),
                     )
                     .props("unelevated no-caps size=sm")
@@ -336,7 +344,7 @@ class SeparationCard:
             }:
                 clear = (
                     ui.button(
-                        formatting.SETTINGS_CACHE_CLEAR,
+                        i18n.t("settings.cache.clear"),
                         on_click=lambda _=None: self._on_clear_cache(),
                         color=None,
                     )
@@ -350,7 +358,7 @@ class SeparationCard:
     def _primary(self, track: Track, busy: bool, *, again: bool) -> None:
         button = (
             ui.button(
-                formatting.SEPARATION_AGAIN if again else formatting.SEPARATION_ACTION,
+                i18n.t("separation.again") if again else i18n.t("separation.action"),
                 icon="call_split",
                 on_click=lambda _=None: self._submit(track),
             )
@@ -415,7 +423,7 @@ class SeparationCard:
                 self.build.refresh()
             return
         now = float(self.clock())
-        signature = (job.job_id, round(job.progress * 1000), job.stage)
+        signature = (job.job_id, round(job.progress * 1000), job.stage, job.stage.code)
         changed = (
             self._job is None or self._job.job_id != job.job_id or signature != self._job_signature
         )
