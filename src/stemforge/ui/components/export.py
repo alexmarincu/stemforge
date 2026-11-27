@@ -214,8 +214,14 @@ class ExportSheet:
         if self._dialog is not None:
             return
         self._dialog = ui.dialog()
-        with self._dialog, ui.card().classes("sf-card sf-export-modal").mark("export-sheet"):
+        with (
+            self._dialog,
+            ui.card().classes("sf-card sf-export-modal").mark("export-sheet") as card,
+        ):
             self._body = ui.column().classes("sf-export-body")
+        # A closed dialog keeps its card in the element tree, so tether the
+        # card's visibility to the open state to make ``visible`` mean on screen.
+        self._dialog.bind_value_to(card, "visible")
 
     def open(
         self,

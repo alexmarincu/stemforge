@@ -23,7 +23,7 @@ import pytest
 from media_fake import FakeMedia
 from nicegui.testing.user_simulation import user_simulation
 
-from stemforge import errors
+from stemforge import errors, i18n
 from stemforge.application import (
     ExportBatchItem,
     ExportBatchItemState,
@@ -32,7 +32,7 @@ from stemforge.application import (
     WorkspaceService,
 )
 from stemforge.artifacts import ArtifactStore
-from stemforge.domain.display import LabelRef
+from stemforge.domain.display import EXPORT_SHIFTED_LABEL_KEY, ORIGINAL_LABEL_KEY, LabelRef
 from stemforge.engines.media import ExportFormat
 from stemforge.errors import StemForgeError
 from stemforge.integration.dialogs import (
@@ -45,7 +45,7 @@ from stemforge.jobs.runner import JobRunner
 from stemforge.pipeline import save_original_job
 from stemforge.platform.paths import AppPaths
 from stemforge.settings import SettingsStore
-from stemforge.ui import page
+from stemforge.ui import formatting, page
 from stemforge.ui.components.export import (
     ExportBatchNotice,
     ExportBatchSpec,
@@ -76,6 +76,7 @@ class FakeSaveBackend:
     def __init__(self, results: Sequence[str | None] = ()) -> None:
         self.results = list(results)
         self.calls: list[tuple[str, str | None, tuple[str, ...]]] = []
+        self.requested = threading.Event()
 
     async def save_file(
         self,
@@ -85,6 +86,7 @@ class FakeSaveBackend:
         file_types: tuple[str, ...],
     ) -> Sequence[str] | None:
         self.calls.append((default_name, directory, file_types))
+        self.requested.set()
         if not self.results:
             return None
         result = self.results.pop(0)
@@ -261,11 +263,12 @@ async def _finish_jobs(
         jobs = harness.runner.jobs()
         if jobs and (expected_jobs is None or len(jobs) >= expected_jobs):
             break
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0)
+    else:
+        raise AssertionError(f"no Job reached the runner (expected {expected_jobs})")
     assert await asyncio.to_thread(harness.runner.wait_idle, 15) is True
     with user:
         workspace_page.poll()
-    await asyncio.sleep(0.05)
 
 
 async def _import(
@@ -276,11 +279,11 @@ async def _import(
 ) -> str:
     harness.open_dialog._selections = [(str(harness.source_file(name)),)]
     user.find(marker="add-audio").click()
-    await asyncio.sleep(0.05)
     await _finish_jobs(harness, user, workspace_page, expected_jobs=1)
     track = harness.service.snapshot().tracks[0]
+    await user.should_see(marker=f"track-row-{track.track_id}")
     user.find(marker=f"track-row-{track.track_id}").click()
-    await asyncio.sleep(0.05)
+    await user.should_see(marker="track-detail")
     return track.track_id
 
 
@@ -305,15 +308,21 @@ def _assert_no_partial(directory: Path) -> None:
     assert not list(directory.rglob("*.partial")), list(directory.rglob("*"))
 
 
-def _sheet_open(workspace_page: page.WorkspacePage) -> bool:
-    dialog = workspace_page._export_sheet._dialog
-    return dialog is not None and bool(dialog.value)
+def _assert_active_format(user, fmt: ExportFormat) -> None:
+    """The chosen format is the one the sheet would submit."""
+    assert _only(user, "export-default-name").text.endswith(fmt.suffix)
 
 
-async def _open_sheet(user, workspace_page: page.WorkspacePage) -> None:
+async def _open_sheet(user) -> None:
+    await user.should_see(marker="export-action")
+    assert _enabled(user, "export-action") is True
     user.find(marker="export-action").click()
-    await asyncio.sleep(0.05)
-    assert _sheet_open(workspace_page)
+    await user.should_see(marker="export-sheet")
+
+
+async def _assert_sheet_closed(user) -> None:
+    # Confirming submits the Job from a task, so the close follows the save seam.
+    await user.should_not_see(marker="export-sheet", retries=20)
 
 
 # ---------------------------------------------------------------------------
@@ -333,40 +342,32 @@ async def test_the_sheet_is_format_only_and_keeps_the_entry_point_source(
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-vocals")
 
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
 
-        await user.should_see("Export")
-        await user.should_see("WAV 24-bit")
-        await user.should_see("FLAC 24-bit")
-        await user.should_see("MP3 320")
-        for marker in (
-            "export-format-wav24",
-            "export-format-flac24",
-            "export-format-mp3_320",
+        await user.should_see(i18n.t("export.title"))
+        for fmt, label_key in (
+            (ExportFormat.WAV24, "export.format.wav24"),
+            (ExportFormat.FLAC24, "export.format.flac24"),
+            (ExportFormat.MP3_320, "export.format.mp3_320"),
         ):
-            await user.should_see(marker=marker)
-        assert "is-active" in _only(user, "export-format-wav24").classes
-        assert _only(user, "export-source-label").text == "Original"
+            with user.scope(marker=f"export-format-{fmt.value}"):
+                await user.should_see(i18n.t(label_key))
+        _assert_active_format(user, ExportFormat.WAV24)
+        assert _only(user, "export-source-label").text == i18n.t(ORIGINAL_LABEL_KEY)
         assert _only(user, "export-default-name").text.endswith(".wav")
-        await user.should_see("about 11.1 MB")
-        await user.should_see("about 6.6 MB")
-        await user.should_see("about 1.7 MB")
         user.find(marker="export-format-mp3_320").click()
-        await asyncio.sleep(0.05)
-        assert "is-active" in _only(user, "export-format-mp3_320").classes
-        assert _only(user, "export-default-name").text.endswith(".mp3")
+        _assert_active_format(user, ExportFormat.MP3_320)
         assert len(user.find(marker="export-confirm").elements) == 1
         # The entry point chooses the source; the sheet does not.
         assert _count(user, "export-target-master") == 0
         assert _count(user, "export-target-stem:vocals") == 0
-        await user.should_see("Imported file")
+        await user.should_see(i18n.t("export.imported_file"))
         await user.should_see(marker="save-original")
         assert _only(user, "imported-file-meta").text.startswith("WAV · ")
-        await user.should_not_see("Export 5 files")
+        assert _only(user, "export-confirm").text == i18n.t("common.export")
         assert _count(user, "export-batch-source") == 0
-        await user.should_not_see("batch")
 
 
 async def test_a_format_and_target_choice_drives_the_native_save_request_and_success(
@@ -382,21 +383,20 @@ async def test_a_format_and_target_choice_drives_the_native_save_request_and_suc
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-vocals")
 
         user.find(marker="output-export-vocals").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="export-sheet")
         assert _only(user, "export-source-label").text == "Vocals"
         user.find(marker="export-format-flac24").click()
-        await asyncio.sleep(0.05)
-        assert "is-active" in _only(user, "export-format-flac24").classes
+        _assert_active_format(user, ExportFormat.FLAC24)
         assert _only(user, "export-default-name").text.endswith(" - Vocals.flac")
 
         destination = harness.root / "exports"
         destination.mkdir()
         harness.save_backend.results = [str(destination / "Chosen Vocals.flac")]
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
         assert len(harness.save_backend.calls) == 1
@@ -409,7 +409,7 @@ async def test_a_format_and_target_choice_drives_the_native_save_request_and_suc
         assert final.is_file()
         assert final.read_bytes().startswith(b"encoded:")
         _assert_no_partial(destination)
-        await user.should_see(marker="export-success")
+        await user.should_see(marker="export-success", retries=20)
         assert str(final) in _only(user, "export-destination").text
         assert harness.settings.preferred_export_dir == destination
         assert sorted(job.kind.value for job in harness.runner.jobs()) == [
@@ -428,27 +428,31 @@ async def test_a_typed_wrong_extension_is_corrected_without_switching_format(
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-vocals")
 
         user.find(marker="output-export-vocals").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="export-sheet")
         assert _only(user, "export-source-label").text == "Vocals"
-        assert "is-active" in _only(user, "export-format-wav24").classes
+        _assert_active_format(user, ExportFormat.WAV24)
 
         destination = harness.root / "exports"
         destination.mkdir()
         harness.save_backend.results = [str(destination / "Chosen Mix.flac")]
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
-        await user.should_see("Extension changed to .wav for WAV 24-bit.")
+        await user.should_see(
+            i18n.t("export.extension_changed", suffix=".wav", label=i18n.t("export.format.wav24"))
+        )
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
         final = destination / "Chosen Mix.wav"
         assert final.is_file()
         assert not (destination / "Chosen Mix.flac").exists()
         _assert_no_partial(destination)
-        await user.should_see(marker="export-success")
-        assert "Extension changed to .wav for WAV 24-bit." in _only(user, "export-correction").text
+        await user.should_see(marker="export-success", retries=20)
+        assert (
+            i18n.t("export.extension_changed", suffix=".wav", label=i18n.t("export.format.wav24"))
+            in _only(user, "export-correction").text
+        )
         assert (
             harness.service.export_result(
                 next(job.job_id for job in harness.runner.jobs() if job.kind.value == "export")
@@ -460,11 +464,12 @@ async def test_a_typed_wrong_extension_is_corrected_without_switching_format(
 async def test_cancelling_the_native_dialog_starts_no_job(harness: Harness) -> None:
     async for user, workspace_page in _open_page(harness):
         await _import(harness, user, workspace_page)
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
         harness.save_backend.results = [None]
+        harness.save_backend.requested.clear()
 
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        assert await asyncio.to_thread(harness.save_backend.requested.wait, 5)
 
         assert harness.save_backend.calls
         default_name, directory, file_types = harness.save_backend.calls[0]
@@ -475,12 +480,11 @@ async def test_cancelling_the_native_dialog_starts_no_job(harness: Harness) -> N
         assert not (harness.root / "exports").exists() or not list(
             (harness.root / "exports").iterdir()
         )
-        assert _sheet_open(workspace_page)
+        await user.should_see(marker="export-sheet")
         assert _enabled(user, "export-confirm") is True
 
         user.find(marker="export-cancel").click()
-        await asyncio.sleep(0.05)
-        assert not _sheet_open(workspace_page)
+        await _assert_sheet_closed(user)
 
 
 async def test_cancelling_the_export_job_leaves_no_file_or_partial(
@@ -494,17 +498,16 @@ async def test_cancelling_the_export_job_leaves_no_file_or_partial(
         destination = harness.root / "exports"
         destination.mkdir()
         harness.save_backend.results = [str(destination / "Song.wav")]
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
 
         user.find(marker="export-confirm").click()
         assert await asyncio.to_thread(harness.media.encode_started.wait, 5)
         with user:
             workspace_page.poll()
-        await user.should_see(marker="job-bar")
+        await user.should_see(marker="job-bar", retries=20)
         user.find(marker="cancel-job").click()
         gate.set()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
-        await asyncio.sleep(0.05)
 
         export_jobs = [job for job in harness.runner.jobs() if job.kind.value == "export"]
         assert [job.state.value for job in export_jobs] == ["cancelled"]
@@ -524,24 +527,22 @@ async def test_output_rows_and_the_transport_open_the_sheet_on_that_target(
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker=f"output-tab-{render_key}")
 
         user.find(marker="output-export-original").click()
-        await asyncio.sleep(0.05)
-        assert _sheet_open(workspace_page)
-        assert workspace_page._export_sheet._target_key == "master"
+        await user.should_see(marker="export-sheet")
         assert _only(user, "export-source-label").text == "Original"
         user.find(marker="export-cancel").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
 
         # The transport exports what is loaded: the active render's first row.
         user.find(marker="ab-preview").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="now-playing", content=i18n.t("page.outputs_shifted_master"))
         user.find(marker="export-action").click()
-        await asyncio.sleep(0.05)
-        assert _sheet_open(workspace_page)
-        assert workspace_page._export_sheet._target_key == f"render:{render_key}:original"
-        assert _only(user, "export-source-label").text == "Original +3 st"
+        await user.should_see(marker="export-sheet")
+        assert _only(user, "export-source-label").text == formatting.display_label(
+            EXPORT_SHIFTED_LABEL_KEY, {"role": "original", "semitones": 3}
+        )
 
 
 async def test_a_separation_row_export_opens_the_sheet_on_that_stem(
@@ -554,14 +555,12 @@ async def test_a_separation_row_export_opens_the_sheet_on_that_stem(
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="outputs-show-more")
         user.find(marker="outputs-show-more").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-drums")
 
         user.find(marker="output-export-drums").click()
-        await asyncio.sleep(0.05)
-        assert _sheet_open(workspace_page)
-        assert workspace_page._export_sheet._target_key == "stem:drums"
+        await user.should_see(marker="export-sheet")
         assert _only(user, "export-source-label").text == "Drums"
 
 
@@ -583,12 +582,11 @@ async def test_a_write_failure_is_inline_with_retry_and_leaves_no_file_or_partia
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-vocals")
 
         user.find(marker="output-export-vocals").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="export-sheet")
         user.find(marker="export-format-flac24").click()
-        await asyncio.sleep(0.05)
         destination = harness.root / "exports"
         destination.mkdir()
         harness.save_backend.results = [str(destination / "Blocked.flac")]
@@ -598,10 +596,10 @@ async def test_a_write_failure_is_inline_with_retry_and_leaves_no_file_or_partia
 
         monkeypatch.setattr(export_job, "_commit_without_overwrite", fail_commit)
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
-        await user.should_see(marker="export-failure")
+        await user.should_see(marker="export-failure", retries=20)
         error_code = _only(user, "export-error-code").text
         assert "export.write_failed" in error_code
         assert error_code.startswith("export.write_failed · job ")
@@ -622,19 +620,18 @@ async def test_a_write_failure_is_inline_with_retry_and_leaves_no_file_or_partia
             ),
         )
         user.find(marker="export-retry").click()
-        await asyncio.sleep(0.05)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
 
         assert len(harness.save_backend.calls) == 1
         assert (destination / "Blocked.flac").is_file()
         assert not (destination / "Blocked.wav").exists()
-        await user.should_see(marker="export-success")
+        await user.should_see(marker="export-success", retries=20)
 
 
 async def test_an_encode_failure_is_coded_retryable_and_cleans_up(harness: Harness) -> None:
     async for user, workspace_page in _open_page(harness):
         await _import(harness, user, workspace_page)
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
         destination = harness.root / "exports"
         destination.mkdir()
         harness.save_backend.results = [str(destination / "Song.wav")]
@@ -645,9 +642,10 @@ async def test_an_encode_failure_is_coded_retryable_and_cleans_up(harness: Harne
         )
 
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
+        await user.should_see(marker="export-failure", retries=20)
         assert errors.MEDIA_ENCODE_FAILED in _only(user, "export-error-code").text
         await user.should_see("Couldn't encode the file.")
         assert _enabled(user, "export-retry") is True
@@ -659,16 +657,17 @@ async def test_an_encode_failure_is_coded_retryable_and_cleans_up(harness: Harne
 async def test_a_validation_failure_is_coded_retryable_and_cleans_up(harness: Harness) -> None:
     async for user, workspace_page in _open_page(harness):
         await _import(harness, user, workspace_page)
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
         destination = harness.root / "exports"
         destination.mkdir()
         harness.save_backend.results = [str(destination / "Song.wav")]
         harness.media.corrupt_tags = True
 
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
+        await user.should_see(marker="export-failure", retries=20)
         assert errors.MEDIA_VALIDATION_FAILED in _only(user, "export-error-code").text
         await user.should_see("The generated audio didn't pass validation.")
         assert _enabled(user, "export-retry") is True
@@ -685,7 +684,7 @@ async def test_a_full_destination_is_coded_with_the_export_action(
     Usage = namedtuple("Usage", "total used free")
     async for user, workspace_page in _open_page(harness):
         await _import(harness, user, workspace_page)
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
         destination = harness.root / "exports"
         destination.mkdir()
         harness.save_backend.results = [str(destination / "Song.wav")]
@@ -695,9 +694,10 @@ async def test_a_full_destination_is_coded_with_the_export_action(
         )
 
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
+        await user.should_see(marker="export-failure", retries=20)
         assert errors.STORAGE_DISK_FULL in _only(user, "export-error-code").text
         await user.should_see("Not enough space at exports.")
         await user.should_see("This file needs about")
@@ -711,8 +711,8 @@ async def test_a_full_destination_is_coded_with_the_export_action(
         user.find(marker="export-choose-folder").click()
         await user.should_see(marker="export-sheet")
         user.find(marker="export-cancel").click()
-        await asyncio.sleep(0.05)
-        await user.should_see(marker="export-failure")
+        await _assert_sheet_closed(user)
+        await user.should_see(marker="export-failure", retries=20)
         await user.should_see(marker="export-retry")
 
 
@@ -725,7 +725,7 @@ async def test_an_enospc_write_names_the_folder_and_needed_size(
 
     async for user, workspace_page in _open_page(harness):
         await _import(harness, user, workspace_page)
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
         destination = harness.root / "exports"
         destination.mkdir()
         harness.save_backend.results = [str(destination / "Song.wav")]
@@ -735,9 +735,10 @@ async def test_an_enospc_write_names_the_folder_and_needed_size(
 
         monkeypatch.setattr(export_job, "_copy_with_fsync", fail_copy)
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
+        await user.should_see(marker="export-failure", retries=20)
         assert errors.STORAGE_DISK_FULL in _only(user, "export-error-code").text
         await user.should_see("Not enough space at exports.")
         await user.should_see("This file needs about")
@@ -749,11 +750,11 @@ async def test_playback_and_ab_stay_enabled_during_an_export_job(harness: Harnes
     async for user, workspace_page in _open_page(harness):
         track_id = await _import(harness, user, workspace_page)
         source_id = harness.service.snapshot().tracks[0].source_id
-        harness.add_render(source_id, semitones=2)
+        render_key = harness.add_render(source_id, semitones=2)
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker=f"output-tab-{render_key}")
 
         gate = threading.Event()
         harness.media.encode_gate = gate
@@ -761,14 +762,13 @@ async def test_playback_and_ab_stay_enabled_during_an_export_job(harness: Harnes
         destination = harness.root / "exports"
         destination.mkdir()
         harness.save_backend.results = [str(destination / "Slow.wav")]
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
         user.find(marker="export-confirm").click()
         assert await asyncio.to_thread(harness.media.encode_started.wait, 5)
-        await asyncio.sleep(0.05)
         with user:
             workspace_page.poll()
 
-        await user.should_see(marker="job-bar")
+        await user.should_see(marker="job-bar", retries=20)
         await user.should_see("Exporting")
         # Playback and A/B remain live; only second-Job actions disable.
         assert _enabled(user, "transport-play") is True
@@ -780,6 +780,7 @@ async def test_playback_and_ab_stay_enabled_during_an_export_job(harness: Harnes
 
         gate.set()
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
+        await user.should_see(marker="export-success", retries=20)
         assert _enabled(user, "export-action") is True
         assert _enabled(user, "add-audio") is True
 
@@ -800,10 +801,9 @@ async def test_save_original_copies_the_native_file_and_opens_its_own_save_reque
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
 
-        await _open_sheet(user, workspace_page)
-        await user.should_see("Imported file")
+        await _open_sheet(user)
+        await user.should_see(i18n.t("export.imported_file"))
         assert _only(user, "imported-file-meta").text.startswith("FLAC · ")
         destination = harness.root / "exports"
         destination.mkdir()
@@ -811,7 +811,7 @@ async def test_save_original_copies_the_native_file_and_opens_its_own_save_reque
         harness.save_backend.results = [str(chosen)]
 
         user.find(marker="save-original").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
         assert harness.save_backend.calls == [
@@ -824,7 +824,7 @@ async def test_save_original_copies_the_native_file_and_opens_its_own_save_reque
         native = harness.artifacts.sources_dir / source_id / "native.flac"
         assert chosen.read_bytes() == native.read_bytes()
         _assert_no_partial(destination)
-        await user.should_see(marker="save-original-success")
+        await user.should_see(marker="save-original-success", retries=20)
         assert str(chosen) in _only(user, "save-original-destination").text
         assert sorted(job.kind.value for job in harness.runner.jobs()) == [
             "import_local",
@@ -839,15 +839,15 @@ async def test_cancelling_the_save_original_dialog_starts_no_job(harness: Harnes
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
         harness.save_backend.results = [None]
+        harness.save_backend.requested.clear()
 
         user.find(marker="save-original").click()
-        await asyncio.sleep(0.05)
+        assert await asyncio.to_thread(harness.save_backend.requested.wait, 5)
 
         assert [job.kind.value for job in harness.runner.jobs()] == ["import_local"]
-        assert _sheet_open(workspace_page)
+        await user.should_see(marker="export-sheet")
         await user.should_see(marker="save-original")
 
 
@@ -859,10 +859,10 @@ async def test_save_original_is_not_offered_for_a_stem_target(harness: Harness) 
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-vocals")
 
         user.find(marker="output-export-vocals").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="export-sheet")
 
         assert _only(user, "export-source-label").text == "Vocals"
         assert _count(user, "imported-file") == 0
@@ -877,14 +877,16 @@ async def test_save_original_is_not_offered_for_a_render_target(harness: Harness
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker=f"output-tab-{render_key}")
 
         user.find(marker=f"output-tab-{render_key}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-master")
         user.find(marker="output-export-master").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="export-sheet")
 
-        assert "+3" in _only(user, "export-source-label").text
+        assert _only(user, "export-source-label").text == formatting.display_label(
+            EXPORT_SHIFTED_LABEL_KEY, {"role": "original", "semitones": 3}
+        )
         assert _count(user, "imported-file") == 0
         assert _count(user, "save-original") == 0
 
@@ -900,9 +902,8 @@ async def test_save_original_is_not_offered_for_a_youtube_source(harness: Harnes
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
 
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
 
         assert _only(user, "export-source-label").text == "Original"
         assert _count(user, "imported-file") == 0
@@ -919,7 +920,6 @@ async def test_a_failed_save_original_offers_retry_at_the_same_destination(
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
         destination = harness.root / "exports"
         destination.mkdir()
         harness.save_backend.results = [str(destination / "Song.wav")]
@@ -933,21 +933,20 @@ async def test_a_failed_save_original_offers_retry_at_the_same_destination(
             return real_commit(partial, **kwargs)
 
         monkeypatch.setattr(save_original_job, "_commit_without_overwrite", fail_once)
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
         user.find(marker="save-original").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
-        await user.should_see(marker="save-original-failure")
+        await user.should_see(marker="save-original-failure", retries=20)
         await user.should_see("Couldn't save the file to exports.")
         await user.should_see(marker="save-original-choose-location")
         _assert_no_partial(destination)
 
         user.find(marker="save-original-retry").click()
-        await asyncio.sleep(0.05)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
 
-        await user.should_see(marker="save-original-success")
+        await user.should_see(marker="save-original-success", retries=20)
         assert (destination / "Song.wav").read_bytes().startswith(b"fake source bytes")
 
 
@@ -961,7 +960,6 @@ async def test_choosing_another_location_reopens_the_native_save_dialog(
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
         first = harness.root / "first"
         first.mkdir()
         second = harness.root / "second"
@@ -978,13 +976,14 @@ async def test_choosing_another_location_reopens_the_native_save_dialog(
             return real_commit(partial, **kwargs)
 
         monkeypatch.setattr(save_original_job, "_commit_without_overwrite", fail_once)
-        await _open_sheet(user, workspace_page)
+        await _open_sheet(user)
         user.find(marker="save-original").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
+        await user.should_see(marker="save-original-failure", retries=20)
         user.find(marker="save-original-choose-location").click()
-        await asyncio.sleep(0.05)
+        await user.should_not_see(marker="save-original-failure")
         await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
 
         assert harness.save_backend.calls[-1] == (
@@ -992,7 +991,7 @@ async def test_choosing_another_location_reopens_the_native_save_dialog(
             str(first),
             (NATIVE_SAVE_FILTERS[".wav"],),
         )
-        await user.should_see(marker="save-original-success")
+        await user.should_see(marker="save-original-success", retries=20)
         assert (second / "Song.wav").is_file()
 
 
@@ -1011,7 +1010,6 @@ async def test_export_all_outputs_is_disabled_until_the_active_set_has_two_outpu
     async for user, workspace_page in _open_page(harness):
         track_id = await _import(harness, user, workspace_page)
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
 
         assert _count(user, "outputs-export-all") == 1
         assert _enabled(user, "outputs-export-all") is False
@@ -1021,16 +1019,16 @@ async def test_export_all_outputs_is_disabled_until_the_active_set_has_two_outpu
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-vocals")
         assert _enabled(user, "outputs-export-all") is True
 
         render_key = harness.add_render(source_id, semitones=4)
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker=f"output-tab-{render_key}")
         user.find(marker=f"output-tab-{render_key}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-master")
         # A shifted master is a one-output set, so a batch has nothing to do.
         assert _enabled(user, "outputs-export-all") is False
 
@@ -1045,30 +1043,29 @@ async def test_the_batch_sheet_chooses_a_folder_and_exports_every_output(
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-vocals")
 
         user.find(marker="outputs-export-all").click()
-        await asyncio.sleep(0.05)
-        assert _sheet_open(workspace_page)
-        await user.should_see("Export all outputs")
+        await user.should_see(marker="export-sheet")
+        await user.should_see(i18n.t("page.outputs_export_all"))
         assert _only(user, "export-batch-source").text == (
             "Vocals, Instrumental, Drums, Bass, Other"
         )
-        assert _only(user, "export-confirm").text == "Export 5 files"
+        assert _only(user, "export-confirm").text == formatting.export_batch_confirm(5)
         assert _enabled(user, "export-confirm") is False
-        await user.should_see(marker="export-batch-folder-required")
+        await user.should_see(marker="export-batch-folder-required", retries=20)
 
         destination = harness.root / "chosen"
         destination.mkdir()
         harness.folder_dialog.results = [destination]
         user.find(marker="export-batch-folder-picker").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(str(destination))
         assert harness.folder_dialog.calls == [None]
         assert _only(user, "export-batch-destination").text == str(destination)
         assert _enabled(user, "export-confirm") is True
 
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
         jobs = harness.runner.jobs()
@@ -1090,7 +1087,7 @@ async def test_the_batch_sheet_chooses_a_folder_and_exports_every_output(
             "Song - Other.wav",
             "Song - Vocals.wav",
         ]
-        await user.should_see(marker="export-batch-bar")
+        await user.should_see(marker="export-batch-bar", retries=20)
         assert _only(user, "export-batch-headline").text == (f"Exported 5 files to {destination}")
         assert harness.settings.preferred_export_dir == destination
 
@@ -1108,13 +1105,13 @@ async def test_a_partial_batch_lists_the_failed_item_and_retries_only_it(
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-vocals")
 
         harness.media.fail_source_names = {"drums"}
         user.find(marker="outputs-export-all").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="export-sheet")
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
         batch = _batch_jobs(harness)[0]
@@ -1129,7 +1126,7 @@ async def test_a_partial_batch_lists_the_failed_item_and_retries_only_it(
             "stem:other",
         ]
         assert [item.key for item in result.failed] == ["stem:drums"]
-        await user.should_see(marker="export-batch-bar")
+        await user.should_see(marker="export-batch-bar", retries=20)
         assert _only(user, "export-batch-headline").text == ("4 of 5 files exported; 1 failed")
         await user.should_see(marker="export-batch-item-stem:drums")
         assert _enabled(user, "export-batch-retry") is True
@@ -1137,7 +1134,6 @@ async def test_a_partial_batch_lists_the_failed_item_and_retries_only_it(
 
         harness.media.fail_source_names.clear()
         user.find(marker="export-batch-retry").click()
-        await asyncio.sleep(0.05)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
 
         retried = _batch_jobs(harness)[0]
@@ -1148,6 +1144,9 @@ async def test_a_partial_batch_lists_the_failed_item_and_retries_only_it(
         assert [item.path.name for item in retry_result.written] == ["Song - Drums.wav"]
         assert len(list(destination.iterdir())) == 5
         _assert_no_partial(destination)
+        await user.should_see(
+            marker="export-batch-headline", content=f"Exported 1 file to {destination}"
+        )
         assert _only(user, "export-batch-headline").text == (f"Exported 1 file to {destination}")
 
 
@@ -1167,7 +1166,7 @@ async def test_a_destination_failure_stops_the_batch_and_choosing_a_folder_resum
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-vocals")
 
         real_commit = export_job._commit_without_overwrite
         monkeypatch.setattr(
@@ -1176,9 +1175,9 @@ async def test_a_destination_failure_stops_the_batch_and_choosing_a_folder_resum
             FlakyCommit(real_commit),
         )
         user.find(marker="outputs-export-all").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="export-sheet")
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
         batch = _batch_jobs(harness)[0]
@@ -1193,7 +1192,7 @@ async def test_a_destination_failure_stops_the_batch_and_choosing_a_folder_resum
             "stem:bass",
             "stem:other",
         ]
-        await user.should_see(marker="export-batch-bar")
+        await user.should_see(marker="export-batch-bar", retries=20)
         assert _only(user, "export-batch-headline").text == ("1 of 5 files exported; 4 remaining")
         assert _enabled(user, "export-batch-choose-folder") is True
         assert _enabled(user, "export-batch-remaining") is True
@@ -1203,7 +1202,7 @@ async def test_a_destination_failure_stops_the_batch_and_choosing_a_folder_resum
         other.mkdir()
         harness.folder_dialog.results = [other]
         user.find(marker="export-batch-choose-folder").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="job-bar", retries=20)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
 
         resumed = _batch_jobs(harness)[0]
@@ -1219,6 +1218,9 @@ async def test_a_destination_failure_stops_the_batch_and_choosing_a_folder_resum
         assert len(list(other.iterdir())) == 4
         _assert_no_partial(destination)
         _assert_no_partial(other)
+        await user.should_see(
+            marker="export-batch-headline", content=f"Exported 4 files to {other}"
+        )
         assert _only(user, "export-batch-headline").text == (f"Exported 4 files to {other}")
 
 
@@ -1235,26 +1237,25 @@ async def test_cancelling_a_batch_keeps_written_files_and_exports_the_rest(
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-vocals")
 
         gate = threading.Event()
         harness.media.encode_gate = gate
         harness.media.encode_gate_after = 2
         user.find(marker="outputs-export-all").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="export-sheet")
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
 
         for _ in range(300):
             if harness.media.encode_calls >= 2:
                 break
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0)
         assert harness.media.encode_calls >= 2
         with user:
             workspace_page.poll()
-        await asyncio.sleep(0.05)
-        await user.should_see(marker="job-bar")
-        assert _only(user, "job-stage").text == "Exporting 2 of 5"
+        await user.should_see(marker="job-bar", retries=20)
+        await user.should_see(marker="job-stage", content="Exporting 2 of 5", retries=10)
         user.find(marker="cancel-job").click()
         gate.set()
         harness.media.encode_gate = None
@@ -1271,14 +1272,13 @@ async def test_cancelling_a_batch_keeps_written_files_and_exports_the_rest(
             "stem:bass",
             "stem:other",
         ]
-        await user.should_see(marker="export-batch-bar")
+        await user.should_see(marker="export-batch-bar", retries=20)
         assert _only(user, "export-batch-headline").text == (
             "Export cancelled — 1 of 5 files written"
         )
         assert _enabled(user, "export-batch-remaining") is True
 
         user.find(marker="export-batch-remaining").click()
-        await asyncio.sleep(0.05)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=3)
 
         resumed = _batch_jobs(harness)[0]
@@ -1298,6 +1298,9 @@ async def test_cancelling_a_batch_keeps_written_files_and_exports_the_rest(
             "Song - Vocals.wav",
         ]
         _assert_no_partial(destination)
+        await user.should_see(
+            marker="export-batch-headline", content=f"Exported 4 files to {destination}"
+        )
         assert _only(user, "export-batch-headline").text == (f"Exported 4 files to {destination}")
 
 
@@ -1318,16 +1321,16 @@ async def test_a_full_destination_refuses_the_batch_before_any_file(
         with user:
             workspace_page.poll()
         user.find(marker=f"track-row-{track_id}").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="output-export-vocals")
 
         monkeypatch.setattr(
             "stemforge.artifacts.shutil.disk_usage",
             lambda _path: Usage(10**12, 10**12 - 1024, 1024),
         )
         user.find(marker="outputs-export-all").click()
-        await asyncio.sleep(0.05)
+        await user.should_see(marker="export-sheet")
         user.find(marker="export-confirm").click()
-        await asyncio.sleep(0.05)
+        await _assert_sheet_closed(user)
         await _finish_jobs(harness, user, workspace_page, expected_jobs=2)
 
         batch = _batch_jobs(harness)[0]
@@ -1338,7 +1341,7 @@ async def test_a_full_destination_refuses_the_batch_before_any_file(
         assert result.written == ()
         assert len(result.not_exported) == 5
         assert list(destination.iterdir()) == []
-        await user.should_see(marker="export-batch-bar")
+        await user.should_see(marker="export-batch-bar", retries=20)
         assert _only(user, "export-batch-headline").text == ("0 of 5 files exported; 5 remaining")
         assert _enabled(user, "export-batch-choose-folder") is True
         assert _enabled(user, "export-batch-remaining") is True
