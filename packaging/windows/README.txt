@@ -49,10 +49,14 @@ Do not disable SmartScreen globally.
 Where your data lives
 ---------------------
 
-    %LOCALAPPDATA%\StemForge\data       models, workspace, webview state
-    %LOCALAPPDATA%\StemForge\cache      previews and temporary files
-    %LOCALAPPDATA%\StemForge\logs       stemforge.log
-    %LOCALAPPDATA%\StemForge\config     settings
+    Root      Windows path                       Contents
+    data      %LOCALAPPDATA%\StemForge           Model weights under models, webview state under webview
+    config    %LOCALAPPDATA%\StemForge           settings
+    cache     %LOCALAPPDATA%\StemForge\Cache     cached Sources and Artifacts, staging, temporary files
+    logs      %LOCALAPPDATA%\StemForge\Logs      stemforge.log and per-Job logs
+
+By default, data and config share one folder; Cache and logs are subfolders of
+it. The Cache is rebuildable.
 
 Set STEMFORGE_HOME to one directory to keep all of it together, for example:
 

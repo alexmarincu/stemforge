@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 import struct
 import sys
 from pathlib import Path
@@ -322,6 +323,33 @@ def test_windows_readme_names_the_data_path_smartscreen_and_webview2() -> None:
     assert "WebView2" in text
     assert "SHA256SUMS" in text
     assert "STEMFORGE_HOME" in text
+
+
+_README_ROOT_NAMES = "data|config|cache|logs"
+_README_ROOT_ROW = re.compile(
+    rf"(?m)^\s+(?P<root>{_README_ROOT_NAMES})\s+"
+    r"(?P<path>%LOCALAPPDATA%\\StemForge(?:\\Cache|\\Logs)?)\s+\S"
+)
+_README_PHANTOM_ROOT = re.compile(rf"%LOCALAPPDATA%\\StemForge\\(?:{_README_ROOT_NAMES})\b")
+
+
+def _readme_data_root_rows(text: str) -> list[tuple[str, str]]:
+    return [(match.group("root"), match.group("path")) for match in _README_ROOT_ROW.finditer(text)]
+
+
+def test_windows_readme_maps_each_data_root_to_its_documented_path() -> None:
+    # Pin the shipped README; test_paths.py owns the platformdirs mapping.
+    text = _text(WINDOWS / "README.txt")
+    rows = _readme_data_root_rows(text)
+
+    assert len(rows) == 4
+    assert dict(rows) == {
+        "data": r"%LOCALAPPDATA%\StemForge",
+        "config": r"%LOCALAPPDATA%\StemForge",
+        "cache": r"%LOCALAPPDATA%\StemForge\Cache",
+        "logs": r"%LOCALAPPDATA%\StemForge\Logs",
+    }
+    assert not _README_PHANTOM_ROOT.search(text)
 
 
 # --- Version resource and SHA256SUMS ---------------------------------------
