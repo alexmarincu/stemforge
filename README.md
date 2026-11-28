@@ -124,7 +124,7 @@ Every release includes a `SHA256SUMS` file to check the downloads against. `<ver
 the version number from the release tag.
 
 > [!NOTE]
-> StemForge is in beta: expect rough edges. `Settings & About` → `Copy diagnostics`
+> StemForge is in beta: expect rough edges. `Settings` → `Support` → `Copy diagnostics`
 > produces a report you can paste into an issue (it contains local file paths, so
 > review it first).
 
@@ -238,7 +238,7 @@ tests exercise torch and Demucs. Bundle and installer builds live in
 StemForge is in beta, so small, focused fixes are the easiest to review. Bug reports
 and feature requests go to [GitHub Issues](https://github.com/alexmarincu/stemforge/issues).
 Include your operating system, the StemForge version, and a diagnostics report
-(`Settings & About` → `Copy diagnostics`).
+(`Settings` → `Support` → `Copy diagnostics`).
 
 Before opening a pull request, run `scripts/check.sh`; it runs everything CI can
 check on one machine.

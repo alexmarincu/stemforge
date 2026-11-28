@@ -57,6 +57,7 @@ definition, the definition wins and this table changes.
 
 | English | Romanian |
 |---|---|
+| About | **Despre** |
 | App | **Aplicație** |
 | Behaviour | **Comportament** |
 | Bundled versions | **Versiuni incluse** |
@@ -91,11 +92,12 @@ definition, the definition wins and this table changes.
 | Remove | **Elimină** |
 | Render | **Randează** |
 | Retry | **Reîncearcă** |
-| Settings & About | **Setări și despre** |
+| Settings | **Setări** |
 | Show all | **Arată tot** |
 | Show less | **Arată mai puțin** |
 | Storage | **Stocare** |
 | Sum | **sumă** |
+| Support | **Asistență** |
 | System | **Sistem** |
 | Third-party notices | **Licențe terțe** |
 | Version | **Versiune** |

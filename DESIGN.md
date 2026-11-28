@@ -26,7 +26,7 @@ reads as primary.
 
 The app is not a marketing site. There is no hero, no gradient, no glass, no playful illustration,
 no oversized display type, and no light theme. The one image in the shell is the Badge, an amber
-disc with four ink bars; it appears in the rail and in Settings & About.
+disc with four ink bars; it appears in the rail and in About.
 
 ![The StemForge Workspace after a Separation: the left rail lists the demo Track and the main pane lists the Original, Vocals, Instrumental, Drums, Bass, and Other outputs.](docs/screenshots/workspace.png)
 
@@ -160,7 +160,7 @@ dependency.
 | Role | Size | Weight | Representative classes | Notes |
 | --- | --- | --- | --- | --- |
 | Empty-state title | 24 px | 650 | `sf-empty-title` | Only the empty state uses this size; tracking is -0.02em |
-| Detail and modal title | 19 px | 650 | `sf-title` | Detail header, Settings, consent, and remove dialogs; tracking is -0.01em |
+| Detail and modal title | 19 px | 650 | `sf-title` | Detail header, Settings and About dialogs, consent, and remove dialogs; tracking is -0.01em |
 | Export sheet title | 18 px | 650 | `sf-export-title` | The sheet's own heading |
 | Numeric display | 20 px | 650 | `sf-semi-value` | Semitone value, mono, line-height 1.15 |
 | Brand name | 15 px | 650 | `sf-brand-name` | Tracking is -0.01em |
@@ -412,9 +412,9 @@ and do not use a modal for a failure that belongs inline.
 **Anatomy.** Toasts are Quasar notifications with the shell's semantic colours, an eight-second
 lifetime, and a close button. Dialogs are a `ui.dialog` with a `ui.card().classes("sf-card ...")`:
 `sf-export-modal` is `min(480px, 94vw)`, `sf-youtube-modal` is `min(560px, 94vw)`, `sf-settings`
-names the Settings & About card, `sf-diagnostics` is `min(720px, 94vw)`, and a remove confirmation
+names the Settings card, `sf-about` names the About card, `sf-diagnostics` is `min(720px, 94vw)`, and a remove confirmation
 is the plain `sf-card` with an `sf-title` and `sf-lede`. A document dialog reuses
-`sf-settings about-document` and shows the text in `pre.sf-licence-text`: mono 11 px, `bg`, a `line`
+`sf-about about-document` and shows the text in `pre.sf-licence-text`: mono 11 px, `bg`, a `line`
 border, an 8 px radius, and a 58vh maximum height. The model gate is inline, not a modal: `sf-gate`
 is a `well` field with a `line2` border, 10 px radius, 6 px gap, and 12 px padding; its title is 13
 px weight 600, its summary 11.5 px, its metadata 10.5 px mono, and its notice 11 px `warn`.
@@ -425,7 +425,7 @@ dialog again. The single-mode Export sheet's Imported file block reuses the summ
 places one flat action at its start; it is secondary to the format choice and the Export button.
 
 **Classes.** `sf-export-modal`, `sf-export-body`, `sf-export-footer`, `sf-export-confirm`,
-`sf-imported-action`; `sf-settings`, `sf-settings-mark`, `sf-licence-text`; `sf-youtube-modal`, `sf-gate`,
+`sf-imported-action`; `sf-settings`, `sf-about`, `sf-about-mark`, `sf-licence-text`; `sf-youtube-modal`, `sf-gate`,
 `sf-gate-title`, `sf-gate-summary`, `sf-gate-meta`, `sf-gate-notice`.
 
 **Do.** Use a dialog for a flow that needs confirmation: Export, YouTube consent, remove, licence
@@ -438,9 +438,10 @@ scrolling inside a dialog.
 
 **Anatomy.** `sf-setting-row` is a flex row with space-between, a 16 px gap, and 8 px vertical
 padding. `sf-setting-main` is a 2 px-gap column: a 12.5 px weight-550 label and a 10 px `dim` value
-or hint. There is no divider; the spacing carries the grouping. Behaviour opens with the Language
-row: a setting row whose action is a dense select offering System, English, and Română in their own
-names. `sf-format-row` is a `well` field
+or hint. There is no divider; the spacing carries the grouping. Settings orders Storage, Behaviour,
+and Support; About holds the app mark, the version rows, and the licence rows. Behaviour opens with
+the Language row: a setting row whose action is a dense select offering System, English, and Română
+in their own names. `sf-format-row` is a `well` field
 with a `line2` border, 9 px radius, 7 px by 10 px padding, and a 10 px gap: a 12 px radio, a
 `sf-format-main` column with a 12.5 px name and a 10.5 px `muted` size estimate. `sf-yt` is a 7
 px-gap column; `sf-yt-row` is a stretch flex row with an 8 px gap, a dense outlined input, and a
